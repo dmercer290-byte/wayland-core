@@ -36,6 +36,22 @@ pub struct KeyPool {
     cooldown: Duration,
 }
 
+/// Split a configured credential string into individual API keys.
+///
+/// Providers accept multiple keys in a single `api_key` value separated by
+/// commas or ASCII whitespace (spaces, tabs, newlines). This splits on either,
+/// trims each token, and drops empties. A single key (the common case) yields a
+/// one-element vector — so a `KeyPool` built from it behaves exactly like the
+/// pre-rotation single-key path. Order is preserved; deduplication is left to
+/// [`KeyPool::with_cooldown`], which already dedupes at construction.
+pub fn split_keys(raw: &str) -> Vec<String> {
+    raw.split(|c: char| c == ',' || c.is_ascii_whitespace())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 impl KeyPool {
     pub fn new(keys: impl IntoIterator<Item = String>) -> Self {
         Self::with_cooldown(keys, Duration::from_secs(60))
@@ -192,5 +208,36 @@ mod tests {
         p.mark_success("nonexistent");
         p.mark_failure("nonexistent");
         assert_eq!(p.next_key(), Some("a"));
+    }
+
+    #[test]
+    fn split_keys_single_key_is_one_element() {
+        // The common case: a lone key yields a one-element pool — identical to
+        // the pre-rotation single-key behavior.
+        assert_eq!(split_keys("sk-abc123"), vec!["sk-abc123".to_string()]);
+    }
+
+    #[test]
+    fn split_keys_splits_on_commas_and_whitespace() {
+        assert_eq!(
+            split_keys("a,b c\td\ne"),
+            vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+                "e".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn split_keys_trims_and_drops_empties() {
+        assert_eq!(
+            split_keys("  a , , b ,, "),
+            vec!["a".to_string(), "b".to_string()]
+        );
+        assert!(split_keys("").is_empty());
+        assert!(split_keys("   ,  , ").is_empty());
     }
 }

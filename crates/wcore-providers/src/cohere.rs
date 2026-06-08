@@ -15,7 +15,7 @@
 //!
 //! v0.8.1 task U10c.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -28,6 +28,7 @@ use wcore_types::message::{
     ContentBlock, FinishReason, Message, Role, StopReason, TokenUsage, ToolUseId,
 };
 
+use crate::key_rotation::{KeyPool, split_keys};
 use crate::registry::{ProviderFactory, ProviderRegistry, RegistryError};
 use crate::retry::builder_send_with_retry;
 use crate::{
@@ -40,7 +41,10 @@ pub const COHERE_DEFAULT_BASE_URL: &str = "https://api.cohere.com/v1";
 /// Cohere provider — native chat surface (own body shape + SSE event types).
 pub struct CohereProvider {
     client: wcore_egress::EgressClient,
-    api_key: String,
+    /// Rotation pool over one-or-more API keys. A single configured key yields
+    /// a one-element pool — behavior identical to the pre-rotation path. Wrapped
+    /// in `Arc<Mutex<…>>` so `&self` request methods can rotate/demote keys.
+    keys: Arc<Mutex<KeyPool>>,
     base_url: String,
     /// Default model used when the request's `model` field is empty. Lets
     /// the registry pin a concrete model (`command-r-plus-08-2024`) while
@@ -54,7 +58,7 @@ impl CohereProvider {
     pub fn new(api_key: &str, base_url: &str, default_model: &str, debug: DebugConfig) -> Self {
         Self {
             client: crate::http_client::build(),
-            api_key: api_key.to_string(),
+            keys: Arc::new(Mutex::new(KeyPool::new(split_keys(api_key)))),
             base_url: base_url.to_string(),
             default_model: default_model.to_string(),
             debug,
@@ -66,9 +70,37 @@ impl CohereProvider {
         Self::new(api_key, COHERE_DEFAULT_BASE_URL, default_model, debug)
     }
 
-    fn build_headers(&self) -> Result<HeaderMap, ProviderError> {
+    /// Select the API key to authenticate the next request. Delegates to
+    /// [`KeyPool::next_key`] (prefers the last-good key, rotates round-robin on
+    /// failure, skips keys in cooldown). Returns [`ProviderError::MissingApiKey`]
+    /// when no key is configured or every key is cooling.
+    fn select_key(&self) -> Result<String, ProviderError> {
+        let mut pool = self.keys.lock().expect("key pool mutex poisoned");
+        pool.next_key()
+            .map(str::to_string)
+            .ok_or(ProviderError::MissingApiKey)
+    }
+
+    /// Promote `key` to last-good after a successful (2xx) response.
+    fn mark_key_success(&self, key: &str) {
+        self.keys
+            .lock()
+            .expect("key pool mutex poisoned")
+            .mark_success(key);
+    }
+
+    /// Demote `key` for the cooldown window after an auth/rate-limit failure
+    /// (401/403/429), so the next request rotates to another key.
+    fn mark_key_failure(&self, key: &str) {
+        self.keys
+            .lock()
+            .expect("key pool mutex poisoned")
+            .mark_failure(key);
+    }
+
+    fn build_headers(&self, key: &str) -> Result<HeaderMap, ProviderError> {
         let mut headers = HeaderMap::new();
-        let bearer = format!("Bearer {}", self.api_key);
+        let bearer = format!("Bearer {}", key);
         let auth = HeaderValue::from_str(&bearer).map_err(|e| {
             ProviderError::Connection(format!("Invalid authorization header: {}", e))
         })?;
@@ -99,10 +131,11 @@ impl LlmProvider for CohereProvider {
         dump_request_body(&self.debug, &body);
         reset_response_dump(&self.debug);
 
+        let key = self.select_key()?;
         let response = builder_send_with_retry(
             self.client
                 .post(&url)
-                .headers(self.build_headers()?)
+                .headers(self.build_headers(&key)?)
                 .json(&body),
         )
         .await?;
@@ -113,6 +146,11 @@ impl LlmProvider for CohereProvider {
         // openai / anthropic / gemini / bedrock.
         let status = response.status();
         if !status.is_success() {
+            // Demote this key on auth / rate-limit failures so the next request
+            // rotates to another key in the pool (no-op for a single key).
+            if matches!(status.as_u16(), 401 | 403 | 429) {
+                self.mark_key_failure(&key);
+            }
             // E-H1 / L3: capture headers before `.text()` consumes the body
             // so a 429 can honour `Retry-After` (header, then nested body).
             let headers = response.headers().clone();
@@ -127,6 +165,9 @@ impl LlmProvider for CohereProvider {
                 message: body_text,
             });
         }
+
+        // 2xx: this key works — make it sticky for subsequent requests.
+        self.mark_key_success(&key);
 
         let (tx, rx) = mpsc::channel(64);
         let debug = self.debug.clone();

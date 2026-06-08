@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::{Value, json};
@@ -7,6 +9,7 @@ use wcore_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 
 use super::anthropic_shared;
 use crate::cache_tier::CacheTier;
+use crate::key_rotation::{KeyPool, split_keys};
 use crate::retry::builder_send_with_retry;
 use crate::{
     LlmProvider, ModelInfo, ProviderError, alias_models, dump_request_body, reset_response_dump,
@@ -14,15 +17,12 @@ use crate::{
 use wcore_config::compat::ProviderCompat;
 use wcore_config::debug::DebugConfig;
 
-/// The resolved request credential. Anthropic console API keys authenticate
-/// via the `x-api-key` header.
-enum Credential {
-    ApiKey(String),
-}
-
 pub struct AnthropicProvider {
     client: wcore_egress::EgressClient,
-    api_key: String,
+    /// Rotation pool over one-or-more API keys. A single configured key yields
+    /// a one-element pool — behavior identical to the pre-rotation path. Wrapped
+    /// in `Arc<Mutex<…>>` so `&self` request methods can rotate/demote keys.
+    keys: Arc<Mutex<KeyPool>>,
     base_url: String,
     cache_enabled: bool,
     compat: ProviderCompat,
@@ -33,7 +33,7 @@ impl AnthropicProvider {
     pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat, debug: DebugConfig) -> Self {
         Self {
             client: crate::http_client::build(),
-            api_key: api_key.to_string(),
+            keys: Arc::new(Mutex::new(KeyPool::new(split_keys(api_key)))),
             base_url: base_url.to_string(),
             cache_enabled: true,
             compat,
@@ -46,31 +46,44 @@ impl AnthropicProvider {
         self
     }
 
-    /// Resolve the credential that authenticates the outgoing request.
-    /// Anthropic ships with API-key (`x-api-key`) auth only: a configured
-    /// API key authenticates the request; when none is set this returns
-    /// [`ProviderError::MissingApiKey`] rather than a blank credential that
-    /// would produce an opaque 401.
-    async fn resolve_credential(&self) -> Result<Credential, ProviderError> {
-        if !self.api_key.is_empty() {
-            return Ok(Credential::ApiKey(self.api_key.clone()));
-        }
-        Err(ProviderError::MissingApiKey)
+    /// Select the API key to authenticate the next request. Delegates to
+    /// [`KeyPool::next_key`] (prefers the last-good key, rotates round-robin on
+    /// failure, skips keys in cooldown). Returns [`ProviderError::MissingApiKey`]
+    /// when no key is configured or every key is cooling — matching the
+    /// pre-rotation behavior of surfacing a clear error rather than a blank
+    /// credential that would produce an opaque 401.
+    fn select_key(&self) -> Result<String, ProviderError> {
+        let mut pool = self.keys.lock().expect("key pool mutex poisoned");
+        pool.next_key()
+            .map(str::to_string)
+            .ok_or(ProviderError::MissingApiKey)
     }
 
-    async fn build_headers(&self) -> Result<HeaderMap, ProviderError> {
-        let mut headers = HeaderMap::new();
-        let credential = self.resolve_credential().await?;
+    /// Promote `key` to last-good after a successful (2xx) response.
+    fn mark_key_success(&self, key: &str) {
+        self.keys
+            .lock()
+            .expect("key pool mutex poisoned")
+            .mark_success(key);
+    }
 
-        match &credential {
-            // Console API key: Anthropic authenticates these via `x-api-key`.
-            Credential::ApiKey(key) => {
-                let value = HeaderValue::from_str(key).map_err(|e| {
-                    ProviderError::Connection(format!("Invalid x-api-key header: {}", e))
-                })?;
-                headers.insert("x-api-key", value);
-            }
-        }
+    /// Demote `key` for the cooldown window after an auth/rate-limit failure
+    /// (401/403/429), so the next request rotates to another key.
+    fn mark_key_failure(&self, key: &str) {
+        self.keys
+            .lock()
+            .expect("key pool mutex poisoned")
+            .mark_failure(key);
+    }
+
+    /// Build request headers authenticating with the supplied `key`. Anthropic
+    /// console API keys authenticate via the `x-api-key` header.
+    fn build_headers(&self, key: &str) -> Result<HeaderMap, ProviderError> {
+        let mut headers = HeaderMap::new();
+        let value = HeaderValue::from_str(key).map_err(|e| {
+            ProviderError::Connection(format!("Invalid x-api-key header: {}", e))
+        })?;
+        headers.insert("x-api-key", value);
 
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -209,16 +222,22 @@ impl LlmProvider for AnthropicProvider {
         dump_request_body(&self.debug, &body);
         reset_response_dump(&self.debug);
 
+        let key = self.select_key()?;
         let response = builder_send_with_retry(
             self.client
                 .post(&url)
-                .headers(self.build_headers().await?)
+                .headers(self.build_headers(&key)?)
                 .json(&body),
         )
         .await?;
 
         let status = response.status();
         if !status.is_success() {
+            // Demote this key on auth / rate-limit failures so the next request
+            // rotates to another key in the pool (no-op for a single key).
+            if matches!(status.as_u16(), 401 | 403 | 429) {
+                self.mark_key_failure(&key);
+            }
             // E-H1 / L3: capture headers before `.text()` consumes the body
             // so a 429 can honour `Retry-After` (header, then nested body).
             let headers = response.headers().clone();
@@ -233,6 +252,9 @@ impl LlmProvider for AnthropicProvider {
                 message: body_text,
             });
         }
+
+        // 2xx: this key works — make it sticky for subsequent requests.
+        self.mark_key_success(&key);
 
         let (tx, rx) = mpsc::channel(64);
         let debug = self.debug.clone();
@@ -255,7 +277,7 @@ impl LlmProvider for AnthropicProvider {
     /// must never hard-fail.
     async fn list_models(&self) -> anyhow::Result<Vec<ModelInfo>> {
         let url = format!("{}/v1/models", self.base_url.trim_end_matches('/'));
-        let headers = match self.build_headers().await {
+        let headers = match self.select_key().and_then(|key| self.build_headers(&key)) {
             Ok(h) => h,
             Err(_) => return Ok(alias_models(self.alias_key())),
         };
@@ -364,17 +386,17 @@ mod tests {
 
     /// A configured API key authenticates the request via the `x-api-key`
     /// header — Anthropic ships with API-key auth only.
-    #[tokio::test]
-    async fn build_headers_sends_api_key_as_x_api_key() {
+    #[test]
+    fn build_headers_sends_api_key_as_x_api_key() {
         let provider = AnthropicProvider::new(
             "explicit-key",
             "https://api.anthropic.com",
             ProviderCompat::anthropic_defaults(),
             DebugConfig::default(),
         );
+        let key = provider.select_key().expect("single key selects");
         let headers = provider
-            .build_headers()
-            .await
+            .build_headers(&key)
             .expect("build_headers must succeed with an api key");
         assert_eq!(
             headers.get("x-api-key").and_then(|v| v.to_str().ok()),
@@ -387,21 +409,66 @@ mod tests {
         );
     }
 
-    /// With NO api key, `build_headers` must fail with `MissingApiKey` rather
+    /// With NO api key, `select_key` must fail with `MissingApiKey` rather
     /// than emit a blank credential producing an opaque 401.
-    #[tokio::test]
-    async fn build_headers_errors_when_no_api_key() {
+    #[test]
+    fn select_key_errors_when_no_api_key() {
         let provider = AnthropicProvider::new(
             "",
             "https://api.anthropic.com",
             ProviderCompat::anthropic_defaults(),
             DebugConfig::default(),
         );
-        let result = provider.build_headers().await;
+        let result = provider.select_key();
         assert!(
             matches!(result, Err(ProviderError::MissingApiKey)),
             "no api key must surface MissingApiKey, got {result:?}"
         );
+    }
+
+    /// Multi-key rotation: after the current key is demoted via
+    /// `mark_key_failure`, `select_key` rotates to a different key; once the
+    /// new key succeeds it becomes sticky. A single configured key is the
+    /// degenerate case and keeps returning that one key.
+    #[test]
+    fn multi_key_rotation_demotes_failing_key_then_succeeds() {
+        let provider = AnthropicProvider::new(
+            "key-a, key-b",
+            "https://api.anthropic.com",
+            ProviderCompat::anthropic_defaults(),
+            DebugConfig::default(),
+        );
+        // First selection picks one of the two keys.
+        let first = provider.select_key().expect("a key is available");
+        assert!(first == "key-a" || first == "key-b");
+
+        // Simulate a 401/403/429 on that key — it must be demoted.
+        provider.mark_key_failure(&first);
+        let second = provider.select_key().expect("rotation finds the other key");
+        assert_ne!(second, first, "failing key must rotate to the other key");
+
+        // The second key succeeds — it becomes sticky for subsequent requests.
+        provider.mark_key_success(&second);
+        assert_eq!(
+            provider.select_key().expect("sticky key"),
+            second,
+            "a succeeded key must stick as last-good"
+        );
+    }
+
+    /// Single-key behavior is unchanged: `select_key` always returns the one
+    /// configured key, even after a marked failure (it is the only option).
+    #[test]
+    fn single_key_behavior_unchanged() {
+        let provider = AnthropicProvider::new(
+            "solo-key",
+            "https://api.anthropic.com",
+            ProviderCompat::anthropic_defaults(),
+            DebugConfig::default(),
+        );
+        assert_eq!(provider.select_key().unwrap(), "solo-key");
+        provider.mark_key_success("solo-key");
+        assert_eq!(provider.select_key().unwrap(), "solo-key");
     }
 
     fn marker_1h() -> Value {

@@ -28,7 +28,7 @@
 // token. This keeps `azure-identity` (or any heavy AAD SDK) out of the wcore
 // dep tree, and lets tests inject a deterministic mock token.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
@@ -38,6 +38,7 @@ use wcore_config::compat::ProviderCompat;
 use wcore_config::debug::DebugConfig;
 use wcore_types::llm::{LlmEvent, LlmRequest};
 
+use crate::key_rotation::{KeyPool, split_keys};
 use crate::openai::{OpenAIProvider, process_sse_stream};
 use crate::registry::{ProviderFactory, ProviderRegistry, RegistryError};
 use crate::retry::builder_send_with_retry;
@@ -64,8 +65,11 @@ pub type AzureTokenSource = Arc<dyn Fn() -> Result<String, ProviderError> + Send
 /// the closure.
 #[derive(Clone)]
 pub enum AzureAuth {
-    /// Static `api-key: {key}` header (the v0.6.3 default).
-    ApiKey(String),
+    /// Static `api-key: {key}` header (the v0.6.3 default). The string may carry
+    /// multiple comma/whitespace-separated keys; they are split into a rotation
+    /// [`KeyPool`] at construction. A single key yields a one-element pool —
+    /// behavior identical to the pre-rotation path.
+    ApiKey(Arc<Mutex<KeyPool>>),
     /// `Authorization: Bearer {token}` header. The token is acquired on each
     /// request via the supplied [`AzureTokenSource`] closure.
     AadBearer(AzureTokenSource),
@@ -114,7 +118,7 @@ impl AzureOpenAIProvider {
         debug: DebugConfig,
     ) -> Self {
         Self::with_auth(
-            AzureAuth::ApiKey(api_key.to_string()),
+            AzureAuth::ApiKey(Arc::new(Mutex::new(KeyPool::new(split_keys(api_key))))),
             resource,
             deployment,
             api_version,
@@ -155,15 +159,12 @@ impl AzureOpenAIProvider {
         debug: DebugConfig,
     ) -> Self {
         // The inner OpenAIProvider is used only for `build_request_body`; its
-        // own base_url is never hit (Azure's `stream()` builds the real URL).
-        // The api_key passed here is never sent on the wire by Azure's path
-        // (we build the Azure auth header ourselves below), so an empty
-        // placeholder is safe for the bearer mode.
-        let inner_key = match &auth {
-            AzureAuth::ApiKey(k) => k.as_str(),
-            AzureAuth::AadBearer(_) => "",
-        };
-        let inner = OpenAIProvider::new(inner_key, "", compat, debug.clone());
+        // own base_url is never hit (Azure's `stream()` builds the real URL)
+        // and its credential is never sent on the wire (Azure builds the
+        // `api-key` / AAD bearer header itself in `build_headers`). An empty
+        // placeholder key is therefore safe for BOTH auth modes — the real
+        // Azure ApiKey rotation lives in the `AzureAuth::ApiKey` pool below.
+        let inner = OpenAIProvider::new("", "", compat, debug.clone());
         Self {
             client: crate::http_client::build(),
             auth,
@@ -184,16 +185,54 @@ impl AzureOpenAIProvider {
         )
     }
 
+    /// Select the API key to authenticate the next request, when in API-key
+    /// mode. Delegates to [`KeyPool::next_key`] (prefers the last-good key,
+    /// rotates round-robin on failure, skips keys in cooldown). Returns
+    /// `Ok(None)` for AAD bearer mode (no static key to rotate), and
+    /// [`ProviderError::MissingApiKey`] when API-key mode is configured but the
+    /// pool is empty or every key is cooling.
+    fn select_key(&self) -> Result<Option<String>, ProviderError> {
+        match &self.auth {
+            AzureAuth::ApiKey(pool) => {
+                let mut pool = pool.lock().expect("key pool mutex poisoned");
+                pool.next_key()
+                    .map(|k| Some(k.to_string()))
+                    .ok_or(ProviderError::MissingApiKey)
+            }
+            AzureAuth::AadBearer(_) => Ok(None),
+        }
+    }
+
+    /// Promote `key` to last-good after a successful (2xx) response. No-op for
+    /// AAD bearer mode.
+    fn mark_key_success(&self, key: &str) {
+        if let AzureAuth::ApiKey(pool) = &self.auth {
+            pool.lock().expect("key pool mutex poisoned").mark_success(key);
+        }
+    }
+
+    /// Demote `key` for the cooldown window after an auth/rate-limit failure
+    /// (401/403/429). No-op for AAD bearer mode.
+    fn mark_key_failure(&self, key: &str) {
+        if let AzureAuth::ApiKey(pool) = &self.auth {
+            pool.lock().expect("key pool mutex poisoned").mark_failure(key);
+        }
+    }
+
     /// Build the Azure auth headers.
     ///
     /// v0.6.4 Task 3.1: dispatches on [`AzureAuth`]. `ApiKey` mode emits the
-    /// legacy `api-key: {key}` header; `AadBearer` mode emits a standard
+    /// legacy `api-key: {key}` header using the `selected_key` chosen by
+    /// [`Self::select_key`]; `AadBearer` mode emits a standard
     /// `Authorization: Bearer {token}` header sourced from the configured
-    /// token closure.
-    fn build_headers(&self) -> Result<HeaderMap, ProviderError> {
+    /// token closure (and ignores `selected_key`).
+    fn build_headers(&self, selected_key: Option<&str>) -> Result<HeaderMap, ProviderError> {
         let mut headers = HeaderMap::new();
         match &self.auth {
-            AzureAuth::ApiKey(api_key) => {
+            AzureAuth::ApiKey(_) => {
+                // The caller resolved the key via `select_key`; in API-key mode
+                // it is always `Some`.
+                let api_key = selected_key.ok_or(ProviderError::MissingApiKey)?;
                 let key = HeaderValue::from_str(api_key).map_err(|e| {
                     ProviderError::Connection(format!("Invalid api-key header: {e}"))
                 })?;
@@ -226,10 +265,11 @@ impl LlmProvider for AzureOpenAIProvider {
         dump_request_body(&self.debug, &body);
         reset_response_dump(&self.debug);
 
+        let selected_key = self.select_key()?;
         let response = builder_send_with_retry(
             self.client
                 .post(&url)
-                .headers(self.build_headers()?)
+                .headers(self.build_headers(selected_key.as_deref())?)
                 .json(&body),
         )
         .await?;
@@ -240,6 +280,13 @@ impl LlmProvider for AzureOpenAIProvider {
         // on openai / anthropic / gemini / bedrock.
         let status = response.status();
         if !status.is_success() {
+            // Demote this key on auth / rate-limit failures so the next request
+            // rotates to another key in the pool (no-op for single key / AAD).
+            if matches!(status.as_u16(), 401 | 403 | 429)
+                && let Some(key) = selected_key.as_deref()
+            {
+                self.mark_key_failure(key);
+            }
             // E-H1 / L3: capture headers before `.text()` consumes the body
             // so a 429 can honour `Retry-After` (header, then nested body).
             let headers = response.headers().clone();
@@ -253,6 +300,11 @@ impl LlmProvider for AzureOpenAIProvider {
                 status: status.as_u16(),
                 message: body_text,
             });
+        }
+
+        // 2xx: this key works — make it sticky for subsequent requests.
+        if let Some(key) = selected_key.as_deref() {
+            self.mark_key_success(key);
         }
 
         let (tx, rx) = mpsc::channel(64);
@@ -405,7 +457,9 @@ mod tests {
             DebugConfig::default(),
         );
 
-        let headers = p.build_headers().unwrap();
+        // AAD bearer mode has no static key to rotate — select_key returns None.
+        assert!(p.select_key().unwrap().is_none());
+        let headers = p.build_headers(None).unwrap();
         assert_eq!(
             headers.get(reqwest::header::AUTHORIZATION).unwrap(),
             "Bearer mock-aad-token-xyz"
@@ -435,7 +489,9 @@ mod tests {
             ProviderCompat::openai_defaults(),
             DebugConfig::default(),
         );
-        let err = p.build_headers().expect_err("token failure must propagate");
+        let err = p
+            .build_headers(None)
+            .expect_err("token failure must propagate");
         assert!(matches!(err, ProviderError::Connection(_)));
     }
 
@@ -443,10 +499,51 @@ mod tests {
     fn auth_header_is_api_key_not_bearer() {
         // Azure authenticates via `api-key`, never `Authorization: Bearer`.
         let p = provider();
-        let headers = p.build_headers().unwrap();
+        let key = p.select_key().unwrap().expect("api-key mode yields a key");
+        let headers = p.build_headers(Some(&key)).unwrap();
         assert_eq!(headers.get("api-key").unwrap(), "az-key");
         assert!(headers.get(reqwest::header::AUTHORIZATION).is_none());
         assert_eq!(headers.get(CONTENT_TYPE).unwrap(), "application/json");
+    }
+
+    /// Multi-key rotation in Azure API-key mode: a demoted key rotates to the
+    /// other key; a succeeded key sticks. AAD mode and single key are unchanged.
+    #[test]
+    fn multi_key_rotation_demotes_failing_key_then_succeeds() {
+        let p = AzureOpenAIProvider::with_defaults(
+            "key-a, key-b",
+            "my-resource",
+            "gpt-4o-deploy",
+            ProviderCompat::openai_defaults(),
+            DebugConfig::default(),
+        );
+        let first = p.select_key().unwrap().expect("a key is available");
+        assert!(first == "key-a" || first == "key-b");
+
+        p.mark_key_failure(&first);
+        let second = p.select_key().unwrap().expect("rotation finds the other key");
+        assert_ne!(second, first);
+
+        p.mark_key_success(&second);
+        assert_eq!(p.select_key().unwrap().unwrap(), second);
+
+        // Single-key + empty (MissingApiKey) cases.
+        let solo = AzureOpenAIProvider::with_defaults(
+            "solo",
+            "my-resource",
+            "gpt-4o-deploy",
+            ProviderCompat::openai_defaults(),
+            DebugConfig::default(),
+        );
+        assert_eq!(solo.select_key().unwrap().unwrap(), "solo");
+        let empty = AzureOpenAIProvider::with_defaults(
+            "",
+            "my-resource",
+            "gpt-4o-deploy",
+            ProviderCompat::openai_defaults(),
+            DebugConfig::default(),
+        );
+        assert!(matches!(empty.select_key(), Err(ProviderError::MissingApiKey)));
     }
 
     #[test]

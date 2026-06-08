@@ -48,7 +48,7 @@ pub use chain::{ProviderChain, ProviderSlot};
 pub use classify::classify_failover;
 pub use cooldown::{CooldownClass, CooldownState, CooldownTracker};
 pub use failover::{FailoverError, FailoverReason, wrap_provider_error};
-pub use key_rotation::KeyPool;
+pub use key_rotation::{KeyPool, split_keys};
 pub use registry::{ProviderFactory, ProviderRegistry, RegistryError, WaylandProviderRegistry};
 pub use resilient::{
     CircuitBreaker, CircuitConfig, CircuitReporter, CircuitState, NoOpCircuitReporter,

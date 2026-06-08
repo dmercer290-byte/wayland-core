@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use async_trait::async_trait;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::{Value, json};
@@ -7,6 +9,7 @@ use wcore_types::llm::{LlmEvent, LlmRequest};
 use wcore_types::message::{ContentBlock, FinishReason, Message, Role, StopReason, TokenUsage};
 use wcore_types::tool::{ToolDef, truncate_deferred_description};
 
+use crate::key_rotation::{KeyPool, split_keys};
 use crate::openai_compat;
 use crate::retry::builder_send_with_retry;
 use crate::{
@@ -18,7 +21,12 @@ use wcore_config::debug::DebugConfig;
 
 pub struct OpenAIProvider {
     client: wcore_egress::EgressClient,
-    api_key: String,
+    /// Rotation pool over one-or-more API keys. A single configured key yields
+    /// a one-element pool — behavior identical to the pre-rotation path. Every
+    /// OpenAI-compatible newtype (Groq, DeepSeek, Together, Ollama, …) delegates
+    /// here, so this seam covers the whole family at once. Wrapped in
+    /// `Arc<Mutex<…>>` so `&self` request methods can rotate/demote keys.
+    keys: Arc<Mutex<KeyPool>>,
     base_url: String,
     compat: ProviderCompat,
     debug: DebugConfig,
@@ -28,16 +36,46 @@ impl OpenAIProvider {
     pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat, debug: DebugConfig) -> Self {
         Self {
             client: crate::http_client::build(),
-            api_key: api_key.to_string(),
+            keys: Arc::new(Mutex::new(KeyPool::new(split_keys(api_key)))),
             base_url: base_url.to_string(),
             compat,
             debug,
         }
     }
 
-    fn build_headers(&self) -> Result<HeaderMap, ProviderError> {
+    /// Select the API key to authenticate the next request. Delegates to
+    /// [`KeyPool::next_key`] (prefers the last-good key, rotates round-robin on
+    /// failure, skips keys in cooldown). Returns [`ProviderError::MissingApiKey`]
+    /// when no key is configured or every key is cooling.
+    fn select_key(&self) -> Result<String, ProviderError> {
+        let mut pool = self.keys.lock().expect("key pool mutex poisoned");
+        pool.next_key()
+            .map(str::to_string)
+            .ok_or(ProviderError::MissingApiKey)
+    }
+
+    /// Promote `key` to last-good after a successful (2xx) response.
+    fn mark_key_success(&self, key: &str) {
+        self.keys
+            .lock()
+            .expect("key pool mutex poisoned")
+            .mark_success(key);
+    }
+
+    /// Demote `key` for the cooldown window after an auth/rate-limit failure
+    /// (401/403/429), so the next request rotates to another key.
+    fn mark_key_failure(&self, key: &str) {
+        self.keys
+            .lock()
+            .expect("key pool mutex poisoned")
+            .mark_failure(key);
+    }
+
+    /// Build request headers authenticating with the supplied `key` via the
+    /// `Authorization: Bearer …` header.
+    fn build_headers(&self, key: &str) -> Result<HeaderMap, ProviderError> {
         let mut headers = HeaderMap::new();
-        let bearer = format!("Bearer {}", self.api_key);
+        let bearer = format!("Bearer {}", key);
         let auth = HeaderValue::from_str(&bearer).map_err(|e| {
             ProviderError::Connection(format!("Invalid authorization header: {}", e))
         })?;
@@ -547,16 +585,22 @@ impl LlmProvider for OpenAIProvider {
         dump_request_body(&self.debug, &body);
         reset_response_dump(&self.debug);
 
+        let key = self.select_key()?;
         let response = builder_send_with_retry(
             self.client
                 .post(&url)
-                .headers(self.build_headers()?)
+                .headers(self.build_headers(&key)?)
                 .json(&body),
         )
         .await?;
 
         let status = response.status();
         if !status.is_success() {
+            // Demote this key on auth / rate-limit failures so the next request
+            // rotates to another key in the pool (no-op for a single key).
+            if matches!(status.as_u16(), 401 | 403 | 429) {
+                self.mark_key_failure(&key);
+            }
             // E-H1 / L3: capture headers before `.text()` consumes the body
             // so a 429 can honour `Retry-After` (header, then nested body).
             let headers = response.headers().clone();
@@ -571,6 +615,9 @@ impl LlmProvider for OpenAIProvider {
                 message: body_text,
             });
         }
+
+        // 2xx: this key works — make it sticky for subsequent requests.
+        self.mark_key_success(&key);
 
         let (tx, rx) = mpsc::channel(64);
         let debug = self.debug.clone();
@@ -603,9 +650,9 @@ impl LlmProvider for OpenAIProvider {
     /// fall back to the static alias catalog — `/model` must never hard-fail.
     async fn list_models(&self) -> anyhow::Result<Vec<ModelInfo>> {
         let url = self.models_url();
-        let headers = match self.build_headers() {
+        let headers = match self.select_key().and_then(|key| self.build_headers(&key)) {
             Ok(h) => h,
-            // A malformed credential can't produce a header — fall back.
+            // A malformed/absent credential can't produce a header — fall back.
             Err(_) => return Ok(alias_models(self.alias_key())),
         };
 
@@ -1760,5 +1807,70 @@ mod tests {
         // No accidental duplication into the other channel.
         assert_eq!(thinking.join("").matches("answer").count(), 0);
         assert_eq!(text.join("").matches("thinking").count(), 0);
+    }
+
+    // --- multi-key rotation (covers OpenAI + every openai-compat newtype) ----
+
+    /// The selected key authenticates the request via `Authorization: Bearer`.
+    #[test]
+    fn build_headers_uses_selected_key_as_bearer() {
+        let provider = OpenAIProvider::new(
+            "explicit-key",
+            "http://localhost",
+            openai_compat(),
+            DebugConfig::default(),
+        );
+        let key = provider.select_key().expect("single key selects");
+        let headers = provider.build_headers(&key).expect("headers build");
+        assert_eq!(
+            headers
+                .get(reqwest::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok()),
+            Some("Bearer explicit-key"),
+        );
+    }
+
+    /// Multi-key rotation: after the current key is demoted via
+    /// `mark_key_failure`, `select_key` rotates to a different key; once the
+    /// new key succeeds it becomes sticky.
+    #[test]
+    fn multi_key_rotation_demotes_failing_key_then_succeeds() {
+        let provider = OpenAIProvider::new(
+            "key-a, key-b",
+            "http://localhost",
+            openai_compat(),
+            DebugConfig::default(),
+        );
+        let first = provider.select_key().expect("a key is available");
+        assert!(first == "key-a" || first == "key-b");
+
+        provider.mark_key_failure(&first);
+        let second = provider.select_key().expect("rotation finds the other key");
+        assert_ne!(second, first, "failing key must rotate to the other key");
+
+        provider.mark_key_success(&second);
+        assert_eq!(
+            provider.select_key().expect("sticky key"),
+            second,
+            "a succeeded key must stick as last-good"
+        );
+    }
+
+    /// Single-key behavior is unchanged: `select_key` always returns the one
+    /// configured key. No key configured surfaces `MissingApiKey`.
+    #[test]
+    fn single_key_behavior_unchanged_and_empty_errors() {
+        let provider = OpenAIProvider::new(
+            "solo-key",
+            "http://localhost",
+            openai_compat(),
+            DebugConfig::default(),
+        );
+        assert_eq!(provider.select_key().unwrap(), "solo-key");
+        provider.mark_key_success("solo-key");
+        assert_eq!(provider.select_key().unwrap(), "solo-key");
+
+        let empty = OpenAIProvider::new("", "http://localhost", openai_compat(), DebugConfig::default());
+        assert!(matches!(empty.select_key(), Err(ProviderError::MissingApiKey)));
     }
 }
