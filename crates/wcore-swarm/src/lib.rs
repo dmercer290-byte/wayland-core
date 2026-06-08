@@ -56,6 +56,7 @@ pub mod error;
 pub mod fleet;
 pub mod heartbeat;
 pub mod mesh;
+pub mod reduce;
 pub mod scorer;
 pub mod topology;
 pub mod worktree;
@@ -69,6 +70,7 @@ pub use fleet::{
 };
 pub use heartbeat::WorkerStatusFile;
 pub use mesh::{AgentReport, BlackboardCtx, MeshAgent, MeshDispatcher, MeshError, Reducer};
+pub use reduce::{ReduceMode, ReduceOutput, reduce};
 pub use scorer::{RuleBasedScorer, Scorer};
 pub use topology::{BlackboardScope, ParentVisibility, Topology, TopologyConfig, TopologyError};
 

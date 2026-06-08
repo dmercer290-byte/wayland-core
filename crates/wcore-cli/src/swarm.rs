@@ -20,7 +20,7 @@ use std::time::Duration;
 use clap::Args;
 use clap::builder::RangedU64ValueParser;
 use serde::Deserialize;
-use wcore_swarm::{Swarm, SwarmBrief};
+use wcore_swarm::{ReduceMode, RuleBasedScorer, Swarm, SwarmBrief, reduce};
 
 #[derive(Args, Debug)]
 pub struct SwarmArgs {
@@ -62,6 +62,21 @@ pub struct SwarmArgs {
     /// Default: 1h.
     #[arg(long, default_value = "1h")]
     pub timeout: String,
+
+    /// How to reduce the collected worker results. One of:
+    ///   mesh      — print every result verbatim (default).
+    ///   fleet     — print a success/failure roll-up summary.
+    ///   consensus — strict-majority vote over worker stdout.
+    ///   debate    — multi-round debate (single round at the CLI).
+    /// Consensus/debate bucket workers by normalized (trimmed+lowercased)
+    /// stdout.
+    #[arg(long, default_value = "mesh", value_parser = parse_reduce_mode)]
+    pub reduce: ReduceMode,
+}
+
+/// clap value parser delegating to `ReduceMode::parse`.
+fn parse_reduce_mode(s: &str) -> Result<ReduceMode, String> {
+    ReduceMode::parse(s)
 }
 
 /// TOML shape for `--brief`. Mirrors `SwarmBrief` with humantime-friendly
@@ -150,9 +165,19 @@ pub async fn run(args: SwarmArgs) -> anyhow::Result<()> {
         .collect(handles)
         .await
         .map_err(|e| anyhow::anyhow!("swarm collect failed: {e}"))?;
-    // Wrap in a top-level object so the smoke test can grep for "workers".
-    let envelope = serde_json::json!({ "workers": results });
-    println!("{}", serde_json::to_string_pretty(&envelope)?);
+    // Route the collected results through the selected reducer. Mesh keeps
+    // the historical `{ "workers": [...] }` envelope (the smoke test greps
+    // for "workers"); the other modes emit their tagged `ReduceOutput`.
+    // Consensus/debate bucket by normalized stdout.
+    let scorer = RuleBasedScorer::normalized_stdout();
+    let reduced = reduce(args.reduce, results, &scorer);
+    match reduced {
+        wcore_swarm::ReduceOutput::Mesh { results } => {
+            let envelope = serde_json::json!({ "workers": results });
+            println!("{}", serde_json::to_string_pretty(&envelope)?);
+        }
+        other => println!("{}", serde_json::to_string_pretty(&other)?),
+    }
     swarm
         .cleanup()
         .await
@@ -174,6 +199,7 @@ mod tests {
             base_branch: "main".into(),
             branch_prefix: "swarm/cli".into(),
             timeout: "30s".into(),
+            reduce: ReduceMode::Mesh,
         }
     }
 
@@ -210,6 +236,97 @@ mod tests {
         a.timeout = "not-a-duration".into();
         let err = build_brief(&a).unwrap_err().to_string();
         assert!(err.contains("invalid --timeout"), "got: {err}");
+    }
+
+    // --- reduce-mode wiring ----------------------------------------------
+    // These prove the `--reduce <mode>` CLI flag both parses through clap
+    // and routes the collected results through the matching reducer
+    // (Consensus -> Consensus::majority, Debate -> Debate::evaluate),
+    // closing the gap where those algorithms had no production caller.
+
+    use clap::Parser;
+    use std::time::Duration as StdDuration;
+    use wcore_swarm::{ReduceOutput, SwarmResult, WorkerStatus};
+    use wcore_swarm::consensus::ConsensusOutcome;
+    use wcore_swarm::debate::DebateOutcome;
+
+    /// Minimal clap harness so `--reduce` is parsed exactly as the real CLI
+    /// parses it (value_parser + default included).
+    #[derive(Parser, Debug)]
+    struct ReduceHarness {
+        #[command(flatten)]
+        swarm: SwarmArgs,
+    }
+
+    fn parse_swarm_args(extra: &[&str]) -> SwarmArgs {
+        let mut argv = vec!["prog", "--workers", "1", "--worker-command", "true"];
+        argv.extend_from_slice(extra);
+        ReduceHarness::try_parse_from(argv).unwrap().swarm
+    }
+
+    fn ok_result(out: &str) -> SwarmResult {
+        SwarmResult {
+            worker_id: "w".into(),
+            branch: "b".into(),
+            status: WorkerStatus::Succeeded,
+            stdout: out.into(),
+            stderr: String::new(),
+            duration: StdDuration::from_secs(1),
+        }
+    }
+
+    #[test]
+    fn reduce_flag_defaults_to_mesh() {
+        let a = parse_swarm_args(&[]);
+        assert_eq!(a.reduce, ReduceMode::Mesh);
+    }
+
+    #[test]
+    fn reduce_flag_rejects_unknown_mode() {
+        let mut argv = vec!["prog", "--workers", "1", "--worker-command", "true"];
+        argv.extend_from_slice(&["--reduce", "bogus"]);
+        assert!(ReduceHarness::try_parse_from(argv).is_err());
+    }
+
+    #[test]
+    fn reduce_flag_consensus_routes_to_majority() {
+        // Parse exactly as the CLI does, then run the same scorer + reduce
+        // call `run` performs — minus the git/tokio dispatch.
+        let a = parse_swarm_args(&["--reduce", "consensus"]);
+        assert_eq!(a.reduce, ReduceMode::Consensus);
+
+        let results = vec![ok_result("42"), ok_result("42"), ok_result("7")];
+        let scorer = RuleBasedScorer::normalized_stdout();
+        let out = reduce(a.reduce, results, &scorer);
+        match out {
+            ReduceOutput::Consensus {
+                outcome: ConsensusOutcome::Agreed { value, votes, total },
+            } => {
+                assert_eq!(value, "42");
+                assert_eq!(votes, 2);
+                assert_eq!(total, 3);
+            }
+            other => panic!("expected Consensus::Agreed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reduce_flag_debate_routes_to_evaluate() {
+        let a = parse_swarm_args(&["--reduce", "debate"]);
+        assert_eq!(a.reduce, ReduceMode::Debate);
+
+        let results = vec![ok_result("y"), ok_result("y"), ok_result("z")];
+        let scorer = RuleBasedScorer::normalized_stdout();
+        let out = reduce(a.reduce, results, &scorer);
+        match out {
+            ReduceOutput::Debate {
+                outcome: DebateOutcome::Converged { value, converged_at_round },
+            } => {
+                assert_eq!(value, "y");
+                assert_eq!(converged_at_round, 1);
+            }
+            other => panic!("expected Debate::Converged, got {other:?}"),
+        }
     }
 
     #[test]
