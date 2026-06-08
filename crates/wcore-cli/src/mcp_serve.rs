@@ -20,11 +20,14 @@
 //! `error_code::POLICY_DENIED`.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use clap::Args;
+use serde_json::{Value, json};
 
 use wcore_agent::policy_gate::PolicyGate;
-use wcore_mcp::{McpServer, ServerToolSpec, SseConfig, serve_sse, serve_stdio};
+use wcore_mcp::{McpServer, ServerToolExecutor, ServerToolSpec, SseConfig, serve_sse, serve_stdio};
 use wcore_tools::registry::ToolRegistry;
 
 use crate::policy_gate_adapter::PolicyGateAdapter;
@@ -49,6 +52,39 @@ pub fn tool_registry_to_server_specs(registry: &ToolRegistry) -> Vec<ServerToolS
             schema_json: def.input_schema,
         })
         .collect()
+}
+
+/// Real `tools/call` backend: routes an advertised MCP tool call to the
+/// engine's `ToolRegistry`. Wraps the registry in an `Arc` so the executor
+/// can be shared with the `McpServer` (which outlives a single call) while
+/// the same registry produced the advertised specs.
+///
+/// Dispatch goes through `Tool::execute` (the registry's canonical entry
+/// point); the resulting `ToolResult` is mapped to the MCP `tools/call`
+/// result envelope (`{ "content": [{type:"text", text}], "isError": bool }`).
+pub struct RegistryToolExecutor {
+    registry: Arc<ToolRegistry>,
+}
+
+impl RegistryToolExecutor {
+    pub fn new(registry: Arc<ToolRegistry>) -> Self {
+        Self { registry }
+    }
+}
+
+#[async_trait]
+impl ServerToolExecutor for RegistryToolExecutor {
+    async fn call(&self, name: &str, args: Value) -> anyhow::Result<Value> {
+        let tool = self
+            .registry
+            .get(name)
+            .ok_or_else(|| anyhow::anyhow!("tool `{name}` is not registered"))?;
+        let result = tool.execute(args).await;
+        Ok(json!({
+            "content": [{ "type": "text", "text": result.content }],
+            "isError": result.is_error,
+        }))
+    }
 }
 
 /// CLI args for `wayland-core mcp-serve`.
@@ -77,10 +113,11 @@ pub struct McpServeArgs {
 /// allow-everything posture (tests, trusted local pipelines) can build a
 /// `PolicyGate` over a `PolicyEngine` with broad grants — or use
 /// `wcore_mcp::AllowAll` directly via `McpServer::new`.
-pub fn build_server(registry: &ToolRegistry, gate: PolicyGate) -> McpServer {
-    let specs = tool_registry_to_server_specs(registry);
+pub fn build_server(registry: ToolRegistry, gate: PolicyGate) -> McpServer {
+    let specs = tool_registry_to_server_specs(&registry);
     let adapter = PolicyGateAdapter::new(gate);
-    McpServer::new(specs, Box::new(adapter))
+    let executor = RegistryToolExecutor::new(Arc::new(registry));
+    McpServer::new(specs, Box::new(adapter)).with_executor(Arc::new(executor))
 }
 
 /// Subcommand entry point. Builds the server, then drives the requested
@@ -90,7 +127,7 @@ pub async fn run(
     registry: ToolRegistry,
     gate: PolicyGate,
 ) -> anyhow::Result<()> {
-    let server = build_server(&registry, gate);
+    let server = build_server(registry, gate);
     match args.transport.as_str() {
         "stdio" => serve_stdio(server).await?,
         "sse" => {

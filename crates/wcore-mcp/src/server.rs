@@ -25,6 +25,9 @@
 //! upper layer can plug in an adapter. The default `AllowAll` keeps the
 //! server usable in standalone scenarios.
 
+use std::sync::Arc;
+
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -139,6 +142,24 @@ impl PolicyCheck for AllowAll {
     }
 }
 
+/// Tool-execution trait — implemented by the embedding layer. `wcore-mcp`
+/// is a LOW crate and cannot depend on `wcore-tools`/`wcore-agent`, so the
+/// real built-in tool registry lives one layer up. The embedder installs a
+/// `ServerToolExecutor` whose `call` routes an advertised `tools/call` to
+/// the real tool execution path.
+///
+/// Implemented by `wcore_cli::mcp_serve::RegistryToolExecutor`, which wraps
+/// the engine's `ToolRegistry` and dispatches to `Tool::execute_with_ctx`.
+///
+/// `call` returns the MCP `tools/call` *result* object on success (the
+/// `{ "content": [...], "isError": bool }` payload the server emits under
+/// the JSON-RPC `result` key). An `Err` is surfaced to the client as an
+/// `INTERNAL_ERROR` JSON-RPC error.
+#[async_trait]
+pub trait ServerToolExecutor: Send + Sync {
+    async fn call(&self, name: &str, args: Value) -> anyhow::Result<Value>;
+}
+
 /// Bundled tool set advertised by `tools/list`.
 ///
 /// R2 fix A3 (MCP protocol compliance): per the MCP spec, `tools/list` is
@@ -171,6 +192,10 @@ const KNOWN_STUB_NAMES: &[&str] = &[
 pub struct McpServer {
     tools: Vec<ServerToolSpec>,
     policy: Box<dyn PolicyCheck>,
+    /// Real tool-execution backend, installed by the embedding layer.
+    /// `None` keeps the standalone server usable (advertised tools then
+    /// fall through to the `NOT_IMPLEMENTED` stub path).
+    executor: Option<Arc<dyn ServerToolExecutor>>,
     server_name: String,
     server_version: String,
     protocol_version: String,
@@ -182,6 +207,7 @@ impl McpServer {
         Self {
             tools,
             policy,
+            executor: None,
             server_name: "wcore-mcp".to_string(),
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             // The MCP spec evolves; 2024-11-05 is the version both
@@ -190,6 +216,15 @@ impl McpServer {
             // centrally.
             protocol_version: "2024-11-05".to_string(),
         }
+    }
+
+    /// Install a real tool-execution backend. Advertised tools then
+    /// dispatch to it via `tools/call` instead of returning the
+    /// `NOT_IMPLEMENTED` stub. Builder-style so call sites read
+    /// `McpServer::new(specs, policy).with_executor(exec)`.
+    pub fn with_executor(mut self, executor: Arc<dyn ServerToolExecutor>) -> Self {
+        self.executor = Some(executor);
+        self
     }
 
     /// Convenience: default tool set + `AllowAll` policy.
@@ -217,7 +252,7 @@ impl McpServer {
         match req.method.as_str() {
             "initialize" => self.handle_initialize(id),
             "tools/list" => self.handle_tools_list(id),
-            "tools/call" => self.handle_tools_call(id, req.params),
+            "tools/call" => self.handle_tools_call(id, req.params).await,
             other => ServerJsonRpcResponse::err(
                 id,
                 error_code::METHOD_NOT_FOUND,
@@ -257,7 +292,11 @@ impl McpServer {
         ServerJsonRpcResponse::ok(id, json!({ "tools": tools }))
     }
 
-    fn handle_tools_call(&self, id: Option<Value>, params: Option<Value>) -> ServerJsonRpcResponse {
+    async fn handle_tools_call(
+        &self,
+        id: Option<Value>,
+        params: Option<Value>,
+    ) -> ServerJsonRpcResponse {
         let params = match params {
             Some(p) => p,
             None => {
@@ -300,12 +339,36 @@ impl McpServer {
             );
         }
 
-        // v0.6.2 stub — actual dispatch wires in later waves.
+        // Real dispatch: if the embedder installed an executor and this is
+        // an advertised tool, route the call to it. Per the MCP spec the
+        // tool's arguments live under `params.arguments` (object); default
+        // to an empty object when omitted.
+        if advertised {
+            if let Some(executor) = self.executor.as_ref() {
+                let args = params
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                return match executor.call(&name, args).await {
+                    Ok(result) => ServerJsonRpcResponse::ok(id, result),
+                    Err(e) => ServerJsonRpcResponse::err(
+                        id,
+                        error_code::INTERNAL_ERROR,
+                        format!("tool `{}` execution failed: {:#}", name, e),
+                    ),
+                };
+            }
+        }
+
+        // No executor wired (standalone server) or a KNOWN_STUB name:
+        // answer with NOT_IMPLEMENTED rather than METHOD_NOT_FOUND so a
+        // client that hardcoded a stub name gets the more informative
+        // error.
         ServerJsonRpcResponse::err(
             id,
             error_code::NOT_IMPLEMENTED,
             format!(
-                "tool `{}` is a v0.6.2 stub; implementation lands in a later wave",
+                "tool `{}` has no execution backend wired on this server",
                 name
             ),
         )
@@ -389,6 +452,77 @@ mod tests {
         fn check_tool(&self, _: &str) -> bool {
             false
         }
+    }
+
+    /// End-to-end wiring proof: a server built with a real tool spec + an
+    /// installed `ServerToolExecutor` advertises the tool via `tools/list`
+    /// AND executes it via `tools/call`, returning the executor's result.
+    struct EchoExecutor;
+    #[async_trait]
+    impl ServerToolExecutor for EchoExecutor {
+        async fn call(&self, name: &str, args: Value) -> anyhow::Result<Value> {
+            Ok(json!({
+                "content": [{ "type": "text", "text": format!("{name}:{args}") }],
+                "isError": false,
+            }))
+        }
+    }
+
+    fn echo_spec() -> ServerToolSpec {
+        ServerToolSpec {
+            name: "echo".into(),
+            description: "echoes its input".into(),
+            schema_json: json!({ "type": "object" }),
+        }
+    }
+
+    #[tokio::test]
+    async fn tools_list_advertises_real_tools() {
+        let server = McpServer::new(vec![echo_spec()], Box::new(AllowAll))
+            .with_executor(Arc::new(EchoExecutor));
+        let resp = server.handle_request(req(10, "tools/list", None)).await;
+        let result = resp.result.expect("result");
+        let tools = result["tools"].as_array().expect("tools array");
+        assert_eq!(tools.len(), 1, "the real tool is advertised");
+        assert_eq!(tools[0]["name"], "echo");
+        assert_eq!(tools[0]["inputSchema"], json!({ "type": "object" }));
+    }
+
+    #[tokio::test]
+    async fn tools_call_dispatches_to_executor() {
+        let server = McpServer::new(vec![echo_spec()], Box::new(AllowAll))
+            .with_executor(Arc::new(EchoExecutor));
+        let resp = server
+            .handle_request(req(
+                11,
+                "tools/call",
+                Some(json!({ "name": "echo", "arguments": { "x": 1 } })),
+            ))
+            .await;
+        assert!(resp.error.is_none(), "expected success, got {:?}", resp.error);
+        let result = resp.result.expect("result");
+        assert_eq!(result["isError"], false);
+        let text = result["content"][0]["text"].as_str().expect("text");
+        assert!(text.starts_with("echo:"), "executor ran: {text}");
+        assert!(text.contains("\"x\":1"), "args forwarded: {text}");
+    }
+
+    #[tokio::test]
+    async fn tools_call_executor_error_maps_to_internal_error() {
+        struct FailExecutor;
+        #[async_trait]
+        impl ServerToolExecutor for FailExecutor {
+            async fn call(&self, _name: &str, _args: Value) -> anyhow::Result<Value> {
+                anyhow::bail!("boom")
+            }
+        }
+        let server = McpServer::new(vec![echo_spec()], Box::new(AllowAll))
+            .with_executor(Arc::new(FailExecutor));
+        let resp = server
+            .handle_request(req(12, "tools/call", Some(json!({ "name": "echo" }))))
+            .await;
+        let err = resp.error.expect("error");
+        assert_eq!(err.code, error_code::INTERNAL_ERROR);
     }
 
     #[tokio::test]
