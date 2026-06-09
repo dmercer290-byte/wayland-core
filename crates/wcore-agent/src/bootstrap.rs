@@ -838,13 +838,15 @@ impl AgentBootstrap {
         // eagerly at connect (`tools/list`), so the live `all_tools()` view is
         // populated by the time we get here.
         //
-        // First-match assumption: this binds a plugin to the FIRST server (in
-        // `all_tools()` iteration order, which is not deterministic across a
-        // HashMap) advertising any of its hook tool names. That is unambiguous
-        // only while hook-tool names are unique across servers — the case today
-        // (one memory-style plugin → one server). If two servers ever advertise
-        // a tool sharing a plugin's hook name, the bind is arbitrary; the real
-        // fix is plugin→server provenance on `HostMcpRegistrar` (see A4/A5).
+        // F5/F6: a plugin binds to a server only when EXACTLY ONE distinct
+        // server advertises a tool matching one of its hook names. If two or
+        // more match, the binding is ambiguous (nondeterministic and
+        // hijackable — a malicious plugin could advertise a tool named like
+        // another plugin's hook), so the plugin is left unbound (log-only) and
+        // a warning names the conflict. The binding policy lives in the pure,
+        // unit-tested `resolve_server_for_plugin` so it is testable in isolation;
+        // the real fix for the provenance gap is plugin→server provenance on
+        // `HostMcpRegistrar` (see A4/A5).
         //
         // Gated by `config.hooks.dispatch_enabled` (default ON). When off, or
         // when no plugin hook resolves to a server, no dispatcher is wired and
@@ -863,30 +865,35 @@ impl AgentBootstrap {
                         .or_default()
                         .push(h.name.as_str());
                 }
-                // For each plugin, find the server advertising one of its hook tools.
-                let mut server_for_plugin: std::collections::HashMap<String, String> =
+                // Snapshot each connected server's advertised tool names.
+                let mut servers: std::collections::HashMap<String, Vec<String>> =
                     std::collections::HashMap::new();
-                for (plugin, hook_names) in &hooks_by_plugin {
-                    'mgr: for mgr in &mcp_managers {
-                        for (server_name, tool) in mgr.all_tools() {
-                            if hook_names.iter().any(|hn| *hn == tool.name) {
-                                server_for_plugin
-                                    .insert((*plugin).to_string(), server_name.to_string());
-                                break 'mgr;
-                            }
-                        }
-                    }
-                    if !server_for_plugin.contains_key(*plugin) {
-                        tracing::debug!(
-                            target: "wcore_agent::hooks",
-                            plugin = %plugin,
-                            "no MCP server advertises this plugin's hook tools; hooks stay log-only"
-                        );
+                for mgr in &mcp_managers {
+                    for (server_name, tool) in mgr.all_tools() {
+                        servers
+                            .entry(server_name.to_string())
+                            .or_default()
+                            .push(tool.name.to_string());
                     }
                 }
+                let servers_view: Vec<(&str, Vec<&str>)> = servers
+                    .iter()
+                    .map(|(s, tools)| (s.as_str(), tools.iter().map(String::as_str).collect()))
+                    .collect();
+                let server_for_plugin =
+                    crate::hooks::resolve_server_for_plugin(&hooks_by_plugin, &servers_view);
                 if server_for_plugin.is_empty() {
                     None
                 } else {
+                    let mut bound: Vec<&str> =
+                        server_for_plugin.keys().map(String::as_str).collect();
+                    bound.sort_unstable();
+                    tracing::info!(
+                        target: "wcore_agent::hooks",
+                        count = bound.len(),
+                        plugins = ?bound,
+                        "plugin hook dispatcher wired"
+                    );
                     let caller =
                         Arc::new(crate::hooks::McpManagerCaller::new(mcp_managers.clone()));
                     Some(Arc::new(crate::hooks::McpHookDispatcher::new(

@@ -338,6 +338,13 @@ impl McpManager {
         self.servers.keys().cloned().collect()
     }
 
+    /// Whether this manager hosts a connected server named `name`. No
+    /// allocation (unlike `server_names`, which clones every key) — preferred
+    /// for hot per-dispatch lookups.
+    pub fn hosts_server(&self, name: &str) -> bool {
+        self.servers.contains_key(name)
+    }
+
     /// Check if a connected server declared the resources capability.
     pub fn server_supports_resources(&self, server_name: &str) -> bool {
         self.servers

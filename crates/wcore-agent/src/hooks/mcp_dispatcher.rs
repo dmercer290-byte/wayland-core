@@ -83,6 +83,65 @@ impl HookDispatcher for McpHookDispatcher {
     }
 }
 
+/// F5/F6 — resolve the `plugin -> mcp server` binding from registry state,
+/// applying the ambiguity guard.
+///
+/// `hooks_by_plugin` maps each plugin to its registered hook (tool) names.
+/// `servers` lists every connected server with the tool names it advertises.
+///
+/// A plugin binds to a server iff EXACTLY ONE distinct server advertises a tool
+/// matching one of that plugin's hook names. If two or more distinct servers
+/// match, the binding is ambiguous (nondeterministic and hijackable — a
+/// malicious plugin could advertise a tool named like another plugin's hook),
+/// so the plugin is left UNBOUND (stays log-only) and a warning names the
+/// conflict. A plugin with no match is simply absent from the result.
+///
+/// Pure and deterministic: no I/O, order-independent over `servers`. Extracted
+/// from bootstrap so the binding policy is unit-testable.
+pub fn resolve_server_for_plugin<'a>(
+    hooks_by_plugin: &'a std::collections::HashMap<&'a str, Vec<&'a str>>,
+    servers: &'a [(&'a str, Vec<&'a str>)],
+) -> HashMap<String, String> {
+    let mut out: HashMap<String, String> = HashMap::new();
+    for (plugin, hook_names) in hooks_by_plugin {
+        // Distinct servers advertising any of this plugin's hook tool names.
+        let mut matching: Vec<&str> = servers
+            .iter()
+            .filter(|(_, tools)| {
+                tools
+                    .iter()
+                    .any(|t| hook_names.iter().any(|hn| hn == t))
+            })
+            .map(|(s, _)| *s)
+            .collect();
+        matching.sort_unstable();
+        matching.dedup();
+
+        match matching.as_slice() {
+            [] => {
+                tracing::debug!(
+                    target: "wcore_agent::hooks",
+                    plugin = %plugin,
+                    "no MCP server advertises this plugin's hook tools; hooks stay log-only"
+                );
+            }
+            [server] => {
+                out.insert((*plugin).to_string(), (*server).to_string());
+            }
+            many => {
+                tracing::warn!(
+                    target: "wcore_agent::hooks",
+                    plugin = %plugin,
+                    servers = ?many,
+                    "ambiguous plugin->server binding: multiple servers advertise this \
+                     plugin's hook tools; refusing to bind (hooks stay log-only)"
+                );
+            }
+        }
+    }
+    out
+}
+
 /// Production `McpToolCaller` backed by the host's connected MCP managers.
 ///
 /// Holds the `Vec<Arc<McpManager>>` bootstrap already assembles (config-file
@@ -101,12 +160,35 @@ impl McpManagerCaller {
 
     /// First manager that knows `server` (regardless of liveness — `call_tool`
     /// enforces the liveness fast-fail and yields a typed error we map to a
-    /// tolerant `None` upstream).
+    /// tolerant `None` upstream). F10: uses `hosts_server` (a no-alloc
+    /// `contains_key`) rather than `server_names()` (which clones every key).
     fn manager_for(&self, server: &str) -> Option<&Arc<McpManager>> {
-        self.managers
-            .iter()
-            .find(|m| m.server_names().iter().any(|s| s == server))
+        self.managers.iter().find(|m| m.hosts_server(server))
     }
+}
+
+/// F4: hook-contribution-specific ceiling on a raw MCP tool response. The
+/// transport already caps a single line at 8 MiB; this bounds the text that a
+/// hook contribution propagates and clones downstream so one huge response
+/// can't blow up per-turn memory.
+const MAX_HOOK_RESPONSE_BYTES: usize = 64 * 1024;
+
+/// Truncate `text` to at most [`MAX_HOOK_RESPONSE_BYTES`], rounded down to a
+/// char boundary so multi-byte UTF-8 is never split. Returns the input
+/// unchanged when already within the cap (no allocation in the common case).
+fn cap_hook_response(text: String) -> String {
+    if text.len() <= MAX_HOOK_RESPONSE_BYTES {
+        return text;
+    }
+    let cut = text
+        .char_indices()
+        .map(|(i, _)| i)
+        .take_while(|&i| i <= MAX_HOOK_RESPONSE_BYTES)
+        .last()
+        .unwrap_or(0);
+    let mut t = text;
+    t.truncate(cut);
+    t
 }
 
 #[async_trait]
@@ -118,6 +200,7 @@ impl McpToolCaller for McpManagerCaller {
         manager
             .call_tool(server, tool, serde_json::json!({}))
             .await
+            .map(cap_hook_response)
             .map_err(|e| e.to_string())
     }
 }
@@ -163,6 +246,44 @@ mod tests {
                 Ok(String::new())
             }
         }
+    }
+
+    // F6: the extracted map-build binds an unambiguous match, leaves an
+    // unmatched plugin unbound, and refuses an ambiguous (2-server) match.
+    #[test]
+    fn resolve_server_for_plugin_binding_policy() {
+        let mut hooks: HashMap<&str, Vec<&str>> = HashMap::new();
+        hooks.insert("mem-plugin", vec!["context_tool"]);
+        hooks.insert("lonely-plugin", vec!["nobody_advertises_this"]);
+        hooks.insert("contested-plugin", vec!["shared_tool"]);
+
+        let servers: Vec<(&str, Vec<&str>)> = vec![
+            ("memory-server", vec!["context_tool", "shared_tool"]),
+            ("other-server", vec!["shared_tool"]),
+        ];
+
+        let map = resolve_server_for_plugin(&hooks, &servers);
+
+        // Unambiguous: one server advertises context_tool.
+        assert_eq!(map.get("mem-plugin").map(String::as_str), Some("memory-server"));
+        // No match: unbound (log-only).
+        assert!(!map.contains_key("lonely-plugin"));
+        // Ambiguous: two distinct servers advertise shared_tool ⇒ refuse to bind.
+        assert!(
+            !map.contains_key("contested-plugin"),
+            "ambiguous binding must be refused"
+        );
+    }
+
+    // A single server advertising a contested tool name IS bound (the guard
+    // only fires on >1 DISTINCT server).
+    #[test]
+    fn resolve_server_for_plugin_single_server_is_unambiguous() {
+        let mut hooks: HashMap<&str, Vec<&str>> = HashMap::new();
+        hooks.insert("p", vec!["t"]);
+        let servers: Vec<(&str, Vec<&str>)> = vec![("only-server", vec!["t", "t2"])];
+        let map = resolve_server_for_plugin(&hooks, &servers);
+        assert_eq!(map.get("p").map(String::as_str), Some("only-server"));
     }
 
     fn map_one(plugin: &str, server: &str) -> HashMap<String, String> {
@@ -216,6 +337,32 @@ mod tests {
             .dispatch("plugin-a", "context_tool", HookPhase::SessionStart)
             .await;
         assert!(out.is_none());
+    }
+
+    // F4: a response larger than the cap is truncated to <= cap, on a char
+    // boundary; a response within the cap is returned unchanged.
+    #[test]
+    fn cap_hook_response_truncates_oversize_on_char_boundary() {
+        let huge = "x".repeat(MAX_HOOK_RESPONSE_BYTES + 5_000);
+        let capped = cap_hook_response(huge);
+        assert!(
+            capped.len() <= MAX_HOOK_RESPONSE_BYTES,
+            "capped len {} must be <= {MAX_HOOK_RESPONSE_BYTES}",
+            capped.len()
+        );
+
+        // Multi-byte content is never split mid-char.
+        let multibyte = "€".repeat(MAX_HOOK_RESPONSE_BYTES); // 3 bytes each
+        let capped_mb = cap_hook_response(multibyte);
+        assert!(capped_mb.len() <= MAX_HOOK_RESPONSE_BYTES);
+        assert!(
+            capped_mb.is_char_boundary(capped_mb.len()),
+            "truncation must land on a char boundary"
+        );
+
+        // Within-cap input is returned byte-identical.
+        let small = "within cap".to_string();
+        assert_eq!(cap_hook_response(small.clone()), small);
     }
 
     // An empty / whitespace-only result is "no contribution".

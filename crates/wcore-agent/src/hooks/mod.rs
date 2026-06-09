@@ -17,7 +17,9 @@ pub mod mcp_dispatcher;
 pub mod self_correction;
 pub mod verify_write;
 
-pub use mcp_dispatcher::{McpHookDispatcher, McpManagerCaller, McpToolCaller};
+pub use mcp_dispatcher::{
+    resolve_server_for_plugin, McpHookDispatcher, McpManagerCaller, McpToolCaller,
+};
 pub use self_correction::{ErrorClass, SelfCorrectMode, SelfCorrectionHook};
 pub use verify_write::VerifyWriteHook;
 
