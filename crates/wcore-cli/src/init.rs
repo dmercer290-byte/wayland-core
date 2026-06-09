@@ -1,6 +1,13 @@
 //! `wayland-core init` — scaffold a `.wayland/` directory in the
 //! current project with a starter `config.toml` plus a `WAYLAND.md`
-//! template at the project root.
+//! at the project root.
+//!
+//! The `WAYLAND.md` ships the portable §0-9 agent discipline (the
+//! `AGENTS.md`-standard behavioral scaffold) so a freshly-init'd project
+//! starts disciplined, not with empty TODOs. §10 (project context) is
+//! auto-filled from a best-effort scan of the project root — detected
+//! stack, build/test/lint commands, and (for Cargo workspaces) the
+//! member crates. §11 (learnings) starts empty and accretes over time.
 //!
 //! v0.7.0 1.B.2: non-interactive by design. Reads `WAYLAND_MODEL`
 //! from the environment if set, otherwise writes a placeholder. The
@@ -8,7 +15,7 @@
 //! `--force` is passed.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 
@@ -16,6 +23,13 @@ use clap::Args;
 /// `WAYLAND_MODEL` nor `--model` is supplied. Kept here as a constant
 /// so a single edit drives the test fixture + the user-facing copy.
 pub const PLACEHOLDER_MODEL: &str = "claude-sonnet-4-6";
+
+/// The portable §0-9 discipline scaffold plus the §10/§11 frame. Two
+/// placeholders are substituted at render time: `{{PROJECT_NAME}}` (the
+/// project directory name) and `{{PROJECT_CONTEXT}}` (the §10 body built
+/// from a scan of the project root). Embedded at compile time so the
+/// binary ships the discipline with no external file dependency.
+const WAYLAND_MD_TEMPLATE: &str = include_str!("init_template.md");
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct InitArgs {
@@ -78,33 +92,175 @@ pub fn render_config_toml(model: &str) -> String {
     )
 }
 
-/// Render the `WAYLAND.md` template. Project-specific context that
-/// the engine auto-detects via 1.C.1's `ProjectContext` scanner.
-pub fn render_context_md(project_name: &str) -> String {
-    format!(
-        "# {project_name}\n\
-         \n\
-         > Project context auto-loaded by Wayland-Core. The engine\n\
-         > walks the working directory up to the filesystem root,\n\
-         > picking up the closest WAYLAND.md / AGENTS.md /\n\
-         > .wayland/context.md / CLAUDE.md it finds.\n\
-         \n\
-         ## Overview\n\
-         \n\
-         _Describe what this project does in 1-2 sentences._\n\
-         \n\
-         ## Conventions\n\
-         \n\
-         _List the load-bearing patterns / forbidden moves / commands\n\
-         worth pinning. Keep it under 200 lines — long context files\n\
-         drown the model._\n\
-         \n\
-         ## Commands\n\
-         \n\
-         - Build: `TODO`\n\
-         - Test:  `TODO`\n\
-         - Lint:  `TODO`\n"
-    )
+/// Render the full `WAYLAND.md`: the portable §0-9 discipline scaffold
+/// with the project name and the scanned §10 body substituted in.
+pub fn render_context_md(project_name: &str, section_10: &str) -> String {
+    WAYLAND_MD_TEMPLATE
+        .replace("{{PROJECT_NAME}}", project_name)
+        .replace("{{PROJECT_CONTEXT}}", section_10)
+}
+
+/// A best-effort read of the project root: the primary stack plus the
+/// commands and (for Cargo workspaces) member crates worth pinning in
+/// §10. Detection is by manifest presence — cheap, offline, no shell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectScan {
+    /// Human-readable stack label, or empty when undetected.
+    pub stack: &'static str,
+    /// Canonical build / test / lint / format commands for the stack.
+    /// Empty string means "no canonical command — leave a TODO".
+    pub build: &'static str,
+    pub test: &'static str,
+    pub lint: &'static str,
+    pub fmt: &'static str,
+    /// Cargo workspace member crate paths (empty for non-workspaces).
+    pub crates: Vec<String>,
+}
+
+/// Detect the primary stack of `root` by manifest presence and return
+/// the canonical commands. Cargo wins ties (it's the closest match for
+/// this tool's own ecosystem); falls through to an empty scan when no
+/// known manifest is found.
+pub fn scan_project(root: &Path) -> ProjectScan {
+    let has = |name: &str| root.join(name).exists();
+    if has("Cargo.toml") {
+        ProjectScan {
+            stack: "Rust",
+            build: "cargo build",
+            test: "cargo test",
+            lint: "cargo clippy --all-targets",
+            fmt: "cargo fmt --all",
+            crates: cargo_workspace_members(&root.join("Cargo.toml")),
+        }
+    } else if has("package.json") {
+        ProjectScan {
+            stack: "Node / TypeScript",
+            build: "npm run build",
+            test: "npm test",
+            lint: "npm run lint",
+            fmt: "npm run format",
+            crates: Vec::new(),
+        }
+    } else if has("pyproject.toml") || has("setup.py") || has("requirements.txt") {
+        ProjectScan {
+            stack: "Python",
+            build: "",
+            test: "pytest",
+            lint: "ruff check .",
+            fmt: "ruff format .",
+            crates: Vec::new(),
+        }
+    } else if has("go.mod") {
+        ProjectScan {
+            stack: "Go",
+            build: "go build ./...",
+            test: "go test ./...",
+            lint: "go vet ./...",
+            fmt: "gofmt -l .",
+            crates: Vec::new(),
+        }
+    } else {
+        ProjectScan {
+            stack: "",
+            build: "",
+            test: "",
+            lint: "",
+            fmt: "",
+            crates: Vec::new(),
+        }
+    }
+}
+
+/// Parse a Cargo manifest's `[workspace].members`, expanding a single
+/// trailing `/*` glob one level deep (the common workspace layout).
+/// Returns sorted relative paths; empty on any parse failure or for a
+/// non-workspace manifest.
+fn cargo_workspace_members(cargo_toml: &Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(cargo_toml) else {
+        return Vec::new();
+    };
+    // Parse as a document (`toml::Table`), not a single value: `Value::from_str`
+    // rejects `[table]` headers.
+    let Ok(doc) = toml::from_str::<toml::Table>(&text) else {
+        return Vec::new();
+    };
+    let Some(members) = doc
+        .get("workspace")
+        .and_then(|w| w.get("members"))
+        .and_then(|m| m.as_array())
+    else {
+        return Vec::new();
+    };
+    let root = cargo_toml.parent().unwrap_or_else(|| Path::new("."));
+    let mut out = Vec::new();
+    for member in members {
+        let Some(pattern) = member.as_str() else {
+            continue;
+        };
+        match pattern.strip_suffix("/*") {
+            Some(prefix) => {
+                if let Ok(entries) = fs::read_dir(root.join(prefix)) {
+                    for entry in entries.flatten() {
+                        if entry.path().join("Cargo.toml").exists()
+                            && let Some(name) = entry.file_name().to_str()
+                        {
+                            out.push(format!("{prefix}/{name}"));
+                        }
+                    }
+                }
+            }
+            None => out.push(pattern.to_string()),
+        }
+    }
+    // `workspace-hack` is a cargo-hakari build artifact, not a documented crate.
+    out.retain(|m| m.rsplit('/').next() != Some("workspace-hack"));
+    out.sort();
+    out
+}
+
+/// Build the §10 "Project context" body from a scan. With a detected
+/// stack it pins the commands (and crate map for Cargo workspaces);
+/// with no detected stack it falls back to an honest TODO skeleton.
+pub fn render_section_10(project_name: &str, scan: &ProjectScan) -> String {
+    let cmd = |label: &str, value: &str| {
+        if value.is_empty() {
+            format!("- {label}: `TODO`\n")
+        } else {
+            format!("- {label}: `{value}`\n")
+        }
+    };
+
+    if scan.stack.is_empty() {
+        return format!(
+            "_Describe what {project_name} does in 1-2 sentences, then pin the load-bearing \
+             patterns, forbidden moves, and commands worth knowing._\n\n\
+             ### Commands\n\n\
+             - Build: `TODO`\n\
+             - Test:  `TODO`\n\
+             - Lint:  `TODO`\n"
+        );
+    }
+
+    let mut body = format!(
+        "**Stack:** {} (detected by `wayland-core init`). _Refine this: describe what \
+         {project_name} does and the load-bearing patterns / forbidden moves worth pinning._\n\n\
+         ### Commands\n\n",
+        scan.stack
+    );
+    body.push_str(&cmd("Build", scan.build));
+    body.push_str(&cmd("Test", scan.test));
+    body.push_str(&cmd("Lint", scan.lint));
+    body.push_str(&cmd("Format", scan.fmt));
+    if !scan.crates.is_empty() {
+        body.push_str(&format!(
+            "\n### Workspace ({} crates)\n\n",
+            scan.crates.len()
+        ));
+        for krate in &scan.crates {
+            body.push_str(&format!("- `{krate}`\n"));
+        }
+    }
+    body
 }
 
 /// Run the init scaffolder. Returns an outcome describing which files
@@ -138,11 +294,16 @@ pub fn run(args: InitArgs) -> std::io::Result<InitOutcome> {
         if context_path.exists() && !args.force {
             outcome.skipped.push("WAYLAND.md".to_string());
         } else {
-            let project_name = root
+            // Canonicalize first so a relative root (or `.`) still yields the
+            // real directory name — `Path::new(".").file_name()` is `None`.
+            let canonical = fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
+            let project_name = canonical
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or("project");
-            fs::write(&context_path, render_context_md(project_name))?;
+            let scan = scan_project(&root);
+            let section_10 = render_section_10(project_name, &scan);
+            fs::write(&context_path, render_context_md(project_name, &section_10))?;
             outcome.wrote_context = true;
         }
     }
@@ -264,5 +425,104 @@ mod tests {
                 std::env::set_var("WAYLAND_MODEL", v);
             }
         }
+    }
+
+    #[test]
+    fn deployed_wayland_md_ships_the_discipline_scaffold() {
+        let tmp = TempDir::new().unwrap();
+        run(args_in(tmp.path())).unwrap();
+        let md = std::fs::read_to_string(tmp.path().join("WAYLAND.md")).unwrap();
+        // The portable §0-9 discipline must be present, not an empty stub.
+        assert!(md.contains("## 0. Non-negotiables"), "missing §0");
+        assert!(
+            md.contains("Working code only. Finish the job. Plausibility is not correctness."),
+            "missing the discipline header line"
+        );
+        assert!(md.contains("## 9. Self-improvement loop"), "missing §9");
+        assert!(md.contains("## 11. Project Learnings"), "missing §11");
+        // No template placeholders may survive into the deployed file.
+        assert!(
+            !md.contains("{{PROJECT_NAME}}") && !md.contains("{{PROJECT_CONTEXT}}"),
+            "unsubstituted placeholder leaked into WAYLAND.md"
+        );
+    }
+
+    #[test]
+    fn section_10_autofills_for_a_cargo_workspace() {
+        let tmp = TempDir::new().unwrap();
+        // A minimal workspace with a globbed member crate plus the hakari
+        // `workspace-hack` member (which must be filtered out of §10).
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\", \"workspace-hack\"]\n",
+        )
+        .unwrap();
+        let krate = tmp.path().join("crates/widget");
+        std::fs::create_dir_all(&krate).unwrap();
+        std::fs::write(krate.join("Cargo.toml"), "[package]\nname = \"widget\"\n").unwrap();
+        let hack = tmp.path().join("workspace-hack");
+        std::fs::create_dir_all(&hack).unwrap();
+        std::fs::write(
+            hack.join("Cargo.toml"),
+            "[package]\nname = \"workspace-hack\"\n",
+        )
+        .unwrap();
+
+        run(args_in(tmp.path())).unwrap();
+        let md = std::fs::read_to_string(tmp.path().join("WAYLAND.md")).unwrap();
+        assert!(md.contains("**Stack:** Rust"), "stack not detected: {md}");
+        assert!(
+            md.contains("cargo clippy --all-targets"),
+            "lint command missing"
+        );
+        assert!(
+            md.contains("crates/widget"),
+            "globbed workspace member not expanded into §10"
+        );
+        assert!(
+            !md.contains("workspace-hack"),
+            "hakari workspace-hack member should be filtered out of §10"
+        );
+        // The scanned §10 replaces the TODO skeleton for known stacks.
+        assert!(
+            !md.contains("- Build: `TODO`"),
+            "TODO skeleton not replaced"
+        );
+    }
+
+    #[test]
+    fn section_10_falls_back_to_todo_for_unknown_stack() {
+        let tmp = TempDir::new().unwrap();
+        run(args_in(tmp.path())).unwrap();
+        let md = std::fs::read_to_string(tmp.path().join("WAYLAND.md")).unwrap();
+        // Empty dir → no manifest → honest TODO skeleton in §10.
+        assert!(
+            md.contains("- Build: `TODO`"),
+            "expected TODO skeleton: {md}"
+        );
+    }
+
+    #[test]
+    fn h1_uses_the_real_directory_name() {
+        let tmp = TempDir::new().unwrap();
+        run(args_in(tmp.path())).unwrap();
+        let md = std::fs::read_to_string(tmp.path().join("WAYLAND.md")).unwrap();
+        let canonical = std::fs::canonicalize(tmp.path()).unwrap();
+        let name = canonical.file_name().unwrap().to_str().unwrap();
+        assert!(
+            md.starts_with(&format!("# {name}\n")),
+            "H1 should be the canonical dir name `{name}`, got: {:?}",
+            md.lines().next()
+        );
+    }
+
+    #[test]
+    fn scan_detects_node_over_empty() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("package.json"), "{}").unwrap();
+        let scan = scan_project(tmp.path());
+        assert_eq!(scan.stack, "Node / TypeScript");
+        assert_eq!(scan.test, "npm test");
+        assert!(scan.crates.is_empty());
     }
 }
