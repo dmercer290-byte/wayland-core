@@ -38,6 +38,12 @@ use crate::plugins::runner::PluginHook;
 /// generous because it runs once; per-turn phases use a tighter bound.
 const SESSION_START_DISPATCH_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// Per-turn ceiling on a single `PrePrompt` plugin-hook dispatch. Tighter than
+/// SessionStart because this fires on EVERY user turn, immediately before the
+/// request is streamed: a slow backend must never add perceptible latency to a
+/// turn. On timeout the hook contributes nothing and the turn proceeds.
+const PRE_PROMPT_DISPATCH_TIMEOUT: Duration = Duration::from_millis(800);
+
 /// Host-provided bridge that resolves a registered plugin-hook NAME to a real
 /// backend (e.g. an MCP tool on the plugin's server) and returns its textual
 /// contribution, or `None` if it has nothing to add.
@@ -182,9 +188,10 @@ impl HookEngine {
     /// shell hooks (different phase set, no shell command). Phase 1: firing
     /// emits a tracing log line; no arbitrary behaviour is executed.
     ///
-    /// Note: `SessionStart`, `PrePrompt`, and `PreCompact` have no current
-    /// firing entrypoint — hooks registered at those phases are stored and
-    /// visible via `plugin_hooks()` but are not yet fired.
+    /// Note: `SessionStart` and `PrePrompt` now dispatch a contribution into the
+    /// conversation when a `HookDispatcher` is wired (C1 tasks A2/A3).
+    /// `PreCompact` is registered and fired log-only — its contribution-as-
+    /// compaction-hint path is deferred (see `run_pre_compact`).
     pub fn register_plugin_hook(&mut self, hook: PluginHook) {
         self.plugin_hooks.push(hook);
     }
@@ -321,17 +328,29 @@ impl HookEngine {
     }
 
     /// Fire `PrePrompt` plugin hooks once per turn, after the request is
-    /// assembled and immediately before it is streamed. Log-only (Phase 1).
+    /// assembled and immediately before it is streamed.
     pub async fn run_pre_prompt(&self) -> HookOutcome {
         let mut outcome = HookOutcome::default();
         outcome
             .hook_trace
             .extend(self.fire_plugin_hooks(HookPhase::PrePrompt, "pre_prompt", ""));
+        // C1: if a host dispatcher is wired, invoke each PrePrompt plugin hook
+        // and fold its contribution into the outcome as an untrusted User-role
+        // block. No-op (log-only) when no dispatcher is set. The caller applies
+        // these to the volatile request tail BEFORE `mark_cache_boundaries`, so
+        // the cached system+tools prefix is never shifted.
+        self.dispatch_into(
+            &mut outcome,
+            HookPhase::PrePrompt,
+            PRE_PROMPT_DISPATCH_TIMEOUT,
+        )
+        .await;
         outcome
     }
 
     /// Fire `PreCompact` plugin hooks once per turn, immediately before the
     /// multi-level compaction pass runs. Log-only (Phase 1).
+    // TODO(C1): PreCompact contribution → compaction hint (deferred)
     pub async fn run_pre_compact(&self, turn: usize, message_count: usize) -> HookOutcome {
         let mut outcome = HookOutcome::default();
         outcome.hook_trace.extend(self.fire_plugin_hooks(
@@ -601,5 +620,51 @@ mod c1_dispatch_proof {
         }));
         let outcome = engine.run_session_start().await;
         assert!(outcome.injected_messages.is_empty());
+    }
+
+    // CLAIM (A3): a PrePrompt contribution reaches the outcome as a User-role
+    // <plugin-context trust="untrusted"> block — mirroring SessionStart. Proves
+    // `run_pre_prompt` now dispatches (was previously log-only).
+    #[tokio::test]
+    async fn pre_prompt_contribution_is_an_untrusted_user_block() {
+        let mut engine = HookEngine::new(HooksConfig::default());
+        engine.register_plugin_hook(PluginHook {
+            plugin: "wayland-ijfw".to_string(),
+            phase: HookPhase::PrePrompt,
+            name: "ijfw_memory_recall".to_string(),
+        });
+        engine.set_dispatcher(Arc::new(StubDispatcher {
+            text: Some("PER-TURN-RECALL".to_string()),
+            delay: Duration::ZERO,
+        }));
+        let outcome = engine.run_pre_prompt().await;
+        let text = sole_text(&outcome);
+        assert!(
+            text.contains("trust=\"untrusted\""),
+            "missing untrusted envelope: {text}"
+        );
+        assert!(
+            text.contains("source=\"wayland-ijfw:ijfw_memory_recall\""),
+            "missing provenance: {text}"
+        );
+        assert!(
+            text.contains("PER-TURN-RECALL"),
+            "missing contribution body: {text}"
+        );
+    }
+
+    // CLAIM (A3 degradation): with no dispatcher wired, PrePrompt stays on the
+    // legacy log-only path — one trace line, zero injected messages.
+    #[tokio::test]
+    async fn pre_prompt_no_dispatcher_preserves_log_only_behavior() {
+        let mut engine = HookEngine::new(HooksConfig::default());
+        engine.register_plugin_hook(PluginHook {
+            plugin: "wayland-ijfw".to_string(),
+            phase: HookPhase::PrePrompt,
+            name: "ijfw_memory_recall".to_string(),
+        });
+        let outcome = engine.run_pre_prompt().await;
+        assert!(outcome.injected_messages.is_empty());
+        assert_eq!(outcome.hook_trace.len(), 1, "log-only fire still happens");
     }
 }
