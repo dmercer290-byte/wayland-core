@@ -29,6 +29,72 @@ const DIFF_RESEND_HEADER: &str = "File changed since your last read. Showing onl
 /// fraction of the full numbered content it would replace.
 const DIFF_RESEND_MAX_RATIO: f64 = 0.6;
 
+/// Token-opt (semantic slicing): build the Read result for a `symbol=` request.
+/// Returns the symbol's line window (numbered, with a header + expansion hint),
+/// or a recoverable message when the symbol isn't found / the language has no
+/// extractor. Never errors — the model can always re-read without `symbol=`.
+fn build_symbol_result(text: &str, path: &Path, symbol: &str) -> ToolResult {
+    use crate::symbol_slice::{SymbolSlice, resolve_symbol};
+
+    match resolve_symbol(path, text, symbol) {
+        SymbolSlice::Found {
+            start,
+            end,
+            kind,
+            multiple,
+        } => {
+            let lines: Vec<&str> = text.lines().collect();
+            let total = lines.len();
+            // `resolve_symbol` only returns Found for non-empty files with the
+            // window inside bounds; clamp defensively anyway.
+            let s = start.clamp(1, total.max(1));
+            let e = end.clamp(s, total.max(1));
+            let slice = &lines[s - 1..e.min(total)];
+            let numbered: Vec<String> = slice
+                .iter()
+                .enumerate()
+                .map(|(i, line)| format!("{:>6}\t{}", s + i, line))
+                .collect();
+            let mut header = format!(
+                "Symbol `{symbol}` ({kind:?}, lines {s}\u{2013}{e} of {total}). Re-read without \
+                 symbol= for the full file, or with offset/limit for a different window."
+            );
+            if multiple {
+                header.push_str(&format!(
+                    "\n(Multiple symbols named `{symbol}` exist; showing the first.)"
+                ));
+            }
+            ToolResult {
+                content: format!("{header}\n{}", numbered.join("\n")),
+                is_error: false,
+            }
+        }
+        SymbolSlice::NotFound { available } => {
+            let list = if available.is_empty() {
+                "(none detected)".to_string()
+            } else {
+                available.join(", ")
+            };
+            ToolResult {
+                content: format!(
+                    "No symbol named `{symbol}` found in {}. Available symbols: {list}. Omit \
+                     symbol= for the full file, or use offset/limit.",
+                    path.display()
+                ),
+                is_error: false,
+            }
+        }
+        SymbolSlice::Unsupported => ToolResult {
+            content: format!(
+                "Symbol slicing is only available for Rust / TypeScript / JavaScript files. \
+                 Re-read {} without symbol= (or with offset/limit) to view it.",
+                path.display()
+            ),
+            is_error: false,
+        },
+    }
+}
+
 pub struct ReadTool {
     file_cache: Option<Arc<RwLock<FileStateCache>>>,
 }
@@ -53,6 +119,9 @@ impl Tool for ReadTool {
          Usage:\n\
          - The file_path parameter must be an absolute path, not a relative path.\n\
          - By default, it reads the entire file. Use offset and limit for partial reads on large files.\n\
+         - To read just one definition from a large Rust/TypeScript/JavaScript file, pass symbol=\"name\" \
+         (a function, struct, enum, trait, impl, class, or interface). Returns only that symbol's lines \
+         plus a hint for expanding back to the full file. Saves tokens when you only need one definition.\n\
          - Results are returned with line numbers (1-based) followed by a tab and the line content.\n\
          - Binary files return \"(binary file, N bytes)\" instead of content.\n\
          - This tool can only read files, not directories. To list a directory, use Bash with ls."
@@ -73,6 +142,10 @@ impl Tool for ReadTool {
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of lines to read"
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "Return only this named symbol (function/struct/enum/trait/impl/class/interface) from a Rust/TS/JS file, instead of the whole file. Ignored if the file type is unsupported or the symbol is not found (a recoverable message lists available names)."
                 }
             },
             "required": ["file_path"]
@@ -106,6 +179,9 @@ impl Tool for ReadTool {
 
         let offset = input["offset"].as_u64().map(|v| v as usize);
         let limit = input["limit"].as_u64().map(|v| v as usize);
+        // Token-opt (semantic slicing): an explicit symbol request bypasses the
+        // dedup/diff cache — it's a targeted view, computed fresh from the file.
+        let symbol = input["symbol"].as_str().filter(|s| !s.is_empty());
 
         // Get file mtime for dedup and cache.
         let mtime_ms = file_mtime_ms(&validated);
@@ -119,7 +195,8 @@ impl Tool for ReadTool {
         // see mtime-equality and emit "file unchanged, refer to the earlier Read" —
         // but the earlier Read in the transcript is the *pre-edit* content. Only a
         // `ReadResult` entry is something the model has actually seen as a read.
-        if let (Some(cache_arc), Some(current_mtime)) = (&self.file_cache, mtime_ms)
+        if symbol.is_none()
+            && let (Some(cache_arc), Some(current_mtime)) = (&self.file_cache, mtime_ms)
             && let Ok(mut cache) = cache_arc.write()
             && let Some(cached) = cache.get(&validated)
             && cached.offset == offset
@@ -153,6 +230,12 @@ impl Tool for ReadTool {
         }
 
         let text = String::from_utf8_lossy(&content);
+
+        // Token-opt (semantic slicing): targeted symbol view, not cached.
+        if let Some(sym) = symbol {
+            return build_symbol_result(text.as_ref(), &validated, sym);
+        }
+
         let lines: Vec<&str> = text.lines().collect();
 
         let effective_offset = offset.unwrap_or(0);
@@ -224,6 +307,9 @@ impl Tool for ReadTool {
 
         let offset = input["offset"].as_u64().map(|v| v as usize);
         let limit = input["limit"].as_u64().map(|v| v as usize);
+        // Token-opt (semantic slicing): a symbol request is a targeted view,
+        // computed fresh — it skips the dedup stub and diff-resend entirely.
+        let symbol = input["symbol"].as_str().filter(|s| !s.is_empty());
 
         let path = validated.as_path();
         let mtime_ms = file_mtime_ms(path);
@@ -247,7 +333,8 @@ impl Tool for ReadTool {
         let mut diff_base: Option<String> = None;
         let mut current_gen: u64 = 0;
 
-        if let (Some(cache_arc), Some(current_mtime)) = (&self.file_cache, mtime_ms)
+        if symbol.is_none()
+            && let (Some(cache_arc), Some(current_mtime)) = (&self.file_cache, mtime_ms)
             && let Ok(mut cache) = cache_arc.write()
         {
             let optimize_reads = cache.optimize_reads();
@@ -293,6 +380,12 @@ impl Tool for ReadTool {
         }
 
         let text = String::from_utf8_lossy(&content);
+
+        // Token-opt (semantic slicing): targeted symbol view, not cached.
+        if let Some(sym) = symbol {
+            return build_symbol_result(text.as_ref(), &validated, sym);
+        }
+
         let lines: Vec<&str> = text.lines().collect();
 
         let effective_offset = offset.unwrap_or(0);
@@ -855,5 +948,85 @@ mod tests {
         // No change at all: the stub still fires (mtime + ReadResult match).
         let r2 = tool.execute_with_ctx(input, &ctx).await;
         assert_eq!(r2.content, FILE_UNCHANGED_STUB);
+    }
+
+    // -- semantic slicing (symbol=) tests --
+
+    #[tokio::test]
+    async fn symbol_read_returns_only_the_symbol() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("code.rs");
+        std::fs::write(
+            &file,
+            "fn alpha() {\n    let a = 111;\n    a\n}\n\n\
+             fn target() {\n    let unique_marker = 222;\n    unique_marker\n}\n\n\
+             fn omega() {\n    let z = 333;\n    z\n}\n",
+        )
+        .unwrap();
+
+        let tool = ReadTool::new(None);
+        let input = json!({ "file_path": file.to_str().unwrap(), "symbol": "target" });
+        let r = tool.execute(input).await;
+
+        assert!(!r.is_error);
+        assert!(
+            r.content.contains("Symbol `target`"),
+            "header present: {}",
+            r.content
+        );
+        assert!(r.content.contains("unique_marker"), "target body present");
+        // The other functions' bodies must NOT be included.
+        assert!(!r.content.contains("let a = 111"), "alpha body excluded");
+        assert!(!r.content.contains("let z = 333"), "omega body excluded");
+        // Line numbers are anchored to the real file (target starts at line 6).
+        assert!(r.content.contains("     6\tfn target() {"));
+    }
+
+    #[tokio::test]
+    async fn symbol_not_found_lists_available_names() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("code.rs");
+        std::fs::write(&file, "fn alpha() {}\nstruct Beta {}\n").unwrap();
+
+        let tool = ReadTool::new(None);
+        let input = json!({ "file_path": file.to_str().unwrap(), "symbol": "ghost" });
+        let r = tool.execute(input).await;
+
+        assert!(!r.is_error);
+        assert!(r.content.contains("No symbol named `ghost`"));
+        assert!(r.content.contains("alpha"));
+        assert!(r.content.contains("Beta"));
+    }
+
+    #[tokio::test]
+    async fn symbol_on_unsupported_file_type_is_recoverable() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("notes.txt");
+        std::fs::write(&file, "just some prose\nnot code\n").unwrap();
+
+        let tool = ReadTool::new(None);
+        let input = json!({ "file_path": file.to_str().unwrap(), "symbol": "anything" });
+        let r = tool.execute(input).await;
+
+        assert!(!r.is_error);
+        assert!(r.content.contains("only available for Rust"));
+        // Must NOT dump the file content (that would defeat the token saving).
+        assert!(!r.content.contains("just some prose"));
+    }
+
+    #[tokio::test]
+    async fn empty_symbol_param_falls_back_to_full_read() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("code.rs");
+        std::fs::write(&file, "fn alpha() {\n    1\n}\n").unwrap();
+
+        let tool = ReadTool::new(None);
+        // An empty symbol string must be treated as "no symbol" → full file.
+        let input = json!({ "file_path": file.to_str().unwrap(), "symbol": "" });
+        let r = tool.execute(input).await;
+
+        assert!(!r.is_error);
+        assert!(r.content.contains("1\tfn alpha"));
+        assert!(!r.content.contains("Symbol `"));
     }
 }
