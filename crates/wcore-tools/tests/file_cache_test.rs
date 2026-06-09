@@ -25,6 +25,7 @@ fn make_state(content: &str, mtime_ms: u64) -> FileState {
         offset: None,
         limit: None,
         provenance: Provenance::ReadResult,
+        gen_at_read: 0,
     }
 }
 
@@ -224,6 +225,7 @@ fn partial_read_state_round_trip() {
         offset: Some(10),
         limit: Some(20),
         provenance: Provenance::ReadResult,
+        gen_at_read: 0,
     };
     cache.insert(PathBuf::from("/partial"), state);
 

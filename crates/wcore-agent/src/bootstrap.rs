@@ -202,9 +202,18 @@ impl AgentBootstrap {
         let memory_dir = wcore_memory::paths::auto_memory_dir(cwd_path);
 
         let file_cache = if self.config.file_cache.enabled {
-            Some(Arc::new(std::sync::RwLock::new(
+            let cache = Arc::new(std::sync::RwLock::new(
                 wcore_tools::file_cache::FileStateCache::new(&self.config.file_cache),
-            )))
+            ));
+            // Token-opt (diff-resend): enable client-side diff answers only on
+            // routes that optimize client-side. Router-optimized routes leave
+            // this off and send full reads. Set once here from the resolved
+            // compat (config is moved into the engine below, so it must happen
+            // before construction).
+            if let Ok(mut c) = cache.write() {
+                c.set_optimize_reads(self.config.compat.input_optimization() == "client");
+            }
+            Some(cache)
         } else {
             None
         };
@@ -212,6 +221,10 @@ impl AgentBootstrap {
         // F13 (Task 8): keep a clone of file_cache so the Script dispatcher
         // can mint a parallel Read/Write/Edit set that shares the same cache.
         let file_cache_for_script = file_cache.clone();
+        // Token-opt (diff-resend): keep a clone for the engine so it can bump the
+        // cache's compaction generation after each compaction pass (the original
+        // `file_cache` is moved into EditTool below).
+        let file_cache_for_engine = file_cache.clone();
 
         let mut registry = wcore_tools::registry::ToolRegistry::new();
 
@@ -1597,6 +1610,12 @@ impl AgentBootstrap {
             AgentEngine::new_with_provider(provider.clone(), self.config, registry, self.output)
         };
         engine.set_plan_active_flag(plan_active_flag);
+        // Token-opt (diff-resend): give the engine the shared file cache so it
+        // can bump the compaction generation after each compaction pass,
+        // invalidating read bases the model can no longer see.
+        if let Some(fc) = file_cache_for_engine {
+            engine.set_file_cache(fc);
+        }
         // Wave 6A.1 — hand the on-disk plugin runtime keepalives to the
         // engine so they outlive the registered tool closures.
         engine.set_plugin_runtime_handles(plugin_runtime_keepalives);

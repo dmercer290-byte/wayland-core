@@ -528,6 +528,12 @@ pub struct AgentEngine {
     /// the cache-WRITE rate every MCP turn. Reset only when the MCP tool
     /// inventory itself changes (server connect/disconnect / plugin reload).
     mcp_curation_cache: Option<(u64, std::collections::HashSet<String>)>,
+    /// Token-opt (diff-resend): handle to the shared file-state cache (the same
+    /// `Arc` the Read/Edit/Write tools hold). Used only to bump the cache's
+    /// compaction generation after a compaction pass, so stale read bases stop
+    /// qualifying for diff-resend. `None` in test engines and when the file
+    /// cache is disabled; wired by `AgentBootstrap` via `set_file_cache`.
+    file_cache: Option<Arc<std::sync::RwLock<wcore_tools::file_cache::FileStateCache>>>,
     /// W6 F17 — audit-log handle for the recency input to `McpCurator`.
     /// `None` means the agent runs without M2 memory wiring (test envs);
     /// curation gracefully degrades to keyword-only ranking in that case.
@@ -946,6 +952,7 @@ impl AgentEngine {
             per_turn_costs: Vec::new(),
             mcp_curation: config.mcp.curation.clone(),
             mcp_curation_cache: None,
+            file_cache: None,
             audit_log: None,
             // W7 Pre-flight 0: default to NullMemory; `AgentBootstrap`
             // calls `set_memory_api()` after construction when a real
@@ -1102,6 +1109,7 @@ impl AgentEngine {
             per_turn_costs: Vec::new(),
             mcp_curation: config.mcp.curation.clone(),
             mcp_curation_cache: None,
+            file_cache: None,
             audit_log: None,
             // W7 Pre-flight 0: default to NullMemory; `AgentBootstrap`
             // calls `set_memory_api()` after construction when a real
@@ -1913,6 +1921,29 @@ impl AgentEngine {
         notifier: Arc<dyn wcore_tools::file_write_notifier::FileWriteNotifier>,
     ) {
         let _ = self.tool_write_notifier.set(notifier);
+    }
+
+    /// Token-opt (diff-resend): wire the shared file-state cache so the engine
+    /// can bump its compaction generation after each compaction pass. Called
+    /// once by `AgentBootstrap` with the same `Arc` the Read/Edit/Write tools
+    /// hold. Engines without a file cache (tests, cache-disabled) skip this and
+    /// diff-resend simply never fires.
+    pub fn set_file_cache(
+        &mut self,
+        cache: Arc<std::sync::RwLock<wcore_tools::file_cache::FileStateCache>>,
+    ) {
+        self.file_cache = Some(cache);
+    }
+
+    /// Token-opt (diff-resend): invalidate cached read bases for diffing by
+    /// advancing the file cache's compaction generation. No-op when no cache is
+    /// wired or the lock is poisoned.
+    fn bump_file_cache_generation(&self) {
+        if let Some(cache) = &self.file_cache
+            && let Ok(mut c) = cache.write()
+        {
+            c.bump_compaction_generation();
+        }
     }
 
     /// W8b.2.B Task 7: read access to the notifier. `None` when no
@@ -4179,6 +4210,10 @@ impl AgentEngine {
                     "Microcompact: cleared {} tool results (~{} tokens freed)",
                     result.cleared_count, result.estimated_tokens_freed
                 ));
+                // Token-opt (diff-resend): clearing a tool-result body can remove
+                // the read content a cached diff base references. Bump the file
+                // cache's compaction generation so those bases stop qualifying.
+                self.bump_file_cache_generation();
             }
         }
 
@@ -4244,6 +4279,10 @@ impl AgentEngine {
                     self.compaction_floor += collapsed;
                     self.messages = vec![Message::now(Role::User, folded)];
                     compacted = true;
+                    // Token-opt (diff-resend): autocompact collapsed the leading
+                    // prefix, so any read base cached before now is no longer in
+                    // the visible transcript. Invalidate diff bases.
+                    self.bump_file_cache_generation();
                 }
                 Err(auto::CompactError::CircuitBroken { .. }) => {
                     // Already tripped; logged at circuit-breaker level.
@@ -5406,6 +5445,7 @@ mod set_config_tests {
             per_turn_costs: Vec::new(),
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
+            file_cache: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -6124,6 +6164,7 @@ mod phase6_tests {
             per_turn_costs: Vec::new(),
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
+            file_cache: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -6402,6 +6443,7 @@ mod compact_tests {
             per_turn_costs: Vec::new(),
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
+            file_cache: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -7096,6 +7138,54 @@ mod compact_tests {
         assert!(engine.message_index_still_visible(0));
     }
 
+    #[tokio::test]
+    async fn autocompact_bumps_wired_file_cache_generation() {
+        // Token-opt (diff-resend): when the engine has a wired file cache, a
+        // compaction pass must advance the cache's compaction generation so
+        // stale read bases stop qualifying for diff-resend.
+        let config = CompactConfig {
+            context_window: 200_000,
+            ..Default::default()
+        };
+        let mut state = CompactState::new();
+        state.last_input_tokens = 180_000;
+        let messages = vec![
+            Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "leading".into(),
+                }],
+            ),
+            Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "the live task".into(),
+                }],
+            ),
+        ];
+        let mut engine = make_compact_engine(config, state, messages);
+        engine.provider = Arc::new(SummaryProvider);
+
+        let cache = Arc::new(std::sync::RwLock::new(
+            wcore_tools::file_cache::FileStateCache::new(
+                &wcore_config::file_cache::FileCacheConfig {
+                    max_entries: 10,
+                    max_size_bytes: 1_000_000,
+                    enabled: true,
+                },
+            ),
+        ));
+        assert_eq!(cache.read().unwrap().compaction_generation(), 0);
+        engine.set_file_cache(cache.clone());
+
+        engine.run_compaction().await.expect("autocompact succeeds");
+
+        assert!(
+            cache.read().unwrap().compaction_generation() >= 1,
+            "a compaction pass must bump the wired file cache's generation"
+        );
+    }
+
     // -- Circuit broken prevents autocompact, emergency still fires --
 
     #[tokio::test]
@@ -7250,6 +7340,7 @@ mod plan_mode_tests {
             per_turn_costs: Vec::new(),
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
+            file_cache: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -7661,6 +7752,7 @@ mod hook_integration_tests {
             per_turn_costs: Vec::new(),
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
+            file_cache: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -8321,6 +8413,7 @@ mod approval_bridge_engine_tests {
             per_turn_costs: Vec::new(),
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
+            file_cache: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -8544,6 +8637,7 @@ mod user_model_writeback_tests {
             per_turn_costs: Vec::new(),
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
+            file_cache: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(

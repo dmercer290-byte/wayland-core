@@ -116,6 +116,8 @@ pub mod piper_download;
 // `postgres` cargo feature so the native client is not a default dep.
 pub mod postgres_schema_tool;
 pub mod read;
+// Token-opt (diff-resend): line diff between last-read and current content.
+pub mod read_diff;
 // Memory write tool: log a meaningful event into P2 episodic memory.
 pub mod record_episode;
 pub mod registry;

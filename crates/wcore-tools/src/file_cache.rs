@@ -21,6 +21,19 @@ pub struct FileStateCache {
     entries: LruCache<PathBuf, FileState>,
     max_size_bytes: usize,
     current_size_bytes: usize,
+    /// Token-opt (diff-resend): whether re-reads on this route may be answered
+    /// with a line diff instead of full content. Set once from the resolved
+    /// `ProviderCompat.input_optimization()` (`"client"` → true). Router-side
+    /// optimization leaves this false so the engine sends full reads and defers
+    /// to the server.
+    optimize_reads: bool,
+    /// Token-opt (diff-resend): monotonically bumped by the engine whenever a
+    /// compaction pass (autocompact OR microcompact) runs. A cached read is only
+    /// safe to answer with a diff if this generation is unchanged since the read
+    /// was cached — otherwise the base content the diff references may have been
+    /// collapsed or cleared out of the model's visible transcript. See
+    /// [`FileState::gen_at_read`].
+    compaction_generation: u64,
 }
 
 impl FileStateCache {
@@ -35,7 +48,32 @@ impl FileStateCache {
             entries: LruCache::new(cap),
             max_size_bytes: config.max_size_bytes,
             current_size_bytes: 0,
+            optimize_reads: false,
+            compaction_generation: 0,
         }
+    }
+
+    /// Token-opt: enable/disable diff-resend for this cache's route. Called once
+    /// at bootstrap from the resolved provider compat.
+    pub fn set_optimize_reads(&mut self, enabled: bool) {
+        self.optimize_reads = enabled;
+    }
+
+    /// Token-opt: whether diff-resend is enabled for this route.
+    pub fn optimize_reads(&self) -> bool {
+        self.optimize_reads
+    }
+
+    /// Token-opt: the current compaction generation. Stamped onto each cached
+    /// read; a diff is only emitted when it still matches.
+    pub fn compaction_generation(&self) -> u64 {
+        self.compaction_generation
+    }
+
+    /// Token-opt: bump the compaction generation. The engine calls this after
+    /// any compaction pass so stale read bases stop qualifying for diff-resend.
+    pub fn bump_compaction_generation(&mut self) {
+        self.compaction_generation = self.compaction_generation.saturating_add(1);
     }
 
     /// Look up a file state, promoting it to most-recently-used.
@@ -132,6 +170,7 @@ pub fn update_cache_after_write(
         .enumerate()
         .map(|(i, line)| format!("{:>6}\t{}", i + 1, line))
         .collect();
+    let gen_at_read = cache.compaction_generation();
     cache.insert(
         path.to_path_buf(),
         FileState {
@@ -140,6 +179,7 @@ pub fn update_cache_after_write(
             offset: None,
             limit: None,
             provenance: Provenance::WriteEcho,
+            gen_at_read,
         },
     );
 }
@@ -209,6 +249,7 @@ mod tests {
             offset: None,
             limit: None,
             provenance: Provenance::ReadResult,
+            gen_at_read: 0,
         }
     }
 
@@ -428,6 +469,7 @@ mod tests {
             offset: Some(10),
             limit: Some(20),
             provenance: Provenance::ReadResult,
+            gen_at_read: 0,
         };
         cache.insert(PathBuf::from("/file"), state);
         let got = cache.get(Path::new("/file")).unwrap();

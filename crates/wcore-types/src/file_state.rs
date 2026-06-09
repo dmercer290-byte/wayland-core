@@ -38,6 +38,11 @@ pub struct FileState {
     /// Whether `content` is what the model saw (ReadResult) or a post-write
     /// echo it has not seen (WriteEcho). Gates the dedup "unchanged" stub.
     pub provenance: Provenance,
+    /// Token-opt (diff-resend): the compaction generation in effect when this
+    /// content was cached. A re-read may only be answered with a diff against
+    /// this entry while the cache's generation still equals this value — past
+    /// that, the base content may have been compacted out of the transcript.
+    pub gen_at_read: u64,
 }
 
 impl FileState {
