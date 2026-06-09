@@ -815,14 +815,6 @@ pub struct AgentEngine {
     /// other case (no prelude, resume — where construction already populated
     /// `messages` before session-start hooks run, so the prelude path is skipped).
     session_start_injected_len: usize,
-    /// C1 / Task A3 — the text of the most recently injected plugin-hook context
-    /// block (the SessionStart prelude on turn 1, or the last applied PrePrompt
-    /// contribution thereafter). Used to dedup the per-turn PrePrompt injection:
-    /// if a turn's PrePrompt contribution is byte-identical to what is already in
-    /// context, re-appending it would only churn the cache for no new
-    /// information, so it is skipped. `None` until something is injected; reset on
-    /// `/clear` and `/resume` alongside `session_start_injected_len`.
-    last_context_injection: Option<String>,
 }
 
 impl Drop for AgentEngine {
@@ -1070,7 +1062,6 @@ impl AgentEngine {
             compaction_floor: 0,
             // C1 / A2 — no SessionStart prelude applied at construction.
             session_start_injected_len: 0,
-            last_context_injection: None,
         }
     }
 
@@ -1228,7 +1219,6 @@ impl AgentEngine {
             // C1 / A2 — resume populates `messages` here at construction, so
             // the session-start prelude path is skipped; baseline stays 0.
             session_start_injected_len: 0,
-            last_context_injection: None,
         }
     }
 
@@ -1881,10 +1871,6 @@ impl AgentEngine {
         // cleared buffer re-baselines it to 0 so cross-session recall keys off
         // the new (empty) buffer, not a stale prelude count.
         self.session_start_injected_len = 0;
-        // C1 / Task A3: drop the per-turn dedup baseline so a PrePrompt
-        // contribution on the cleared (cold) buffer is applied fresh rather than
-        // suppressed by a stale prior-session injection.
-        self.last_context_injection = None;
         // Token-opt: wipe the file cache (read states + read-once backrefs) too.
         // None of the prior reads/outputs are in the new transcript, so a dedup
         // stub or backref must not reference them.
@@ -1905,10 +1891,6 @@ impl AgentEngine {
         // skip), not a stale `1` left over from a prelude applied at boot — else
         // a single-message resumed session would wrongly re-trigger recall.
         self.session_start_injected_len = 0;
-        // C1 / Task A3: a resumed buffer is a fresh dedup context; a prior
-        // session's last injection must not suppress a PrePrompt contribution
-        // here. Symmetric with `clear_conversation`.
-        self.last_context_injection = None;
         // Wave-6 #5 (secondary): a resumed/loaded session must start without the
         // PREVIOUS session's explicit `/model` pin. Symmetric with
         // `clear_conversation` (a `/new` re-baselines): the loaded session's
@@ -3168,11 +3150,7 @@ impl AgentEngine {
                 for line in &outcome.hook_trace {
                     tracing::debug!(target: "wcore_agent::hooks", "{line}");
                 }
-                Self::apply_pre_prompt_contribution(
-                    &mut request.messages,
-                    &outcome,
-                    &mut self.last_context_injection,
-                );
+                Self::apply_pre_prompt_contribution(&mut request.messages, &outcome);
             }
 
             // W1 S3: place per-message cache breakpoint at the tail when the
@@ -4552,13 +4530,6 @@ impl AgentEngine {
                 chars = Self::message_text_len(&msg),
                 "session-start: applied plugin-hook prelude block to cold turn"
             );
-            // C1 / Task A3: record the last injected block text so an identical
-            // PrePrompt contribution on turn 1 dedups to a no-op (the prelude
-            // already carries it). The text blocks of a `dispatch_into` message
-            // are the wrapped `<plugin-context>` envelopes; record the last one.
-            if let Some(ContentBlock::Text { text }) = msg.content.last() {
-                self.last_context_injection = Some(text.clone());
-            }
             self.messages.push(msg);
             applied += 1;
         }
@@ -4618,33 +4589,34 @@ impl AgentEngine {
 
     /// C1 / Task A3 — apply `PrePrompt` plugin-hook contributions to the volatile
     /// request tail, cache-safely. Each contribution block is already wrapped by
-    /// `dispatch_into` as an untrusted `<plugin-context>` envelope. The whole
-    /// turn's contribution is treated as ONE batch:
+    /// `dispatch_into` as an untrusted `<plugin-context>` envelope.
     ///
     /// - collect every text block, each truncated to [`PRE_PROMPT_TOKEN_BUDGET`]
     ///   (never trust the plugin's size);
-    /// - SKIP the whole batch if it byte-equals `*last_injected` (identical
-    ///   content is already in context — re-appending churns the cache for no new
-    ///   info; this also dedups the turn-1 overlap with the SessionStart prelude);
-    /// - otherwise append every block as a `ContentBlock::Text` onto the LAST
+    /// - SKIP a block only if an identical text block ALREADY EXISTS anywhere in
+    ///   `request_messages` (e.g. the turn-1 SessionStart prelude the host already
+    ///   pushed onto history, which the per-turn clone carries) — that would be a
+    ///   true duplicate, so re-appending it churns the cache for no new info;
+    /// - otherwise append the block as a `ContentBlock::Text` onto the LAST
     ///   message ONLY IF it is `Role::User` (never append to a non-user tail —
-    ///   that would orphan a `tool_use` or create adjacent user messages);
-    /// - on a successful append, record the batch in `*last_injected`.
+    ///   that would orphan a `tool_use` or create adjacent user messages).
     ///
-    /// Dedup is at the per-turn batch granularity (not per-block) so it stays
-    /// correct when more than one `PrePrompt` hook contributes: the whole
-    /// contribution is the dedup key and the whole contribution is appended,
-    /// keeping the two in lockstep.
+    /// F3: dedup is against the per-turn request itself (which is regenerated as a
+    /// fresh `self.messages.clone()` every turn), NOT against a cross-turn field.
+    /// The previous cross-turn `last_context_injection` dedup suppressed genuinely
+    /// needed per-turn recall on turn N+1 because the regenerated clone no longer
+    /// contained it. Keying off the live request makes recall re-appear every turn
+    /// while still avoiding the turn-1 overlap with the persisted prelude. The
+    /// cache PREFIX is unaffected: the append is on the volatile tail and runs
+    /// before `mark_cache_boundaries`.
     ///
     /// Operates on `request_messages` (the per-turn CLONE), never on session
-    /// history, and runs BEFORE `mark_cache_boundaries` so the tail breakpoint
-    /// accounts for it and the cached system+tools prefix is never shifted.
+    /// history.
     fn apply_pre_prompt_contribution(
         request_messages: &mut [Message],
         outcome: &crate::hooks::HookOutcome,
-        last_injected: &mut Option<String>,
     ) {
-        // Collect this turn's whole contribution (budget-capped) as one batch.
+        // Collect this turn's whole contribution (budget-capped).
         let mut blocks: Vec<String> = Vec::new();
         for msg in &outcome.injected_messages {
             for block in &msg.content {
@@ -4658,24 +4630,31 @@ impl AgentEngine {
         if blocks.is_empty() {
             return;
         }
-        // Dedup the whole batch: identical content already in context ⇒ no-op.
-        let batch_key = blocks.join("\n");
-        if last_injected.as_deref() == Some(batch_key.as_str()) {
+        // Drop blocks that already exist verbatim in the request (e.g. the
+        // turn-1 SessionStart prelude carried in the clone). Per-block, scanning
+        // the live request — never a cross-turn field.
+        let already_present = |candidate: &str| -> bool {
+            request_messages
+                .iter()
+                .flat_map(|m| &m.content)
+                .any(|b| matches!(b, ContentBlock::Text { text } if text == candidate))
+        };
+        let to_append: Vec<String> = blocks.into_iter().filter(|b| !already_present(b)).collect();
+        if to_append.is_empty() {
             return;
         }
         // Cache-safe tail rule: only append onto a user-role tail. If the tail
-        // isn't user-role, inject nothing and leave the dedup baseline untouched
-        // so a later user-role turn can still surface this content.
+        // isn't user-role, inject nothing so a later user-role turn can still
+        // surface this content (the clone is regenerated each turn).
         let Some(last) = request_messages.last_mut() else {
             return;
         };
         if !matches!(last.role, Role::User) {
             return;
         }
-        for text in blocks {
+        for text in to_append {
             last.content.push(ContentBlock::Text { text });
         }
-        *last_injected = Some(batch_key);
     }
 
     /// Move session-tier memory onto the real per-session DB file.
@@ -4784,9 +4763,12 @@ impl AgentEngine {
         // Cap to keep the injection tight; top hits are first (search returns
         // facts ranked by embedding similarity to the query).
         previews.truncate(6);
+        // HIGH-3 / F1: recalled previews are untrusted memory content. Defang any
+        // host trust-tag delimiters so a stored fact can't forge or escape this
+        // <system-reminder> block. Same helper as the plugin-hook envelope (DRY).
         let body = previews
             .iter()
-            .map(|p| format!("- {p}"))
+            .map(|p| format!("- {}", wcore_config::hooks::neutralize_trust_delimiters(p)))
             .collect::<Vec<_>>()
             .join("\n");
         let block = format!(
@@ -5833,7 +5815,6 @@ mod set_config_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
-            last_context_injection: None,
         }
     }
 
@@ -6555,7 +6536,6 @@ mod phase6_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
-            last_context_injection: None,
         }
     }
 
@@ -6836,7 +6816,6 @@ mod compact_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
-            last_context_injection: None,
         }
     }
 
@@ -7801,7 +7780,6 @@ mod plan_mode_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
-            last_context_injection: None,
         }
     }
 
@@ -8215,7 +8193,6 @@ mod hook_integration_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
-            last_context_injection: None,
         }
     }
 
@@ -8878,7 +8855,6 @@ mod approval_bridge_engine_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
-            last_context_injection: None,
         }
     }
 
@@ -9097,7 +9073,6 @@ mod user_model_writeback_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
-            last_context_injection: None,
         }
     }
 
@@ -10800,13 +10775,12 @@ mod session_start_apply_tests {
     }
 
     // (a) APPLIES INTO TAIL — a new contribution is appended to a user-role tail
-    // as the untrusted block; the dedup baseline records it.
+    // as the untrusted block.
     #[test]
     fn pre_prompt_applies_into_user_tail() {
         let mut messages = vec![user_msg("hello")];
         let outcome = pre_prompt_outcome("RECALL-A");
-        let mut last: Option<String> = None;
-        super::AgentEngine::apply_pre_prompt_contribution(&mut messages, &outcome, &mut last);
+        super::AgentEngine::apply_pre_prompt_contribution(&mut messages, &outcome);
 
         assert_eq!(
             messages.len(),
@@ -10827,36 +10801,49 @@ mod session_start_apply_tests {
             appended.contains("RECALL-A"),
             "must carry the contribution body"
         );
+    }
+
+    // (F3-a) NO CROSS-TURN SUPPRESSION — the SAME contribution applied to two
+    // freshly-cloned request message-vecs (simulating turns N and N+1, where the
+    // clone is regenerated each turn) is appended BOTH times. The old cross-turn
+    // `last_context_injection` dedup wrongly suppressed the second.
+    #[test]
+    fn pre_prompt_reapplies_across_turns_no_cross_turn_suppression() {
+        let outcome = pre_prompt_outcome("PER-TURN-RECALL");
+
+        // Turn N: fresh clone.
+        let mut turn_n = vec![user_msg("hello")];
+        super::AgentEngine::apply_pre_prompt_contribution(&mut turn_n, &outcome);
+        assert_eq!(turn_n[0].content.len(), 2, "appended on turn N");
+
+        // Turn N+1: a NEW fresh clone (regenerated from self.messages each turn).
+        let mut turn_n1 = vec![user_msg("hello")];
+        super::AgentEngine::apply_pre_prompt_contribution(&mut turn_n1, &outcome);
         assert_eq!(
-            last.as_deref(),
-            Some(appended.as_str()),
-            "dedup baseline updated"
+            turn_n1[0].content.len(),
+            2,
+            "must re-append on turn N+1 — no cross-turn suppression (F3)"
         );
     }
 
-    // (b) DEDUP NO-OP — a contribution byte-equal to `last_injected` (e.g. the
-    // SessionStart prelude already in context) is not re-appended.
+    // (F3-b) DEDUP AGAINST LIVE REQUEST — a contribution whose exact block ALREADY
+    // EXISTS in the request (simulating the turn-1 SessionStart prelude the host
+    // pushed onto history, carried in the clone) is NOT re-appended.
     #[test]
-    fn pre_prompt_dedups_against_last_injection() {
+    fn pre_prompt_dedups_against_block_already_in_request() {
         let outcome = pre_prompt_outcome("RECALL-A");
-        // Pre-seed `last` with the exact text the helper would append.
         let injected_text = match &outcome.injected_messages[0].content[0] {
             ContentBlock::Text { text } => text.clone(),
             _ => unreachable!(),
         };
-        let mut messages = vec![user_msg("hello")];
-        let mut last = Some(injected_text.clone());
-        super::AgentEngine::apply_pre_prompt_contribution(&mut messages, &outcome, &mut last);
+        // The block is already present as a prior message in the request.
+        let mut messages = vec![user_msg(&injected_text), user_msg("hello")];
+        super::AgentEngine::apply_pre_prompt_contribution(&mut messages, &outcome);
 
         assert_eq!(
-            messages[0].content.len(),
+            messages[1].content.len(),
             1,
-            "identical content must not be re-appended"
-        );
-        assert_eq!(
-            last.as_deref(),
-            Some(injected_text.as_str()),
-            "baseline unchanged"
+            "a block already present in the request must not be re-appended"
         );
     }
 
@@ -10877,8 +10864,7 @@ mod session_start_apply_tests {
             ),
         ];
         let outcome = pre_prompt_outcome("RECALL-A");
-        let mut last: Option<String> = None;
-        super::AgentEngine::apply_pre_prompt_contribution(&mut messages, &outcome, &mut last);
+        super::AgentEngine::apply_pre_prompt_contribution(&mut messages, &outcome);
 
         assert_eq!(messages.len(), 2, "must not push a new message");
         assert_eq!(
@@ -10886,7 +10872,6 @@ mod session_start_apply_tests {
             1,
             "must not append onto an assistant tool_use tail"
         );
-        assert!(last.is_none(), "no append ⇒ dedup baseline untouched");
     }
 
     // (d) BUDGET TRUNCATION — an oversized contribution is capped near
@@ -10897,8 +10882,7 @@ mod session_start_apply_tests {
         let huge = "z".repeat(max_chars * 6);
         let mut messages = vec![user_msg("hello")];
         let outcome = pre_prompt_outcome(&huge);
-        let mut last: Option<String> = None;
-        super::AgentEngine::apply_pre_prompt_contribution(&mut messages, &outcome, &mut last);
+        super::AgentEngine::apply_pre_prompt_contribution(&mut messages, &outcome);
 
         let appended = match messages[0].content.last() {
             Some(ContentBlock::Text { text }) => text,
@@ -10914,55 +10898,6 @@ mod session_start_apply_tests {
             "appended length {} should stay near the budget {}",
             appended.len(),
             max_chars
-        );
-    }
-
-    // (e) MULTI-BLOCK BATCH — when more than one PrePrompt hook contributes, the
-    // whole batch is appended AND the dedup key is the whole batch, so a repeat
-    // of the same multi-block contribution next turn is a no-op (no per-turn
-    // cache churn). Guards the dedup-vs-append granularity match.
-    #[test]
-    fn pre_prompt_dedups_whole_multi_block_batch() {
-        let two_blocks = || HookOutcome {
-            injected_messages: vec![
-                Message::now(
-                    Role::User,
-                    vec![ContentBlock::Text {
-                        text: "BLOCK-1".to_string(),
-                    }],
-                ),
-                Message::now(
-                    Role::User,
-                    vec![ContentBlock::Text {
-                        text: "BLOCK-2".to_string(),
-                    }],
-                ),
-            ],
-            ..Default::default()
-        };
-
-        // First turn: both blocks appended onto the user tail.
-        let mut messages = vec![user_msg("hello")];
-        let mut last: Option<String> = None;
-        super::AgentEngine::apply_pre_prompt_contribution(&mut messages, &two_blocks(), &mut last);
-        assert_eq!(
-            messages[0].content.len(),
-            3,
-            "original + both contribution blocks"
-        );
-        assert_eq!(
-            last.as_deref(),
-            Some("BLOCK-1\nBLOCK-2"),
-            "dedup baseline records the WHOLE batch, not just the last block"
-        );
-
-        // Second turn: identical batch ⇒ nothing appended (no churn).
-        let mut messages2 = vec![user_msg("hello")];
-        super::AgentEngine::apply_pre_prompt_contribution(&mut messages2, &two_blocks(), &mut last);
-        assert_eq!(
-            messages2[0].content.len(),
-            1,
-            "an identical multi-block batch must dedup to a no-op"
         );
     }
 }
