@@ -851,59 +851,59 @@ impl AgentBootstrap {
         // Gated by `config.hooks.dispatch_enabled` (default ON). When off, or
         // when no plugin hook resolves to a server, no dispatcher is wired and
         // plugin hooks stay log-only (the legacy behavior).
-        let hook_dispatcher: Option<Arc<dyn crate::hooks::HookDispatcher>> =
-            if self.config.hooks.dispatch_enabled
-                && !applied.plugin_hooks.is_empty()
-                && !mcp_managers.is_empty()
-            {
-                // plugin name -> set of its hook tool names
-                let mut hooks_by_plugin: std::collections::HashMap<&str, Vec<&str>> =
-                    std::collections::HashMap::new();
-                for h in &applied.plugin_hooks {
-                    hooks_by_plugin
-                        .entry(h.plugin.as_str())
+        let hook_dispatcher: Option<Arc<dyn crate::hooks::HookDispatcher>> = if self
+            .config
+            .hooks
+            .dispatch_enabled
+            && !applied.plugin_hooks.is_empty()
+            && !mcp_managers.is_empty()
+        {
+            // plugin name -> set of its hook tool names
+            let mut hooks_by_plugin: std::collections::HashMap<&str, Vec<&str>> =
+                std::collections::HashMap::new();
+            for h in &applied.plugin_hooks {
+                hooks_by_plugin
+                    .entry(h.plugin.as_str())
+                    .or_default()
+                    .push(h.name.as_str());
+            }
+            // Snapshot each connected server's advertised tool names.
+            let mut servers: std::collections::HashMap<String, Vec<String>> =
+                std::collections::HashMap::new();
+            for mgr in &mcp_managers {
+                for (server_name, tool) in mgr.all_tools() {
+                    servers
+                        .entry(server_name.to_string())
                         .or_default()
-                        .push(h.name.as_str());
+                        .push(tool.name.to_string());
                 }
-                // Snapshot each connected server's advertised tool names.
-                let mut servers: std::collections::HashMap<String, Vec<String>> =
-                    std::collections::HashMap::new();
-                for mgr in &mcp_managers {
-                    for (server_name, tool) in mgr.all_tools() {
-                        servers
-                            .entry(server_name.to_string())
-                            .or_default()
-                            .push(tool.name.to_string());
-                    }
-                }
-                let servers_view: Vec<(&str, Vec<&str>)> = servers
-                    .iter()
-                    .map(|(s, tools)| (s.as_str(), tools.iter().map(String::as_str).collect()))
-                    .collect();
-                let server_for_plugin =
-                    crate::hooks::resolve_server_for_plugin(&hooks_by_plugin, &servers_view);
-                if server_for_plugin.is_empty() {
-                    None
-                } else {
-                    let mut bound: Vec<&str> =
-                        server_for_plugin.keys().map(String::as_str).collect();
-                    bound.sort_unstable();
-                    tracing::info!(
-                        target: "wcore_agent::hooks",
-                        count = bound.len(),
-                        plugins = ?bound,
-                        "plugin hook dispatcher wired"
-                    );
-                    let caller =
-                        Arc::new(crate::hooks::McpManagerCaller::new(mcp_managers.clone()));
-                    Some(Arc::new(crate::hooks::McpHookDispatcher::new(
-                        caller,
-                        server_for_plugin,
-                    )))
-                }
-            } else {
+            }
+            let servers_view: Vec<(&str, Vec<&str>)> = servers
+                .iter()
+                .map(|(s, tools)| (s.as_str(), tools.iter().map(String::as_str).collect()))
+                .collect();
+            let server_for_plugin =
+                crate::hooks::resolve_server_for_plugin(&hooks_by_plugin, &servers_view);
+            if server_for_plugin.is_empty() {
                 None
-            };
+            } else {
+                let mut bound: Vec<&str> = server_for_plugin.keys().map(String::as_str).collect();
+                bound.sort_unstable();
+                tracing::info!(
+                    target: "wcore_agent::hooks",
+                    count = bound.len(),
+                    plugins = ?bound,
+                    "plugin hook dispatcher wired"
+                );
+                let caller = Arc::new(crate::hooks::McpManagerCaller::new(mcp_managers.clone()));
+                Some(Arc::new(crate::hooks::McpHookDispatcher::new(
+                    caller,
+                    server_for_plugin,
+                )))
+            }
+        } else {
+            None
+        };
 
         // M3.6.2 — build memory_api BEFORE skill_refs so the prioritizer
         // can reorder the catalog at session start. Moved up from its

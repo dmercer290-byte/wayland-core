@@ -1717,11 +1717,13 @@ pub fn profile_home() -> PathBuf {
     }
     // F12: make the last-resort fallback absolute where possible to avoid
     // CWD-confusion if the home dir can't be resolved.
-    dirs::home_dir().map(|h| h.join(".wayland")).unwrap_or_else(|| {
-        std::env::current_dir()
-            .map(|d| d.join(".wayland"))
-            .unwrap_or_else(|_| PathBuf::from(".wayland"))
-    })
+    dirs::home_dir()
+        .map(|h| h.join(".wayland"))
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .map(|d| d.join(".wayland"))
+                .unwrap_or_else(|_| PathBuf::from(".wayland"))
+        })
 }
 
 // --- Config file loading and merging ---

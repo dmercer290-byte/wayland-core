@@ -107,11 +107,7 @@ pub fn resolve_server_for_plugin<'a>(
         // Distinct servers advertising any of this plugin's hook tool names.
         let mut matching: Vec<&str> = servers
             .iter()
-            .filter(|(_, tools)| {
-                tools
-                    .iter()
-                    .any(|t| hook_names.iter().any(|hn| hn == t))
-            })
+            .filter(|(_, tools)| tools.iter().any(|t| hook_names.iter().any(|hn| hn == t)))
             .map(|(s, _)| *s)
             .collect();
         matching.sort_unstable();
@@ -265,7 +261,10 @@ mod tests {
         let map = resolve_server_for_plugin(&hooks, &servers);
 
         // Unambiguous: one server advertises context_tool.
-        assert_eq!(map.get("mem-plugin").map(String::as_str), Some("memory-server"));
+        assert_eq!(
+            map.get("mem-plugin").map(String::as_str),
+            Some("memory-server")
+        );
         // No match: unbound (log-only).
         assert!(!map.contains_key("lonely-plugin"));
         // Ambiguous: two distinct servers advertise shared_tool ⇒ refuse to bind.
