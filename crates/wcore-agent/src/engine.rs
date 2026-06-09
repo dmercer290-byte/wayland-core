@@ -10966,3 +10966,211 @@ mod session_start_apply_tests {
         );
     }
 }
+
+/// C1 / Task A4 — END-TO-END proof that the REAL `wayland-ijfw` plugin's
+/// `SessionStart` hook (`ijfw_memory_prelude`) reaches a cold session's
+/// conversation as an untrusted User block, through the real C1 path
+/// (`register_plugin_hooks` → `set_hook_dispatcher(McpHookDispatcher)` →
+/// `run_session_start_hooks`).
+///
+/// This test deliberately READS `wayland_ijfw::hooks::HOOKS` and
+/// `wayland_ijfw::mcp::SERVER_NAME` from the real plugin crate (a dev-only
+/// dependency edge — wayland-ijfw still depends ONLY on
+/// wcore-plugin-api/types/protocol per audit F2, so the edge is acyclic) so a
+/// rename on the plugin side breaks this proof rather than silently passing.
+#[cfg(test)]
+mod ijfw_session_start_e2e_tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use wcore_config::config::Config;
+    use wcore_providers::{LlmProvider, ProviderError};
+    use wcore_tools::registry::ToolRegistry;
+    use wcore_types::llm::{LlmEvent, LlmRequest};
+    use wcore_types::message::{ContentBlock, Role};
+
+    use crate::hooks::{McpHookDispatcher, McpToolCaller};
+    use crate::output::OutputSink;
+    use crate::plugins::runner::PluginHook;
+    use wcore_plugin_api::registry::hooks::HookPhase;
+
+    /// Sentinel the fake MCP caller emits ONLY for the real prelude tool. The
+    /// suffix keeps it unique so an accidental literal elsewhere can't satisfy
+    /// the assertion.
+    const PRELUDE_SENTINEL: &str = "IJFW-PRELUDE-SENTINEL-a4e2e";
+
+    struct NullOutput;
+    impl OutputSink for NullOutput {
+        fn emit_text_delta(&self, _: &str, _: &str) {}
+        fn emit_thinking(&self, _: &str, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_stream_start(&self, _: &str) {}
+        fn emit_stream_end(
+            &self,
+            _: &str,
+            _: usize,
+            _: u64,
+            _: u64,
+            _: u64,
+            _: u64,
+            _: wcore_types::message::FinishReason,
+        ) {
+        }
+        fn emit_error(&self, _: &str, _: bool) {}
+        fn emit_info(&self, _: &str) {}
+    }
+
+    struct NullProvider;
+    #[async_trait]
+    impl LlmProvider for NullProvider {
+        async fn stream(
+            &self,
+            _: &LlmRequest,
+        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(rx)
+        }
+    }
+
+    /// Fake MCP backend standing in for the live `@ijfw/memory-server`: it
+    /// returns the sentinel ONLY when the real prelude tool is called on the
+    /// real server name, and contributes nothing otherwise.
+    struct FakeIjfwServer {
+        server: String,
+        prelude_tool: String,
+    }
+    #[async_trait]
+    impl McpToolCaller for FakeIjfwServer {
+        async fn call(&self, server: &str, tool: &str) -> Result<String, String> {
+            if server == self.server && tool == self.prelude_tool {
+                Ok(PRELUDE_SENTINEL.to_string())
+            } else {
+                Err(format!("no fixture for {server}/{tool}"))
+            }
+        }
+    }
+
+    /// Pull the SessionStart hook name out of the plugin's real HOOKS table so
+    /// the test breaks if the plugin renames it.
+    fn ijfw_session_start_hook_name() -> &'static str {
+        wayland_ijfw::hooks::HOOKS
+            .iter()
+            .find(|(phase, _)| *phase == HookPhase::SessionStart)
+            .map(|(_, name)| *name)
+            .expect("wayland-ijfw must register a SessionStart hook")
+    }
+
+    fn cold_engine_with_dispatcher(
+        dispatcher: Arc<dyn crate::hooks::HookDispatcher>,
+        hooks: Vec<PluginHook>,
+    ) -> super::AgentEngine {
+        let cfg = Config {
+            system_prompt: Some("SYSTEM-PROMPT-CONTENT".to_string()),
+            ..Default::default()
+        };
+        let mut engine = super::AgentEngine::new_with_provider(
+            Arc::new(NullProvider),
+            cfg,
+            ToolRegistry::new(),
+            Arc::new(NullOutput),
+        );
+        engine.register_plugin_hooks(hooks);
+        engine.set_hook_dispatcher(dispatcher);
+        engine
+    }
+
+    // E2E — the real wayland-ijfw SessionStart hook, dispatched through the
+    // real McpHookDispatcher against the real plugin server name, surfaces in a
+    // cold conversation as exactly one untrusted User block carrying the
+    // backend's payload, WITHOUT touching the system prompt.
+    #[tokio::test]
+    async fn ijfw_prelude_reaches_cold_session_as_untrusted_user_block() {
+        let hook_name = ijfw_session_start_hook_name();
+        let server_name = wayland_ijfw::mcp::SERVER_NAME;
+
+        let caller = Arc::new(FakeIjfwServer {
+            server: server_name.to_string(),
+            prelude_tool: hook_name.to_string(),
+        });
+        let mut server_for_plugin = HashMap::new();
+        server_for_plugin.insert("wayland-ijfw".to_string(), server_name.to_string());
+        let dispatcher = Arc::new(McpHookDispatcher::new(caller, server_for_plugin));
+
+        let mut engine = cold_engine_with_dispatcher(
+            dispatcher,
+            vec![PluginHook {
+                plugin: "wayland-ijfw".to_string(),
+                phase: HookPhase::SessionStart,
+                name: hook_name.to_string(),
+            }],
+        );
+
+        assert!(engine.messages.is_empty(), "precondition: cold session");
+        let system_prompt_before = engine.system_prompt.clone();
+
+        engine.run_session_start_hooks().await;
+
+        assert_eq!(
+            engine.messages.len(),
+            1,
+            "exactly one prelude message must be applied"
+        );
+        let msg = &engine.messages[0];
+        assert_eq!(msg.role, Role::User, "prelude must be a User block");
+        let text = match msg.content.first() {
+            Some(ContentBlock::Text { text }) => text,
+            other => panic!("expected a text block, got {other:?}"),
+        };
+        assert!(
+            text.contains("trust=\"untrusted\""),
+            "prelude must carry the untrusted envelope: {text}"
+        );
+        assert!(
+            text.contains(PRELUDE_SENTINEL),
+            "prelude must carry the backend payload: {text}"
+        );
+        assert!(
+            text.contains(&format!("source=\"wayland-ijfw:{hook_name}\"")),
+            "prelude must record the real ijfw provenance: {text}"
+        );
+        assert_eq!(
+            engine.system_prompt, system_prompt_before,
+            "session-start prelude must never alter the system prompt"
+        );
+    }
+
+    // GATE — a plugin with NO entry in `server_for_plugin` (here: the real
+    // ijfw hook registered under an unrelated plugin name) contributes nothing,
+    // proving the dispatcher's plugin→server map is what gates the injection.
+    #[tokio::test]
+    async fn unmapped_plugin_contributes_nothing() {
+        let hook_name = ijfw_session_start_hook_name();
+        let server_name = wayland_ijfw::mcp::SERVER_NAME;
+
+        let caller = Arc::new(FakeIjfwServer {
+            server: server_name.to_string(),
+            prelude_tool: hook_name.to_string(),
+        });
+        // Map only "wayland-ijfw"; register the hook under a DIFFERENT plugin.
+        let mut server_for_plugin = HashMap::new();
+        server_for_plugin.insert("wayland-ijfw".to_string(), server_name.to_string());
+        let dispatcher = Arc::new(McpHookDispatcher::new(caller, server_for_plugin));
+
+        let mut engine = cold_engine_with_dispatcher(
+            dispatcher,
+            vec![PluginHook {
+                plugin: "some-other-plugin".to_string(),
+                phase: HookPhase::SessionStart,
+                name: hook_name.to_string(),
+            }],
+        );
+
+        engine.run_session_start_hooks().await;
+        assert!(
+            engine.messages.is_empty(),
+            "an unmapped plugin must contribute no prelude"
+        );
+    }
+}

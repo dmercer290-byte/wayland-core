@@ -192,6 +192,12 @@ wcore-mcp = { path = "../wcore-mcp", features = ["test-utils"] }
 # Wave OL: end-to-end wiremock smoke through `OllamaProvider`
 # (`tests/ollama_e2e_test.rs`). Dev-only — no runtime dep edge.
 wayland-ollama = { path = "../wayland-ollama" }
+# C1 / Task A4: end-to-end SessionStart prelude test reads the real
+# `wayland_ijfw::hooks::HOOKS` constant + `mcp::SERVER_NAME` so a rename in
+# the plugin breaks the e2e proof. Dev-only — wayland-ijfw depends solely on
+# wcore-plugin-api/types/protocol (audit F2), so this edge is ACYCLIC and the
+# plugin's own `[dependencies]` are untouched.
+wayland-ijfw = { path = "../wayland-ijfw" }
 wiremock.workspace    = true
 tokio-test.workspace  = true
 tempfile.workspace    = true
