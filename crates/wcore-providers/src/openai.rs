@@ -758,6 +758,9 @@ pub(crate) async fn process_sse_stream(
     let mut state = StreamState::new();
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
+    // Decode the byte stream incrementally so a multi-byte codepoint split
+    // across TCP chunks is not corrupted into U+FFFD (text and tool-arg JSON).
+    let mut utf8 = wcore_types::utf8_stream::Utf8StreamDecoder::new();
     // E-H3 / D4: track whether a terminal event (Done or in-band Error)
     // was emitted. A stream that closes without one is a truncated turn,
     // not a clean empty success — surface it as an error.
@@ -765,7 +768,7 @@ pub(crate) async fn process_sse_stream(
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| ProviderError::Connection(e.to_string()))?;
-        let text = String::from_utf8_lossy(&chunk);
+        let text = utf8.push(&chunk);
         buffer.push_str(&text);
 
         // M4: cap the buffer so a delimiter-less stream cannot exhaust memory.
@@ -989,8 +992,24 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
             // tool_calls / stop with pending calls → flush them as ToolUse
             ("tool_calls" | "stop", false) => {
                 for tc in state.tool_calls.drain(..) {
-                    let input: Value = serde_json::from_str(&tc.arguments)
-                        .unwrap_or(Value::Object(serde_json::Map::new()));
+                    // Fail closed: non-empty argument JSON that does not parse
+                    // must not run the tool with empty input — emit an error and
+                    // skip the call. Empty arguments remain a valid empty object.
+                    let trimmed = tc.arguments.trim();
+                    let input = if trimmed.is_empty() {
+                        Value::Object(serde_json::Map::new())
+                    } else {
+                        match serde_json::from_str::<Value>(trimmed) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                events.push(LlmEvent::Error(format!(
+                                    "tool-call arguments for '{}' did not parse as JSON: {e}",
+                                    tc.name
+                                )));
+                                continue;
+                            }
+                        }
+                    };
                     events.push(LlmEvent::ToolUse {
                         id: tc.id,
                         name: tc.name,

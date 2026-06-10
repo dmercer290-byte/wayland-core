@@ -130,13 +130,17 @@ impl SseTransport {
         // The server sends an "endpoint" event with the POST URL
         let mut bytes_stream = response.bytes_stream();
         let mut buffer = String::new();
+        // Decode incrementally so a codepoint split across chunks is not
+        // corrupted into U+FFFD; the decoder is moved into the listener task
+        // below so a split at the handshake/listener boundary is handled too.
+        let mut utf8 = wcore_types::utf8_stream::Utf8StreamDecoder::new();
         let mut post_url: Option<String> = None;
 
         use futures::StreamExt;
         // Read initial events to get the endpoint URL
         while let Some(chunk) = bytes_stream.next().await {
             let chunk = chunk.map_err(|e| McpError::Transport(format!("SSE read error: {}", e)))?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            buffer.push_str(&utf8.push(&chunk));
 
             // mcp-40 — bound the handshake reassembly buffer. A server that
             // streams bytes without an event delimiter must not OOM us.
@@ -185,9 +189,10 @@ impl SseTransport {
         let pending_clone = pending.clone();
         let listener = tokio::spawn(async move {
             let mut buf = buffer; // carry over remaining buffer
+            let mut utf8 = utf8; // carry the UTF-8 decoder tail across loops
             while let Some(chunk) = bytes_stream.next().await {
                 let Ok(chunk) = chunk else { break };
-                buf.push_str(&String::from_utf8_lossy(&chunk));
+                buf.push_str(&utf8.push(&chunk));
 
                 // mcp-40 — bound the listener reassembly buffer. On overflow
                 // we drop the stream (break): pending requests then time out

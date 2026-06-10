@@ -310,12 +310,15 @@ async fn process_cohere_stream(
 
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
+    // Decode the byte stream incrementally so a multi-byte codepoint split
+    // across TCP chunks is not corrupted into U+FFFD (text and tool-arg JSON).
+    let mut utf8 = wcore_types::utf8_stream::Utf8StreamDecoder::new();
 
     let mut usage = TokenUsage::default();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| ProviderError::Connection(e.to_string()))?;
-        let text = String::from_utf8_lossy(&chunk);
+        let text = utf8.push(&chunk);
         buffer.push_str(&text);
 
         // M-20 / rel-panic-67: cap the buffer so a newline-less stream cannot

@@ -283,6 +283,9 @@ pub async fn process_sse_stream(
     let mut buffer = String::new();
     let mut current_event_type = String::new();
     let mut stream = response.bytes_stream();
+    // Decode the byte stream incrementally so a multi-byte codepoint split
+    // across TCP chunks is not corrupted into U+FFFD (text and tool-arg JSON).
+    let mut utf8 = wcore_types::utf8_stream::Utf8StreamDecoder::new();
     // E-H3 / D4: track whether a terminal event (Done or in-band Error) was
     // emitted. A stream that closes without one was truncated mid-response —
     // surface it as an error instead of a silent clean turn.
@@ -290,7 +293,7 @@ pub async fn process_sse_stream(
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| ProviderError::Connection(e.to_string()))?;
-        let text = String::from_utf8_lossy(&chunk);
+        let text = utf8.push(&chunk);
         buffer.push_str(&text);
 
         // M4: cap the buffer so a delimiter-less stream cannot exhaust memory.
@@ -409,14 +412,32 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
 
         "content_block_stop" => {
             if state.current_block_type.as_deref() == Some("tool_use") {
-                let input: Value = serde_json::from_str(&state.tool_input_json)
-                    .unwrap_or(Value::Object(serde_json::Map::new()));
-                events.push(LlmEvent::ToolUse {
-                    id: state.tool_id.clone(),
-                    name: state.tool_name.clone(),
-                    input,
-                    extra: None,
-                });
+                // Fail closed: non-empty tool-argument JSON that does not parse
+                // (truncation/corruption) must NOT run the tool with empty
+                // input — surface an error instead. Genuinely empty arguments
+                // (a no-parameter tool) remain a valid empty object.
+                let trimmed = state.tool_input_json.trim();
+                if trimmed.is_empty() {
+                    events.push(LlmEvent::ToolUse {
+                        id: state.tool_id.clone(),
+                        name: state.tool_name.clone(),
+                        input: Value::Object(serde_json::Map::new()),
+                        extra: None,
+                    });
+                } else {
+                    match serde_json::from_str::<Value>(trimmed) {
+                        Ok(input) => events.push(LlmEvent::ToolUse {
+                            id: state.tool_id.clone(),
+                            name: state.tool_name.clone(),
+                            input,
+                            extra: None,
+                        }),
+                        Err(e) => events.push(LlmEvent::Error(format!(
+                            "tool-call arguments for '{}' did not parse as JSON: {e}",
+                            state.tool_name
+                        ))),
+                    }
+                }
                 state.tool_input_json.clear();
             }
             state.current_block_type = None;

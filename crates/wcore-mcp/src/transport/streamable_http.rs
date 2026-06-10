@@ -153,10 +153,13 @@ impl StreamableHttpTransport {
 
         let mut stream = response.bytes_stream();
         let mut buffer = String::new();
+        // Decode incrementally so a multi-byte codepoint split across TCP
+        // chunks is not corrupted into U+FFFD before line/event framing.
+        let mut utf8 = wcore_types::utf8_stream::Utf8StreamDecoder::new();
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| McpError::Transport(format!("SSE read error: {}", e)))?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            buffer.push_str(&utf8.push(&chunk));
 
             // mcp-40 — bound the reassembly buffer so a server streaming an
             // endless newline-free body cannot OOM the host.

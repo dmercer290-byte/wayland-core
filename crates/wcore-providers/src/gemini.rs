@@ -594,6 +594,9 @@ pub(crate) async fn process_sse_stream(
     let mut state = GeminiStreamState::default();
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
+    // Decode the byte stream incrementally so a multi-byte codepoint split
+    // across TCP chunks is not corrupted into U+FFFD (text and tool-arg JSON).
+    let mut utf8 = wcore_types::utf8_stream::Utf8StreamDecoder::new();
     // E-H3 / D4: track whether an in-band Error frame was forwarded. The
     // terminal `Done` is emitted after the loop from `final_finish_reason`;
     // a stream that closes with neither was truncated.
@@ -601,7 +604,7 @@ pub(crate) async fn process_sse_stream(
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| ProviderError::Connection(e.to_string()))?;
-        let text = String::from_utf8_lossy(&chunk);
+        let text = utf8.push(&chunk);
         buffer.push_str(&text);
 
         // M4: cap the buffer so a delimiter-less stream cannot exhaust memory.
