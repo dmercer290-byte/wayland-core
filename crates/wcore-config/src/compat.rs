@@ -292,27 +292,50 @@ impl ProviderCompat {
 
     /// Defaults for Together AI (open-weight model host).
     pub fn together_defaults() -> Self {
-        Self::openai_compat_provider("together")
+        // Base URL ends in `/v1`; pin `api_path` to `/chat/completions` so the
+        // native `--provider together` arm does not build `/v1/v1/...` (404).
+        Self {
+            api_path: Some("/chat/completions".into()),
+            ..Self::openai_compat_provider("together")
+        }
     }
 
     /// Defaults for Fireworks AI (open-weight model host).
     pub fn fireworks_defaults() -> Self {
-        Self::openai_compat_provider("fireworks")
+        // Base URL ends in `/inference/v1`; pin `api_path` to avoid `/v1/v1`.
+        Self {
+            api_path: Some("/chat/completions".into()),
+            ..Self::openai_compat_provider("fireworks")
+        }
     }
 
     /// Defaults for Nvidia NIM / build.nvidia.com.
     pub fn nvidia_defaults() -> Self {
-        Self::openai_compat_provider("nvidia")
+        // Base URL ends in `/v1`; pin `api_path` to avoid `/v1/v1`.
+        Self {
+            api_path: Some("/chat/completions".into()),
+            ..Self::openai_compat_provider("nvidia")
+        }
     }
 
     /// Defaults for Perplexity (Sonar models).
     pub fn perplexity_defaults() -> Self {
-        Self::openai_compat_provider("perplexity")
+        // Perplexity's endpoint is `https://api.perplexity.ai/chat/completions`
+        // (no `/v1`); pin `api_path` so the default `/v1/chat/completions` does
+        // not 404.
+        Self {
+            api_path: Some("/chat/completions".into()),
+            ..Self::openai_compat_provider("perplexity")
+        }
     }
 
     /// Defaults for Cerebras (fast open-weight inference).
     pub fn cerebras_defaults() -> Self {
-        Self::openai_compat_provider("cerebras")
+        // Base URL ends in `/v1`; pin `api_path` to avoid `/v1/v1`.
+        Self {
+            api_path: Some("/chat/completions".into()),
+            ..Self::openai_compat_provider("cerebras")
+        }
     }
 
     /// Defaults for OpenRouter (100+ models via OpenAI-compat router surface).
@@ -322,7 +345,11 @@ impl ProviderCompat {
 
     /// Defaults for Flux Router (Sean's own OpenAI-compat router product).
     pub fn flux_router_defaults() -> Self {
-        Self::openai_compat_provider("flux-router")
+        // Base URL ends in `/v1`; pin `api_path` to avoid `/v1/v1`.
+        Self {
+            api_path: Some("/chat/completions".into()),
+            ..Self::openai_compat_provider("flux-router")
+        }
     }
 
     /// v0.8.1 U10b — Defaults for DeepSeek (OpenAI-compatible chat surface).
@@ -332,7 +359,11 @@ impl ProviderCompat {
 
     /// v0.8.1 U10b — Defaults for xAI / Grok (OpenAI-compatible chat surface).
     pub fn xai_defaults() -> Self {
-        Self::openai_compat_provider("xai")
+        // Base URL ends in `/v1`; pin `api_path` to avoid `/v1/v1`.
+        Self {
+            api_path: Some("/chat/completions".into()),
+            ..Self::openai_compat_provider("xai")
+        }
     }
 
     /// v0.8.1 U10b — Defaults for Groq (fast LPU inference, OpenAI-compatible).
@@ -354,7 +385,11 @@ impl ProviderCompat {
     /// Defaults for Mistral AI (OpenAI-compatible chat surface).
     /// F-025 fix: wired from orphan module to reachable ProviderType arm.
     pub fn mistral_defaults() -> Self {
-        Self::openai_compat_provider("mistral")
+        // Base URL ends in `/v1`; pin `api_path` to avoid `/v1/v1`.
+        Self {
+            api_path: Some("/chat/completions".into()),
+            ..Self::openai_compat_provider("mistral")
+        }
     }
 
     /// Defaults for Cohere (native chat API, not OpenAI-compat).
@@ -580,6 +615,29 @@ mod tests {
         assert!(compat.dedup_tool_results());
         assert_eq!(compat.max_tokens_field.as_deref(), Some("max_tokens"));
         assert!(!compat.ensure_alternation());
+    }
+
+    /// Regression guard (2026-06 provider-correctness audit): native-arm
+    /// providers whose base URL already ends in `/v1` (together, fireworks,
+    /// nvidia, cerebras, flux-router, xai, mistral) — or whose vendor endpoint
+    /// omits `/v1` entirely (perplexity) — must pin `api_path` to
+    /// `/chat/completions`. Otherwise the default `/v1/chat/completions`
+    /// produces `…/v1/v1/chat/completions` (or an erroneous `/v1`) and every
+    /// request 404s out of the box.
+    #[test]
+    fn openai_compat_v1_base_providers_pin_api_path() {
+        for compat in [
+            ProviderCompat::together_defaults(),
+            ProviderCompat::fireworks_defaults(),
+            ProviderCompat::nvidia_defaults(),
+            ProviderCompat::perplexity_defaults(),
+            ProviderCompat::cerebras_defaults(),
+            ProviderCompat::flux_router_defaults(),
+            ProviderCompat::xai_defaults(),
+            ProviderCompat::mistral_defaults(),
+        ] {
+            assert_eq!(compat.api_path(), "/chat/completions");
+        }
     }
 
     #[test]
