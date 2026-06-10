@@ -194,7 +194,14 @@ pub struct HookDef {
     /// File path patterns to match (glob). Empty = match all.
     #[serde(default)]
     pub file_match: Vec<String>,
-    /// Shell command to execute. Supports ${VAR} interpolation.
+    /// Shell command to execute. Reference hook variables as `${VAR}`; they are
+    /// expanded by the shell from the environment (values are never substituted
+    /// into the command text, so they cannot inject shell syntax).
+    ///
+    /// Windows note: hook commands run under `cmd /V:ON` (delayed expansion) so
+    /// `${VAR}` can be expanded safely. A side effect is that a literal `!` in
+    /// the command is treated as a delayed-expansion marker — escape it as `^^!`
+    /// if you need a literal exclamation mark in a Windows hook command.
     pub command: String,
     /// Timeout in ms (default 30000)
     #[serde(default = "default_hook_timeout")]
