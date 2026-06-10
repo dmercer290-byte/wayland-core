@@ -162,6 +162,27 @@ pub struct SendMessageBody<'a> {
     pub reply_to_message_id: Option<i64>,
 }
 
+/// `getFile` result — we only need `file_path`, the relative path under
+/// `{api_base}/file/bot{token}/` from which the media bytes download.
+#[derive(Debug, Clone, Deserialize)]
+pub struct File {
+    #[serde(default)]
+    pub file_path: Option<String>,
+}
+
+/// sendDocument request body. Telegram fetches `document` itself when it
+/// is a URL, so we never upload bytes from our side (no SSRF surface).
+/// `caption` carries the message text when there is one to attach.
+#[derive(Debug, Clone, Serialize)]
+pub struct SendDocumentBody<'a> {
+    pub chat_id: &'a str,
+    pub document: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caption: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to_message_id: Option<i64>,
+}
+
 /// Send one message with the retry policy described in the crate docs:
 /// up to `SEND_MAX_ATTEMPTS` total tries, exponential backoff on 5xx /
 /// network failure, Telegram-style 429 (honors `parameters.retry_after`),
@@ -173,6 +194,19 @@ pub(crate) async fn send_message(
     body: &SendMessageBody<'_>,
 ) -> Result<Message, TelegramError> {
     let url = format!("{api_base}/bot{bot_token}/sendMessage");
+    post_with_retry(http, &url, body).await
+}
+
+/// POST a serializable body to a Telegram send endpoint and decode a
+/// `Message` from the envelope, applying the shared retry policy
+/// (exponential backoff on 5xx / network, 429 `retry_after` honoured and
+/// capped, permanent short-circuit on other 4xx). Shared by `sendMessage`
+/// and `sendDocument` so the policy lives in exactly one place.
+async fn post_with_retry<B: Serialize>(
+    http: &wcore_egress::EgressClient,
+    url: &str,
+    body: &B,
+) -> Result<Message, TelegramError> {
     let mut last_err = TelegramError::Http("no attempts made".to_string());
     let mut last_retry_after: u64 = 0;
 
@@ -182,7 +216,7 @@ pub(crate) async fn send_message(
             tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
         }
 
-        let resp = match http.post(&url).json(body).send().await {
+        let resp = match http.post(url).json(body).send().await {
             Ok(r) => r,
             Err(e) => {
                 last_err = TelegramError::Http(format!("network: {e}"));
@@ -342,10 +376,159 @@ pub(crate) async fn get_updates(
     Ok(api.result.unwrap_or_default())
 }
 
+/// Build the media download URL for a resolved `file_path`.
+///
+/// Telegram serves uploaded file bytes from a *different* path than the
+/// bot method endpoints: `{api_base}/file/bot{token}/{file_path}` rather
+/// than `{api_base}/bot{token}/{method}`. Pure + testable so the URL
+/// shape is pinned independently of any network call.
+pub(crate) fn file_download_url(api_base: &str, bot_token: &str, file_path: &str) -> String {
+    let base = api_base.trim_end_matches('/');
+    let path = file_path.trim_start_matches('/');
+    format!("{base}/file/bot{bot_token}/{path}")
+}
+
+/// Resolve a `file_id` to its downloadable URL via `getFile`.
+///
+/// Returns the full `{api_base}/file/bot{token}/{file_path}` URL on
+/// success. The HTTP read is bounded by a short timeout so a hung
+/// `getFile` can't stall the long-poll loop. Any failure (network, non-2xx,
+/// `ok=false`, or a missing `file_path`) surfaces as `Err`; the caller
+/// decides whether to fall back to the raw `file_id`.
+pub(crate) async fn get_file(
+    http: &wcore_egress::EgressClient,
+    api_base: &str,
+    bot_token: &str,
+    file_id: &str,
+) -> Result<String, TelegramError> {
+    let url = format!("{api_base}/bot{bot_token}/getFile");
+    let resp = http
+        .get(&url)
+        .query(&[("file_id", file_id)])
+        // Bound the resolve so a hung getFile doesn't stall the poll loop.
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| TelegramError::Http(format!("network: {e}")))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(TelegramError::Http(format!("getFile status {status}")));
+    }
+
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| TelegramError::Http(format!("body read: {e}")))?;
+    let api: ApiResponse<File> =
+        serde_json::from_slice(&bytes).map_err(|e| TelegramError::Decode(e.to_string()))?;
+    if !api.ok {
+        return Err(TelegramError::ApiNotOk(
+            api.description.unwrap_or_else(|| "ok=false".to_string()),
+        ));
+    }
+    match api.result.and_then(|f| f.file_path) {
+        Some(path) => Ok(file_download_url(api_base, bot_token, &path)),
+        None => Err(TelegramError::ApiNotOk(
+            "getFile ok=true but no file_path".to_string(),
+        )),
+    }
+}
+
+/// Build the `sendDocument` JSON body for a single attachment. Factored
+/// out so the request shape is testable without a network round-trip.
+/// `caption` is `None` when no text accompanies the document.
+pub(crate) fn build_send_document<'a>(
+    chat_id: &'a str,
+    document: &'a str,
+    caption: Option<&'a str>,
+    reply_to_message_id: Option<i64>,
+) -> SendDocumentBody<'a> {
+    SendDocumentBody {
+        chat_id,
+        document,
+        caption,
+        reply_to_message_id,
+    }
+}
+
+/// Send one attachment via `sendDocument`, reusing the same retry policy
+/// as [`send_message`]. Telegram fetches the `document` URL itself.
+pub(crate) async fn send_document(
+    http: &wcore_egress::EgressClient,
+    api_base: &str,
+    bot_token: &str,
+    body: &SendDocumentBody<'_>,
+) -> Result<Message, TelegramError> {
+    let url = format!("{api_base}/bot{bot_token}/sendDocument");
+    post_with_retry(http, &url, body).await
+}
+
 fn exp_backoff_ms(attempt: u32) -> u64 {
     // attempt=1 -> 200ms, attempt=2 -> 400ms, attempt=3 -> 800ms, ...
     let shift = attempt.saturating_sub(1).min(10);
     SEND_BASE_BACKOFF_MS
         .saturating_mul(1u64 << shift)
         .min(SEND_MAX_BACKOFF_MS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_download_url_builds_file_path_endpoint() {
+        let url = file_download_url("https://api.telegram.org", "111:AAA", "photos/file_0.jpg");
+        assert_eq!(
+            url,
+            "https://api.telegram.org/file/bot111:AAA/photos/file_0.jpg"
+        );
+    }
+
+    #[test]
+    fn file_download_url_normalizes_slashes() {
+        // Trailing slash on base + leading slash on path must not double up.
+        let url = file_download_url("https://api.telegram.org/", "T", "/voice/a.ogg");
+        assert_eq!(url, "https://api.telegram.org/file/botT/voice/a.ogg");
+    }
+
+    #[test]
+    fn getfile_response_parses_file_path() {
+        let raw = r#"{"ok":true,"result":{"file_id":"x","file_unique_id":"u","file_size":123,"file_path":"documents/file_3.pdf"}}"#;
+        let api: ApiResponse<File> = serde_json::from_slice(raw.as_bytes()).unwrap();
+        assert!(api.ok);
+        assert_eq!(
+            api.result.and_then(|f| f.file_path).as_deref(),
+            Some("documents/file_3.pdf")
+        );
+    }
+
+    #[test]
+    fn getfile_response_tolerates_missing_file_path() {
+        // Some results omit file_path; we must not fail to deserialize.
+        let raw = r#"{"ok":true,"result":{"file_id":"x"}}"#;
+        let api: ApiResponse<File> = serde_json::from_slice(raw.as_bytes()).unwrap();
+        assert!(api.result.and_then(|f| f.file_path).is_none());
+    }
+
+    #[test]
+    fn send_document_body_serializes_with_caption() {
+        let body = build_send_document("42", "https://x/a.jpg", Some("hello"), Some(7));
+        let json = serde_json::to_value(&body).unwrap();
+        assert_eq!(json["chat_id"], "42");
+        assert_eq!(json["document"], "https://x/a.jpg");
+        assert_eq!(json["caption"], "hello");
+        assert_eq!(json["reply_to_message_id"], 7);
+    }
+
+    #[test]
+    fn send_document_body_omits_absent_optionals() {
+        let body = build_send_document("42", "https://x/a.jpg", None, None);
+        let json = serde_json::to_value(&body).unwrap();
+        assert_eq!(json["chat_id"], "42");
+        assert_eq!(json["document"], "https://x/a.jpg");
+        // caption + reply_to_message_id skip-serialize when None.
+        assert!(json.get("caption").is_none());
+        assert!(json.get("reply_to_message_id").is_none());
+    }
 }

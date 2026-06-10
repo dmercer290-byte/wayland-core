@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use lettre::message::header::{HeaderName, HeaderValue};
 use lettre::message::{Message, header::ContentType};
 use lettre::transport::smtp::AsyncSmtpTransport;
 use lettre::transport::smtp::authentication::Credentials;
@@ -106,21 +107,130 @@ fn classify_lettre_error(e: &lettre::transport::smtp::Error) -> SendError {
     }
 }
 
+/// Threading context for an outbound reply, captured from the inbound
+/// message it replies to. Populated on inbound (keyed by the inbound RFC
+/// `Message-ID`, which is `IncomingMessage.id`) and looked up on outbound
+/// when `OutgoingMessage.reply_to` names a known id.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ReplyContext {
+    /// The inbound message's RFC `Message-ID` (without angle brackets).
+    pub message_id: String,
+    /// The inbound message's `Subject`, if any. Used to build `Re: <subj>`.
+    pub subject: Option<String>,
+    /// The inbound message's `References` header value (space-separated
+    /// `<id>` tokens, angle brackets retained), if present. Carried so the
+    /// reply's `References` chain stays well-formed.
+    pub references: Option<String>,
+}
+
+/// Build the `Subject` for a reply: `Re: <original>`, without
+/// double-prefixing when the original already starts with `Re:`
+/// (case-insensitive, optional surrounding whitespace). Falls back to a
+/// bare `Re:` when the original subject is unknown or empty.
+pub(crate) fn build_reply_subject(original: Option<&str>) -> String {
+    match original.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => {
+            // Detect an existing "Re:" prefix (case-insensitive). Compare the
+            // leading bytes so a multibyte subject can't panic on a non-char
+            // boundary slice.
+            let b = s.as_bytes();
+            let is_re = b.len() >= 3
+                && b[0].eq_ignore_ascii_case(&b'r')
+                && b[1].eq_ignore_ascii_case(&b'e')
+                && b[2] == b':';
+            if is_re { s.to_string() } else { format!("Re: {s}") }
+        }
+        None => "Re:".to_string(),
+    }
+}
+
+/// Build the `References` value for a reply, per RFC 5322 §3.6.4: append
+/// the parent's `Message-ID` to the parent's existing `References` chain
+/// (or start a fresh chain with just the parent id). Each id is wrapped in
+/// angle brackets. Returns `None` only when the parent id is empty.
+fn build_references(reply: &ReplyContext) -> Option<String> {
+    if reply.message_id.is_empty() {
+        return None;
+    }
+    let parent = format!("<{}>", reply.message_id);
+    match reply.references.as_deref().map(str::trim) {
+        Some(prev) if !prev.is_empty() => Some(format!("{prev} {parent}")),
+        _ => Some(parent),
+    }
+}
+
+/// Build the threading headers (`In-Reply-To`, `References`) for a reply.
+/// Returns an empty vec when the reply context carries no usable parent
+/// id (so the caller can unconditionally extend the builder). Header
+/// values are plain-ASCII `<message-id>` tokens; `HeaderValue::new` passes
+/// them through unencoded.
+fn reply_headers(reply: &ReplyContext) -> Vec<HeaderValue> {
+    if reply.message_id.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(2);
+    let in_reply_to = format!("<{}>", reply.message_id);
+    out.push(HeaderValue::new(
+        HeaderName::new_from_ascii_str("In-Reply-To"),
+        in_reply_to,
+    ));
+    if let Some(refs) = build_references(reply) {
+        out.push(HeaderValue::new(
+            HeaderName::new_from_ascii_str("References"),
+            refs,
+        ));
+    }
+    out
+}
+
 /// Build a minimal text/plain `lettre::Message` from the outbound
 /// envelope. `from` is the channel's configured From: address; `to` is
 /// the outbound conversation_id (one recipient per send — multi-recipient
 /// support lives behind a future enhancement).
-pub(crate) fn build_message(from: &str, to: &str, text: &str) -> Result<Message, EmailError> {
+///
+/// When `reply` is set, the message is threaded: `Subject` becomes
+/// `Re: <original>` and `In-Reply-To` / `References` headers are attached
+/// so MUAs group the reply with the original. When `reply` is `None` the
+/// subject falls back to `subject_override` (if any) or a bare default,
+/// preserving the prior outbound-only behavior.
+pub(crate) fn build_message(
+    from: &str,
+    to: &str,
+    text: &str,
+    reply: Option<&ReplyContext>,
+    subject_override: Option<&str>,
+) -> Result<Message, EmailError> {
     let from_addr = from
         .parse()
         .map_err(|e| EmailError::Envelope(format!("from {from}: {e}")))?;
     let to_addr = to
         .parse()
         .map_err(|e| EmailError::Envelope(format!("to {to}: {e}")))?;
-    Message::builder()
+
+    // Subject: reply threading wins, then an explicit override, then a
+    // sensible non-empty default (a blank subject reads as a malformed
+    // orphan in most MUAs).
+    let subject = match reply {
+        Some(r) => build_reply_subject(r.subject.as_deref()),
+        None => subject_override
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| "(no subject)".to_string()),
+    };
+
+    let mut builder = Message::builder()
         .from(from_addr)
         .to(to_addr)
-        .subject("")
+        .subject(subject);
+
+    if let Some(r) = reply {
+        for hv in reply_headers(r) {
+            builder = builder.raw_header(hv);
+        }
+    }
+
+    builder
         .header(ContentType::TEXT_PLAIN)
         .body(text.to_string())
         .map_err(|e| EmailError::Envelope(format!("body: {e}")))
@@ -246,7 +356,7 @@ mod tests {
     #[tokio::test]
     async fn send_records_envelope_from_to_body() {
         let sender = RecordingSender::new(vec![RecordingSender::ok_with_queue_id("Q1")]);
-        let msg = build_message("bot@acme.com", "ops@acme.com", "hello body").unwrap();
+        let msg = build_message("bot@acme.com", "ops@acme.com", "hello body", None, None).unwrap();
         let resp = send_with_retry(sender.clone(), msg).await.unwrap();
         assert_eq!(response_message_id(&resp), "Q1");
         let sent = sender.sent.lock().unwrap();
@@ -264,7 +374,7 @@ mod tests {
             Err(SendError::Transient("conn reset".into())),
             RecordingSender::ok_with_queue_id("Q2"),
         ]);
-        let msg = build_message("bot@acme.com", "ops@acme.com", "after retry").unwrap();
+        let msg = build_message("bot@acme.com", "ops@acme.com", "after retry", None, None).unwrap();
         let resp = send_with_retry(sender.clone(), msg).await.unwrap();
         assert_eq!(response_message_id(&resp), "Q2");
         assert_eq!(sender.sent.lock().unwrap().len(), 3);
@@ -277,7 +387,8 @@ mod tests {
             // Outcome below must NOT be consumed.
             RecordingSender::ok_with_queue_id("Q3"),
         ]);
-        let msg = build_message("bot@acme.com", "ops@acme.com", "should not retry").unwrap();
+        let msg =
+            build_message("bot@acme.com", "ops@acme.com", "should not retry", None, None).unwrap();
         let err = send_with_retry(sender.clone(), msg)
             .await
             .expect_err("auth");
@@ -295,7 +406,7 @@ mod tests {
             Err(SendError::Permanent("550 user unknown".into())),
             RecordingSender::ok_with_queue_id("nope"),
         ]);
-        let msg = build_message("bot@acme.com", "ops@acme.com", "nope").unwrap();
+        let msg = build_message("bot@acme.com", "ops@acme.com", "nope", None, None).unwrap();
         let err = send_with_retry(sender.clone(), msg)
             .await
             .expect_err("permanent");
@@ -308,7 +419,7 @@ mod tests {
 
     #[test]
     fn build_message_rejects_bad_from() {
-        let err = build_message("not-an-email", "ops@acme.com", "x")
+        let err = build_message("not-an-email", "ops@acme.com", "x", None, None)
             .expect_err("expected envelope error");
         match err {
             EmailError::Envelope(_) => {}
@@ -329,5 +440,90 @@ mod tests {
         let r = Response::from_str("250 2.0.0 fine and dandy\r\n").unwrap();
         let id = response_message_id(&r);
         assert!(id.starts_with("smtp-"), "id = {id}");
+    }
+
+    #[test]
+    fn reply_subject_prefixes_re_once() {
+        assert_eq!(build_reply_subject(Some("Hello there")), "Re: Hello there");
+        // Already-Re subject is not double-prefixed (case-insensitive).
+        assert_eq!(build_reply_subject(Some("Re: Hello there")), "Re: Hello there");
+        assert_eq!(build_reply_subject(Some("RE: shouting")), "RE: shouting");
+        assert_eq!(build_reply_subject(Some("re: lower")), "re: lower");
+        // Whitespace-only / empty / unknown fall back to a bare "Re:".
+        assert_eq!(build_reply_subject(Some("   ")), "Re:");
+        assert_eq!(build_reply_subject(None), "Re:");
+    }
+
+    #[test]
+    fn references_appends_parent_to_existing_chain() {
+        let r = ReplyContext {
+            message_id: "msg-2@x".into(),
+            subject: None,
+            references: Some("<msg-0@x> <msg-1@x>".into()),
+        };
+        assert_eq!(
+            build_references(&r).unwrap(),
+            "<msg-0@x> <msg-1@x> <msg-2@x>"
+        );
+        // Fresh chain (no prior References) starts with just the parent.
+        let r2 = ReplyContext {
+            message_id: "root@x".into(),
+            subject: None,
+            references: None,
+        };
+        assert_eq!(build_references(&r2).unwrap(), "<root@x>");
+        // Empty parent id -> no References.
+        let r3 = ReplyContext::default();
+        assert!(build_references(&r3).is_none());
+    }
+
+    #[test]
+    fn reply_message_carries_threading_headers_and_subject() {
+        let reply = ReplyContext {
+            message_id: "orig-123@acme.com".into(),
+            subject: Some("Status update".into()),
+            references: Some("<root@acme.com>".into()),
+        };
+        let msg = build_message(
+            "bot@acme.com",
+            "ops@acme.com",
+            "thread reply body",
+            Some(&reply),
+            None,
+        )
+        .unwrap();
+        let rfc = String::from_utf8_lossy(&msg.formatted()).to_string();
+        assert!(
+            rfc.contains("In-Reply-To: <orig-123@acme.com>"),
+            "rfc = {rfc}"
+        );
+        assert!(
+            rfc.contains("References: <root@acme.com> <orig-123@acme.com>"),
+            "rfc = {rfc}"
+        );
+        assert!(rfc.contains("Subject: Re: Status update"), "rfc = {rfc}");
+        assert!(rfc.contains("thread reply body"), "rfc = {rfc}");
+    }
+
+    #[test]
+    fn non_reply_message_uses_default_subject_not_blank() {
+        let msg = build_message("bot@acme.com", "ops@acme.com", "fresh", None, None).unwrap();
+        let rfc = String::from_utf8_lossy(&msg.formatted()).to_string();
+        // A blank Subject reads as a malformed orphan; we emit a default.
+        assert!(rfc.contains("Subject: (no subject)"), "rfc = {rfc}");
+    }
+
+    #[test]
+    fn non_reply_message_honours_subject_override() {
+        let msg = build_message(
+            "bot@acme.com",
+            "ops@acme.com",
+            "fresh",
+            None,
+            Some("Weekly report"),
+        )
+        .unwrap();
+        let rfc = String::from_utf8_lossy(&msg.formatted()).to_string();
+        assert!(rfc.contains("Subject: Weekly report"), "rfc = {rfc}");
     }
 }

@@ -9,7 +9,7 @@
 //! Shape mirrors `wcore-channel-telegram` deliberately — same lifecycle,
 //! same inbox queue + shutdown watch, same retry policy on outbound.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use async_trait::async_trait;
@@ -50,6 +50,11 @@ pub struct EmailChannel {
     /// Monotonic high-water UID for IMAP. Shared with the blocking poll
     /// task; std Mutex because the task is sync.
     last_seen_uid: Arc<StdMutex<u32>>,
+    /// Reply-threading index: inbound RFC Message-ID -> threading context.
+    /// The IMAP poll task records entries; `send_message` reads them to set
+    /// In-Reply-To / References / Re: subject on outbound replies. Shared
+    /// `std::Mutex` because the poll task is synchronous.
+    reply_index: crate::imap::ReplyIndex,
     /// Credentials store used to resolve SMTP+IMAP creds at `start()`.
     creds: Arc<dyn CredentialsStore>,
     /// Optional test override — when set, `start()` reuses this sender
@@ -75,6 +80,7 @@ impl EmailChannel {
             poll_handle: None,
             shutdown: None,
             last_seen_uid: Arc::new(StdMutex::new(0)),
+            reply_index: Arc::new(StdMutex::new(HashMap::new())),
             creds,
             sender_override: None,
         }
@@ -202,6 +208,7 @@ impl Channel for EmailChannel {
                 poll_interval_secs: imap_cfg.poll_interval_secs,
                 inbox: Arc::clone(&self.inbox),
                 last_seen_uid: Arc::clone(&self.last_seen_uid),
+                reply_index: Arc::clone(&self.reply_index),
                 shutdown: rx,
                 runtime_handle: tokio::runtime::Handle::current(),
             };
@@ -251,9 +258,33 @@ impl Channel for EmailChannel {
 
     async fn send_message(&mut self, msg: OutgoingMessage) -> Result<MessageReceipt, ChannelError> {
         let sender = self.sender.clone().ok_or(ChannelError::NotStarted)?;
-        let envelope =
-            crate::smtp::build_message(&self.config.from_address, &msg.conversation_id, &msg.text)
-                .map_err(ChannelError::from)?;
+
+        // Reply threading: when the outbound names a reply target, look up
+        // the inbound message's threading context (Message-ID + Subject +
+        // References) so we can set In-Reply-To / References / Re: subject.
+        // If the id is unknown (e.g. the index was cleared), fall back to a
+        // single-id chain built from the reply_to id itself — still a valid,
+        // correctly-threaded reply, just without the original Subject.
+        let reply_ctx = msg.reply_to.as_ref().map(|rid| {
+            self.reply_index
+                .lock()
+                .ok()
+                .and_then(|idx| idx.get(rid).cloned())
+                .unwrap_or_else(|| crate::smtp::ReplyContext {
+                    message_id: rid.clone(),
+                    subject: None,
+                    references: None,
+                })
+        });
+
+        let envelope = crate::smtp::build_message(
+            &self.config.from_address,
+            &msg.conversation_id,
+            &msg.text,
+            reply_ctx.as_ref(),
+            None,
+        )
+        .map_err(ChannelError::from)?;
         let response = crate::smtp::send_with_retry(sender, envelope)
             .await
             .map_err(ChannelError::from)?;
@@ -558,6 +589,90 @@ password_credential_handle = "email.acme.smtp_pass"
             .await
             .expect_err("not started");
         assert!(matches!(err, ChannelError::NotStarted), "got {err:?}");
+    }
+
+    // -----------------------------------------------------------------
+    // Reply threading (FIX 1): a reply OutgoingMessage whose reply_to names
+    // a recorded inbound message produces In-Reply-To + References + a
+    // non-empty Re: subject on the outbound envelope.
+    // -----------------------------------------------------------------
+    #[tokio::test]
+    async fn reply_threads_with_in_reply_to_references_and_re_subject() {
+        let sender = RecordingSender::new(vec![RecordingSender::ok("QID-R")]);
+        let mut ch = EmailChannel::with_sender(
+            "test",
+            cfg_outbound_only(),
+            creds_for_outbound(),
+            sender.clone(),
+        );
+        ch.start().await.unwrap();
+
+        // Simulate an inbound message having been recorded by the poll loop.
+        crate::imap::record_reply_context(
+            &ch.reply_index,
+            "orig-99@acme.com".to_string(),
+            crate::smtp::ReplyContext {
+                message_id: "orig-99@acme.com".into(),
+                subject: Some("Quarterly plan".into()),
+                references: Some("<root@acme.com>".into()),
+            },
+        );
+
+        let out = OutgoingMessage {
+            conversation_id: "ops@acme.com".into(),
+            text: "here is my reply".into(),
+            reply_to: Some("orig-99@acme.com".into()),
+            attachments: Vec::new(),
+        };
+        ch.send_message(out).await.unwrap();
+
+        {
+            let sent = sender.sent.lock().unwrap();
+            assert_eq!(sent.len(), 1);
+            let rfc = String::from_utf8_lossy(&sent[0].formatted()).to_string();
+            assert!(
+                rfc.contains("In-Reply-To: <orig-99@acme.com>"),
+                "rfc = {rfc}"
+            );
+            assert!(
+                rfc.contains("References: <root@acme.com> <orig-99@acme.com>"),
+                "rfc = {rfc}"
+            );
+            assert!(rfc.contains("Subject: Re: Quarterly plan"), "rfc = {rfc}");
+        }
+        ch.stop().await.unwrap();
+    }
+
+    // -----------------------------------------------------------------
+    // Reply threading fallback: unknown reply_to id (index cleared / cold
+    // start) still threads via a single-id chain, never errors.
+    // -----------------------------------------------------------------
+    #[tokio::test]
+    async fn reply_to_unknown_id_falls_back_to_single_id_chain() {
+        let sender = RecordingSender::new(vec![RecordingSender::ok("QID-F")]);
+        let mut ch = EmailChannel::with_sender(
+            "test",
+            cfg_outbound_only(),
+            creds_for_outbound(),
+            sender.clone(),
+        );
+        ch.start().await.unwrap();
+        let out = OutgoingMessage {
+            conversation_id: "ops@acme.com".into(),
+            text: "reply to unknown".into(),
+            reply_to: Some("never-seen@x".into()),
+            attachments: Vec::new(),
+        };
+        ch.send_message(out).await.unwrap();
+        {
+            let sent = sender.sent.lock().unwrap();
+            let rfc = String::from_utf8_lossy(&sent[0].formatted()).to_string();
+            assert!(rfc.contains("In-Reply-To: <never-seen@x>"), "rfc = {rfc}");
+            assert!(rfc.contains("References: <never-seen@x>"), "rfc = {rfc}");
+            // Unknown subject -> bare "Re:".
+            assert!(rfc.contains("Subject: Re:"), "rfc = {rfc}");
+        }
+        ch.stop().await.unwrap();
     }
 
     // -----------------------------------------------------------------

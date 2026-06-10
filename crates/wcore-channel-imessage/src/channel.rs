@@ -23,10 +23,20 @@ use wcore_config::credentials::CredentialsStore;
 
 use crate::applescript::{build_send_script, run_osascript};
 use crate::config::IMessageConfig;
-use crate::db::{apple_ns_to_unix_secs, chat_db_path, fetch_new_messages, max_rowid};
+use crate::db::{
+    apple_ns_to_unix_secs, chat_db_path, fetch_new_messages, fetch_outgoing_since,
+    match_outgoing_guid, max_rowid,
+};
 
 const SEND_QUEUE_MAX: usize = 50;
 const OSASCRIPT_TIMEOUT_MS: u64 = 15_000;
+
+// Budget for resolving a just-sent message's real GUID from chat.db. The send
+// is committed by AppleScript before the row lands in SQLite, so we poll a few
+// times. Kept short so send_message stays responsive; on miss we fall back to a
+// clearly-named synthetic pending id (see `resolve_sent_guid`).
+const GUID_LOOKUP_ATTEMPTS: usize = 10;
+const GUID_LOOKUP_INTERVAL_MS: u64 = 100;
 
 pub struct IMessageChannel {
     name: String,
@@ -160,16 +170,28 @@ impl Channel for IMessageChannel {
             *self.send_queue_depth.lock().await += 1;
         }
 
+        let db_path = chat_db_path();
+        // Snapshot the rowid cursor BEFORE sending so the post-send lookup only
+        // considers messages produced by this send. A failure to read the
+        // cursor (e.g. Full Disk Access not granted) is non-fatal: we still
+        // send, then fall back to a synthetic pending id.
+        let pre_send_rowid = max_rowid(db_path.clone()).await.ok();
+
         let result = do_send(&msg.conversation_id, &msg.text).await;
 
         {
             *self.send_queue_depth.lock().await -= 1;
         }
 
-        result.map_err(ChannelError::from).map(|_| MessageReceipt {
-            id: format!("imessage-sent-{}", chrono::Utc::now().timestamp()),
+        result.map_err(ChannelError::from)?;
+
+        let ts_secs = chrono::Utc::now().timestamp();
+        let id = resolve_sent_guid(db_path, pre_send_rowid, &msg.text, ts_secs).await;
+
+        Ok(MessageReceipt {
+            id,
             conversation_id: msg.conversation_id.clone(),
-            ts_secs: chrono::Utc::now().timestamp(),
+            ts_secs,
         })
     }
 
@@ -270,6 +292,61 @@ async fn do_send(chat_id: &str, text: &str) -> Result<(), crate::error::IMessage
     let script = build_send_script(chat_id, text, None);
     run_osascript(&script, OSASCRIPT_TIMEOUT_MS).await?;
     Ok(())
+}
+
+/// Resolve the receipt id for a just-sent message.
+///
+/// AppleScript's `send` returns no message id, so the real `message.guid` must
+/// be read back from chat.db. The outgoing row is written asynchronously by
+/// Messages.app, so we poll briefly (`GUID_LOOKUP_ATTEMPTS` ×
+/// `GUID_LOOKUP_INTERVAL_MS`) for an outgoing row newer than `pre_send_rowid`
+/// whose text matches what we sent, and return its GUID. This GUID is the
+/// stable cross-event key, so a later inbound echo or read receipt for the same
+/// message correlates with this receipt for dedup.
+///
+/// Fallback: if the cursor could not be read (Full Disk Access not granted) or
+/// the row has not landed within the budget, return a clearly-named synthetic
+/// `imessage-pending-<unix>` id. It is deliberately NOT shaped like a real GUID
+/// so callers can tell a resolved receipt from an unresolved one.
+async fn resolve_sent_guid(
+    db_path: std::path::PathBuf,
+    pre_send_rowid: Option<i64>,
+    sent_text: &str,
+    ts_secs: i64,
+) -> String {
+    let fallback = || format!("imessage-pending-{ts_secs}");
+
+    let Some(since_rowid) = pre_send_rowid else {
+        return fallback();
+    };
+
+    for attempt in 0..GUID_LOOKUP_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(GUID_LOOKUP_INTERVAL_MS)).await;
+        }
+        match fetch_outgoing_since(db_path.clone(), since_rowid).await {
+            Ok(rows) => {
+                if let Some(guid) = match_outgoing_guid(&rows, sent_text) {
+                    return guid;
+                }
+            }
+            Err(e) => {
+                // Read-back is best-effort; the message was already sent. Log
+                // once and keep retrying within the budget.
+                tracing::debug!(
+                    target: "wcore_channel_imessage",
+                    error = %e,
+                    "iMessage GUID read-back error; will retry"
+                );
+            }
+        }
+    }
+
+    tracing::debug!(
+        target: "wcore_channel_imessage",
+        "iMessage GUID not resolved within budget; returning synthetic pending id"
+    );
+    fallback()
 }
 
 // ---------------------------------------------------------------------------

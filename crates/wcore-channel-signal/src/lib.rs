@@ -28,7 +28,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use serde_json::json;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, oneshot, watch};
 use tokio::task::JoinHandle;
@@ -40,7 +39,10 @@ use wcore_channels::outgoing::OutgoingMessage;
 
 pub use crate::config::SignalConfig;
 pub use crate::error::SignalError;
-pub use crate::jsonrpc::SendResult;
+pub use crate::jsonrpc::{
+    DeliveryOutcome, SendResult, SendResultEntry, build_send_params, classify_delivery,
+    is_direct_recipient,
+};
 pub use crate::subprocess::{
     PendingResponses, RealLauncher, SharedStdin, SignalProcessHandle, SignalProcessLauncher,
 };
@@ -235,10 +237,10 @@ impl Channel for SignalChannel {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
 
-        let params = json!({
-            "recipient": [msg.conversation_id.clone()],
-            "message": msg.text,
-        });
+        // Route to `recipient` (direct) or `groupId` (group) based on the
+        // conversation id's shape — signal-cli's `send` accepts one XOR
+        // the other. See `jsonrpc::build_send_params`.
+        let params = jsonrpc::build_send_params(&msg.conversation_id, &msg.text);
         let request = jsonrpc::Request::new(id, "send", params);
         let line = serde_json::to_string(&request)
             .map_err(|e| ChannelError::from(SignalError::Decode(format!("encode request: {e}"))))?;
@@ -290,6 +292,28 @@ impl Channel for SignalChannel {
         let parsed: SendResult = serde_json::from_value(raw).map_err(|e| {
             ChannelError::from(SignalError::Decode(format!("parse send result: {e}")))
         })?;
+
+        // Inspect per-recipient delivery. signal-cli answers the
+        // round-trip even when some/all recipients are undelivered, so a
+        // bare response is NOT proof of delivery — classify the results
+        // array. Logging is content-free: counts only, never message
+        // text or recipient identities.
+        match jsonrpc::classify_delivery(parsed.results.as_deref()) {
+            jsonrpc::DeliveryOutcome::AllSucceeded => {}
+            jsonrpc::DeliveryOutcome::Partial { failed, total } => {
+                tracing::warn!(
+                    target: "wcore_channel_signal",
+                    failed,
+                    total,
+                    "send: partial delivery — some recipients undelivered"
+                );
+            }
+            jsonrpc::DeliveryOutcome::AllFailed { total } => {
+                return Err(ChannelError::Rejected(format!(
+                    "all {total} recipient(s) undelivered"
+                )));
+            }
+        }
 
         let ts_ms = parsed.timestamp.unwrap_or_else(now_ms);
         let ts_secs = ts_ms / 1000;
@@ -740,6 +764,100 @@ send_timeout_secs = 20
             }
             other => panic!("expected Rejected, got {other:?}"),
         }
+    }
+
+    // -----------------------------------------------------------------
+    // 11a. Group send routes through `groupId` (not `recipient`) when the
+    //      conversation id is a base64 group id rather than a +phone.
+    // -----------------------------------------------------------------
+    #[tokio::test]
+    async fn group_send_uses_group_id_param() {
+        let (launcher, mut io) = build_test_pair();
+        let mut ch = SignalChannel::with_launcher("test", cfg(), launcher);
+        ch.start().await.unwrap();
+
+        let send_fut = tokio::spawn(async move {
+            ch.send_message(OutgoingMessage::text("abcd1234EFGH==", "hi group"))
+                .await
+        });
+
+        let line = io.read_line().await;
+        let req: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(req["method"], "send");
+        assert_eq!(req["params"]["groupId"], "abcd1234EFGH==");
+        assert_eq!(req["params"]["message"], "hi group");
+        // recipient must be absent for a group send.
+        assert!(req["params"].get("recipient").is_none());
+        let id = req["id"].as_u64().unwrap();
+
+        let resp =
+            format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{{"timestamp":1700000123456}}}}"#);
+        io.write_line(&resp).await;
+
+        let receipt = send_fut.await.unwrap().unwrap();
+        assert_eq!(receipt.conversation_id, "abcd1234EFGH==");
+    }
+
+    // -----------------------------------------------------------------
+    // 11b. A send whose per-recipient results are ALL failures surfaces
+    //      as ChannelError::Rejected even though signal-cli answered the
+    //      round-trip.
+    // -----------------------------------------------------------------
+    #[tokio::test]
+    async fn all_failed_recipients_surface_as_rejected() {
+        let (launcher, mut io) = build_test_pair();
+        let mut ch = SignalChannel::with_launcher("test", cfg(), launcher);
+        ch.start().await.unwrap();
+
+        let send_fut = tokio::spawn(async move {
+            ch.send_message(OutgoingMessage::text("groupIdBase64==", "undelivered"))
+                .await
+        });
+
+        let line = io.read_line().await;
+        let req: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        let id = req["id"].as_u64().unwrap();
+
+        let resp = format!(
+            r#"{{"jsonrpc":"2.0","id":{id},"result":{{"timestamp":1700000123456,"results":[{{"type":"NETWORK_FAILURE"}},{{"type":"UNREGISTERED_FAILURE"}}]}}}}"#
+        );
+        io.write_line(&resp).await;
+
+        let err = send_fut.await.unwrap().expect_err("expected rejection");
+        match err {
+            ChannelError::Rejected(msg) => {
+                assert!(msg.contains('2'), "should name the recipient count: {msg}");
+            }
+            other => panic!("expected Rejected, got {other:?}"),
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // 11c. A send with SOME failed recipients still returns a receipt
+    //      (partial → warn-and-succeed).
+    // -----------------------------------------------------------------
+    #[tokio::test]
+    async fn partial_failure_still_returns_receipt() {
+        let (launcher, mut io) = build_test_pair();
+        let mut ch = SignalChannel::with_launcher("test", cfg(), launcher);
+        ch.start().await.unwrap();
+
+        let send_fut = tokio::spawn(async move {
+            ch.send_message(OutgoingMessage::text("groupIdBase64==", "partial"))
+                .await
+        });
+
+        let line = io.read_line().await;
+        let req: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        let id = req["id"].as_u64().unwrap();
+
+        let resp = format!(
+            r#"{{"jsonrpc":"2.0","id":{id},"result":{{"timestamp":1700000123456,"results":[{{"type":"SUCCESS"}},{{"type":"NETWORK_FAILURE"}}]}}}}"#
+        );
+        io.write_line(&resp).await;
+
+        let receipt = send_fut.await.unwrap().expect("partial should still succeed");
+        assert_eq!(receipt.id, "1700000123456");
     }
 
     // -----------------------------------------------------------------

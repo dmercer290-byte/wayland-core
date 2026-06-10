@@ -220,6 +220,36 @@ impl ChannelTurnDispatcher {
     }
 }
 
+/// Build the prompt text for a channel turn from an inbound message.
+///
+/// The agent's input is the raw message text plus — when the message
+/// carried media — a concise, clearly-delimited summary of each attachment
+/// so the model knows files arrived and can decide how to respond (the raw
+/// download is a separate, per-connector concern). The attachment lines are
+/// untrusted, agent-facing context, NOT system instructions; they describe
+/// the kind/type/url the connector populated. A text-only message returns
+/// its text unchanged (byte-identical to the pre-media behaviour).
+fn build_turn_prompt(msg: &wcore_channels::IncomingMessage) -> String {
+    if msg.attachments.is_empty() {
+        return msg.text.clone();
+    }
+    let mut out = msg.text.clone();
+    out.push_str("\n\n[attachments received with this message:");
+    for (i, att) in msg.attachments.iter().enumerate() {
+        let kind = format!("{:?}", att.kind);
+        let ty = att.content_type.as_deref().unwrap_or("unknown type");
+        // Prefer the transcription when present (e.g. a voice note already
+        // transcribed by the connector); else describe the media reference.
+        if let Some(t) = att.transcribed.as_deref() {
+            out.push_str(&format!("\n  {}. {kind} ({ty}) — transcript: {t}", i + 1));
+        } else {
+            out.push_str(&format!("\n  {}. {kind} ({ty}) — {}", i + 1, att.url));
+        }
+    }
+    out.push(']');
+    out
+}
+
 #[async_trait]
 impl TurnDispatcher for ChannelTurnDispatcher {
     async fn dispatch(
@@ -240,9 +270,10 @@ impl TurnDispatcher for ChannelTurnDispatcher {
         // inbound event); the dedupe cache upstream already guarantees one
         // dispatch per id.
         let msg_id = msg.id.clone();
+        let prompt = build_turn_prompt(msg);
         let result = {
             let mut guard = engine.lock().await;
-            guard.run(&msg.text, &msg_id).await?
+            guard.run(&prompt, &msg_id).await?
         };
         if result.text.is_empty() {
             Ok(None)
@@ -255,6 +286,35 @@ impl TurnDispatcher for ChannelTurnDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turn_prompt_is_text_only_without_attachments() {
+        let msg = wcore_channels::IncomingMessage::new("m1", "c1", "alice", "hello", 0);
+        assert_eq!(build_turn_prompt(&msg), "hello");
+    }
+
+    #[test]
+    fn turn_prompt_summarizes_attachments() {
+        let mut msg = wcore_channels::IncomingMessage::new("m1", "c1", "alice", "look", 0);
+        msg.attachments = vec![
+            wcore_channels::Attachment {
+                url: "https://x/a.png".into(),
+                content_type: Some("image/png".into()),
+                kind: wcore_channels::MediaKind::Image,
+                ..Default::default()
+            },
+            wcore_channels::Attachment {
+                kind: wcore_channels::MediaKind::Audio,
+                transcribed: Some("hi there".into()),
+                ..Default::default()
+            },
+        ];
+        let p = build_turn_prompt(&msg);
+        assert!(p.starts_with("look\n\n[attachments received"));
+        assert!(p.contains("Image (image/png) — https://x/a.png"));
+        assert!(p.contains("Audio (unknown type) — transcript: hi there"));
+        assert!(p.trim_end().ends_with(']'));
+    }
 
     #[test]
     fn hashed_session_id_is_stable() {
