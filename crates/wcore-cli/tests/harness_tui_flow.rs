@@ -294,12 +294,12 @@ impl Drop for PtyHarness {
 /// Boot the TUI and block until `WAYLAND` (the chrome wordmark) lands on
 /// screen. Reused by every test in this file.
 ///
-/// The first boot is dominated by the bundled `wayland-ijfw` plugin's
-/// `ijfw-memory` stdio MCP server: that handshake is bounded by
-/// `wcore-mcp::manager::CONNECT_TIMEOUT = 30s` (audit C2) and runs
-/// concurrently with the rest of bootstrap. Allow 60s so a cold runner
-/// has slack but a regression that re-introduces unbounded waiting still
-/// trips the assert.
+/// The first boot has to spin up the full agent bootstrap (plugin
+/// discovery, tool registry, any configured stdio MCP servers). Each MCP
+/// handshake is bounded by `wcore-mcp::manager::CONNECT_TIMEOUT = 30s`
+/// (audit C2) and runs concurrently with the rest of bootstrap. Allow 60s
+/// so a cold runner has slack but a regression that re-introduces
+/// unbounded waiting still trips the assert.
 fn boot_to_workspace(home: &Path) -> PtyHarness {
     let h = PtyHarness::spawn(home);
     h.wait_for(

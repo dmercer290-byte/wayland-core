@@ -29,7 +29,6 @@ use std::sync::Arc;
 use wayland_browser as _;
 use wayland_cua as _;
 use wayland_honcho as _;
-use wayland_ijfw as _;
 use wayland_ollama as _;
 
 use serial_test::serial;

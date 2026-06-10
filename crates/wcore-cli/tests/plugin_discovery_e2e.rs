@@ -4,7 +4,7 @@
 //!
 //! This test exists because BLOCKER #1 in the v0.2.0 validation pass
 //! showed that `crates/wcore-cli/Cargo.toml` listing `wayland-browser`,
-//! `wayland-cua`, `wayland-ijfw`, `wayland-ollama` as dependencies was
+//! `wayland-cua`, `wayland-ollama` as dependencies was
 //! NOT sufficient — Rust's linker dead-code-strips entire crates whose
 //! items are never named in the binary, including the `link_section`
 //! static items `inventory::submit!` emits. The fix is the

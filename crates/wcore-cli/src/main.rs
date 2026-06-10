@@ -22,7 +22,6 @@ use wcore_cli::doctor;
 use wayland_browser as _;
 use wayland_cua as _;
 use wayland_honcho as _;
-use wayland_ijfw as _;
 // Wave OL: typed import — `OllamaProvider` is downcast from
 // `Arc<dyn PluginProvider>` in `make_plugin_provider_router` below to
 // route `--model ollama:*` through the wayland-ollama plugin. The

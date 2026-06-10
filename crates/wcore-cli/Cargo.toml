@@ -111,7 +111,6 @@ humantime-serde.workspace = true
 wayland-browser = { path = "../wayland-browser" }
 wayland-cua     = { path = "../wayland-cua" }
 wayland-honcho  = { path = "../wayland-honcho" }
-wayland-ijfw    = { path = "../wayland-ijfw" }
 wayland-ollama  = { path = "../wayland-ollama" }
 
 tokio.workspace  = true

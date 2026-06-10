@@ -22,11 +22,5 @@
     "version": "0.6.0",
     "requires_sandbox": false,
     "description": "Computer-use plugin shell (multi-platform)"
-  },
-  {
-    "name": "wayland-ijfw",
-    "version": "0.6.0",
-    "requires_sandbox": false,
-    "description": "IJFW anchor plugin (exercises every register_* surface)"
   }
 ]

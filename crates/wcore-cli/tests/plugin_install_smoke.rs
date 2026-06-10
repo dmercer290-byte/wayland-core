@@ -116,5 +116,8 @@ fn default_registry_loads_all_v0_6_entries() {
     assert!(names.contains(&"wayland-honcho"));
     assert!(names.contains(&"wayland-browser"));
     assert!(names.contains(&"wayland-cua"));
-    assert!(names.contains(&"wayland-ijfw"));
+    // wayland-ijfw is a declarative-install-only integration (installed via
+    // the IJFW skill/MCP path, not bundled into the binary). It must NOT
+    // appear in the embedded install catalog.
+    assert!(!names.contains(&"wayland-ijfw"));
 }
