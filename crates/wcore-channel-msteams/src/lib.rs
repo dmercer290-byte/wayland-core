@@ -15,6 +15,7 @@
 //! Ported from the desktop app's TypeScript `MsTeamsPlugin` (OpenClaw MIT + Apache-2.0).
 //! See F-045 in the wcore audit triage.
 
+pub mod auth;
 pub mod config;
 pub mod error;
 pub mod inbound;
@@ -31,8 +32,10 @@ use wcore_channels::Channel;
 use wcore_channels::error::ChannelError;
 use wcore_channels::event::{ChannelEvent, ConnectionState, MessageReceipt};
 use wcore_channels::outgoing::OutgoingMessage;
+use wcore_channels::webhook::{WebhookRequest, WebhookResponse};
 use wcore_config::credentials::CredentialsStore;
 
+use auth::BotFrameworkAuth;
 pub use config::MsTeamsConfig;
 pub use error::MsTeamsError;
 use token::TokenCache;
@@ -60,6 +63,10 @@ pub struct MsTeamsChannel {
     creds: Arc<dyn CredentialsStore>,
     /// Token endpoint base — overrideable for tests.
     token_url: String,
+    /// Inbound Bot Framework JWT validator. `None` until `start()` resolves
+    /// the `app_id` (the JWT audience); inbound webhooks are refused until
+    /// then.
+    auth: Option<BotFrameworkAuth>,
 }
 
 impl MsTeamsChannel {
@@ -94,6 +101,7 @@ impl MsTeamsChannel {
             inbox: Arc::new(Mutex::new(VecDeque::new())),
             creds,
             token_url,
+            auth: None,
         }
     }
 
@@ -114,18 +122,15 @@ impl MsTeamsChannel {
     /// configured `service_url`) so the reply path round-trips the
     /// tenant-specific serviceUrl. See [`inbound::activity_to_incoming`].
     ///
-    /// # Security — NOT authenticated
+    /// # Security — authenticate before calling
     ///
-    /// This method performs **no** authentication of the inbound request. The
-    /// Bot Framework signs inbound activities with a JWT in the
-    /// `Authorization: Bearer <jwt>` header that must be validated (issuer +
-    /// audience + signature against Azure's OpenID JWKS metadata) before the
-    /// payload can be trusted. That validation is a separate, heavier
-    /// follow-up.
-    ///
-    // TODO(security): validate Bot Framework JWT (iss/aud + JWKS) before
-    // trusting inbound; the inbound webhook host must not call this until that
-    // lands or must gate on network trust.
+    /// This method performs **no** authentication itself — it trusts its
+    /// `raw_body`. The webhook entrypoint
+    /// [`ingest_webhook`](Channel::ingest_webhook) validates the Bot
+    /// Framework JWT (signature + audience + issuer + expiry, via
+    /// [`auth::BotFrameworkAuth`]) before calling this. Callers other than
+    /// `ingest_webhook` (e.g. tests) must guarantee the body's authenticity
+    /// some other way.
     pub async fn ingest_activity(&self, raw_body: &str) -> Result<(), MsTeamsError> {
         if let Some(msg) = inbound::activity_to_incoming(raw_body, &self.config.service_url)? {
             self.inbox
@@ -181,6 +186,10 @@ impl Channel for MsTeamsChannel {
             .await
             .map_err(|e| ChannelError::Auth(format!("Bot Framework token: {e}")))?;
 
+        // Bind the inbound JWT validator now that the audience (app_id) is
+        // known. Until this is set, `ingest_webhook` refuses inbound traffic.
+        self.auth = Some(BotFrameworkAuth::new(self.http.clone(), app_id.clone()));
+
         self.app_id = Some(app_id);
         self.app_password = Some(app_password);
         self.state = ConnectionState::Connected;
@@ -199,6 +208,7 @@ impl Channel for MsTeamsChannel {
         }
         self.app_id = None;
         self.app_password = None;
+        self.auth = None;
         self.state = ConnectionState::Disconnected;
         self.inbox
             .lock()
@@ -213,6 +223,60 @@ impl Channel for MsTeamsChannel {
     /// (via [`ingest_activity`](MsTeamsChannel::ingest_activity)).
     async fn poll_events(&mut self) -> Result<Vec<ChannelEvent>, ChannelError> {
         Ok(self.inbox.lock().await.drain(..).collect())
+    }
+
+    /// Authenticate and ingest an inbound Bot Framework Activity webhook.
+    ///
+    /// This is the security gate that makes inbound MS Teams safe to route:
+    ///
+    /// 1. Require the channel to be started (the JWT validator is bound in
+    ///    `start()` once the audience `app_id` is known).
+    /// 2. Require an `Authorization` header and validate its Bearer JWT against
+    ///    Azure's JWKS — signature (RS256-only), audience (`app_id`), issuer
+    ///    (`https://api.botframework.com`), and expiry. See
+    ///    [`auth::BotFrameworkAuth::validate`].
+    /// 3. **Defense-in-depth**: when both the JWT's `serviceurl` claim and the
+    ///    Activity body's `serviceUrl` are present, they must match. This
+    ///    blocks replaying a valid token alongside a swapped `serviceUrl` (the
+    ///    reply path trusts that `serviceUrl`, so a mismatch could redirect
+    ///    bot replies to an attacker endpoint). The JWT `aud == app_id`
+    ///    binding remains the primary control; this is a secondary check.
+    /// 4. Parse + enqueue via [`ingest_activity`](Self::ingest_activity).
+    ///
+    /// Returns an empty `200 OK` once enqueued (lifecycle activities are
+    /// ACKed without enqueuing). Any auth failure is surfaced as
+    /// [`ChannelError::Auth`] so the host returns `401` and never parses the
+    /// body of an unauthenticated request.
+    async fn ingest_webhook(&self, req: &WebhookRequest) -> Result<WebhookResponse, ChannelError> {
+        let auth = self.auth.as_ref().ok_or(ChannelError::NotStarted)?;
+        let hdr = req
+            .header("authorization")
+            .ok_or_else(|| ChannelError::Auth("missing authorization header".into()))?;
+        let claims = auth
+            .validate(hdr)
+            .await
+            .map_err(|e| ChannelError::Auth(e.to_string()))?;
+
+        // Defense-in-depth: the JWT's serviceurl claim must match the
+        // Activity's serviceUrl when both are present (blocks replay with a
+        // swapped serviceUrl). Compare with a stripped trailing slash so a
+        // cosmetic difference doesn't cause a false reject.
+        if let Some(claim_url) = claims.serviceurl.as_deref() {
+            let body_url = inbound::service_url_of(&req.body)
+                .map_err(|e| ChannelError::Rejected(e.to_string()))?;
+            if let Some(body_url) = body_url.as_deref()
+                && !service_urls_match(claim_url, body_url)
+            {
+                return Err(ChannelError::Auth(format!(
+                    "serviceUrl claim mismatch: token={claim_url} activity={body_url}"
+                )));
+            }
+        }
+
+        self.ingest_activity(&req.body)
+            .await
+            .map_err(|e| ChannelError::Rejected(e.to_string()))?;
+        Ok(WebhookResponse::ok())
     }
 
     /// Send a message via the Bot Framework Connector REST API.
@@ -287,6 +351,14 @@ impl Channel for MsTeamsChannel {
     fn max_message_len(&self) -> Option<usize> {
         Some(28_000)
     }
+}
+
+/// Compare two `serviceUrl`s for the auth cross-check, ignoring a trailing
+/// slash and ASCII case (Bot Framework lowercases the token claim, and the
+/// trailing slash is stamped inconsistently across activities).
+fn service_urls_match(a: &str, b: &str) -> bool {
+    let norm = |s: &str| s.trim_end_matches('/').to_ascii_lowercase();
+    norm(a) == norm(b)
 }
 
 /// Parse `{serviceUrl}|{conversationId}` or return `(default_service_url, raw)`.
@@ -529,5 +601,80 @@ service_url = "https://smba.trafficmanager.net/emea/"
         token_mock.assert_async().await;
         send_mock.assert_async().await;
         ch.stop().await.unwrap();
+    }
+
+    // 9. ingest_webhook before start() refuses with NotStarted (the JWT
+    //    validator is only bound once the audience app_id is resolved).
+    #[tokio::test]
+    async fn ingest_webhook_before_start_errors_not_started() {
+        let ch = MsTeamsChannel::new("test", cfg(), MemCreds::empty());
+        let req = WebhookRequest {
+            method: "POST".into(),
+            headers: vec![("authorization".into(), "Bearer x.y.z".into())],
+            body: r#"{"type":"message"}"#.into(),
+            ..Default::default()
+        };
+        let err = ch
+            .ingest_webhook(&req)
+            .await
+            .expect_err("expected NotStarted");
+        assert!(matches!(err, ChannelError::NotStarted), "got {err:?}");
+    }
+
+    // 10. ingest_webhook with no Authorization header surfaces Auth — the host
+    //     must never reach the body parse for an unauthenticated request.
+    #[tokio::test]
+    async fn ingest_webhook_missing_auth_header_errors_auth() {
+        let mut server = mockito::Server::new_async().await;
+        let token_mock = server
+            .mock("POST", "/token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"access_token":"tk","expires_in":3600,"token_type":"Bearer"}"#)
+            .create_async()
+            .await;
+        let creds = MemCreds::with(&[
+            ("msteams.test.app_id", "app-id-value"),
+            ("msteams.test.app_password", "app-secret-value"),
+        ]);
+        let mut ch =
+            MsTeamsChannel::with_token_url("test", cfg(), creds, format!("{}/token", server.url()));
+        ch.start().await.unwrap();
+        token_mock.assert_async().await;
+
+        let req = WebhookRequest {
+            method: "POST".into(),
+            headers: vec![],
+            body: r#"{"type":"message"}"#.into(),
+            ..Default::default()
+        };
+        let err = ch.ingest_webhook(&req).await.expect_err("expected Auth");
+        assert!(matches!(err, ChannelError::Auth(_)), "got {err:?}");
+        // The unauthenticated body must NOT have been parsed/enqueued. (start()
+        // enqueues a Connected lifecycle event, so assert specifically that no
+        // MessageReceived was enqueued rather than full emptiness.)
+        let events = ch.poll_events().await.unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, ChannelEvent::MessageReceived { .. })),
+            "no message must be enqueued when the auth header is missing"
+        );
+    }
+
+    #[test]
+    fn service_urls_match_ignores_trailing_slash_and_case() {
+        assert!(service_urls_match(
+            "https://smba.trafficmanager.net/amer/",
+            "https://smba.trafficmanager.net/amer"
+        ));
+        assert!(service_urls_match(
+            "https://SMBA.trafficmanager.net/amer",
+            "https://smba.trafficmanager.net/amer/"
+        ));
+        assert!(!service_urls_match(
+            "https://smba.trafficmanager.net/amer",
+            "https://evil.example.com/amer"
+        ));
     }
 }

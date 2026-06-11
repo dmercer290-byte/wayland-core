@@ -174,6 +174,28 @@ pub fn activity_to_incoming(
     Ok(Some(msg))
 }
 
+/// Extract just the `serviceUrl` from a Bot Framework Activity body, without
+/// the full enrichment parse.
+///
+/// Used by the webhook auth gate to cross-check the JWT's `serviceurl` claim
+/// against the Activity body (defense-in-depth against a token replayed
+/// alongside a swapped `serviceUrl`). Returns `Ok(None)` when the activity
+/// omits `serviceUrl`; `Err(Parse)` only on malformed JSON.
+pub fn service_url_of(raw_body: &str) -> Result<Option<String>, MsTeamsError> {
+    #[derive(Deserialize, Default)]
+    struct ServiceUrlOnly {
+        #[serde(rename = "serviceUrl", default)]
+        service_url: String,
+    }
+    let parsed: ServiceUrlOnly =
+        serde_json::from_str(raw_body).map_err(|e| MsTeamsError::Parse(e.to_string()))?;
+    if parsed.service_url.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(parsed.service_url))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

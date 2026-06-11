@@ -14,4 +14,9 @@ pub enum MsTeamsError {
     Parse(String),
     #[error("invalid chat_id format (expected serviceUrl|conversationId)")]
     InvalidChatId,
+    /// Inbound JWT validation failed — missing/invalid `Authorization`
+    /// header, unknown signing key, or a token that failed signature /
+    /// audience / issuer / expiry checks.
+    #[error("auth: {0}")]
+    Auth(String),
 }
