@@ -75,7 +75,9 @@ pub struct Attachment {
     /// Coarse media class.
     #[serde(default)]
     pub kind: MediaKind,
-    /// Transcribed text (audio/voice notes) once produced.
+    /// Derived text from the media once produced — a transcript for audio /
+    /// voice notes, a description for images. Populated either by the
+    /// connector or by the host's inbound-media enricher.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcribed: Option<String>,
 }
