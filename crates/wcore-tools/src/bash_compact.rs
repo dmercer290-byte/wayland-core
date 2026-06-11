@@ -90,7 +90,7 @@ fn dispatch(command: &str, raw: &str, exit_code: i32) -> Option<String> {
 /// dominates). Lowercased basename.
 pub(crate) fn program_and_sub(command: &str) -> (&str, Option<&str>) {
     let segment = command
-        .rsplit(|c| c == ';' || c == '&')
+        .rsplit([';', '&'])
         .map(str::trim)
         .find(|s| !s.is_empty())
         .unwrap_or(command.trim());
