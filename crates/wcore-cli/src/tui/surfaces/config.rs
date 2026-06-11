@@ -1868,6 +1868,11 @@ impl ConfigSurface {
 
         let mut lines: Vec<Line> = Vec::new();
         let mut last_category: Option<&'static str> = None;
+        // Issue #16: track the line index of the focused row so the body can
+        // scroll to keep it on screen. The catalog (23+ entries, two lines
+        // each, plus category headers) overflows a short terminal; without a
+        // scroll offset every row past `body_area.height` was unreachable.
+        let mut focus_line = 0usize;
         for (idx, entry) in PROVIDER_CATALOG.iter().enumerate() {
             if Some(entry.category) != last_category {
                 if last_category.is_some() {
@@ -1881,6 +1886,11 @@ impl ConfigSurface {
             }
             let status = resolve_provider_status(entry);
             let focused = idx == self.providers_focus;
+            if focused {
+                // The name line is the next push; its hint follows on the line
+                // after, so we anchor the scroll on this index.
+                focus_line = lines.len();
+            }
             let marker = if focused { "▸ " } else { "  " };
             let name_style = if focused {
                 Style::default().fg(t.orange).add_modifier(Modifier::BOLD)
@@ -1910,7 +1920,21 @@ impl ConfigSurface {
                 Style::default().fg(t.text_muted),
             )));
         }
-        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body_area);
+        // Issue #16: scroll the body so the focused row (and its hint line)
+        // stay visible. With focus near the top this is 0 (no scroll); as
+        // focus moves below the fold the offset advances, clamped so the last
+        // page never scrolls past the final row.
+        let visible = body_area.height as usize;
+        let total = lines.len();
+        let scroll_y = (focus_line + 2)
+            .saturating_sub(visible)
+            .min(total.saturating_sub(visible)) as u16;
+        frame.render_widget(
+            Paragraph::new(lines)
+                .wrap(Wrap { trim: false })
+                .scroll((scroll_y, 0)),
+            body_area,
+        );
 
         frame.render_widget(
             Paragraph::new(Line::from(vec![
@@ -2961,6 +2985,61 @@ mod tests {
         // `esc` returns to the overview.
         surface.handle_key(key(KeyCode::Esc), &mut app);
         assert_eq!(surface.tier, Tier::Overview);
+    }
+
+    /// Issue #16: when the provider catalog overflows a short terminal, moving
+    /// focus to the last entry must scroll it into view. Asserts on the
+    /// RENDERED buffer (not just the focus index): the last provider's name is
+    /// absent when focus is at the top (below the fold) and present once it is
+    /// focused (scrolled in). Before the fix the offset was never applied, so
+    /// the row stayed permanently off-screen and unreachable.
+    #[test]
+    fn providers_tier_scrolls_focused_row_into_view_issue_16() {
+        fn render_at(surface: &mut ConfigSurface, app: &App, h: u16) -> String {
+            let theme = Theme::no_color();
+            let mut terminal = Terminal::new(TestBackend::new(80, h)).expect("test terminal");
+            terminal
+                .draw(|f| surface.render(f, f.area(), app, &theme))
+                .expect("render config surface");
+            let buf = terminal.backend().buffer();
+            let mut out = String::new();
+            for y in 0..buf.area.height {
+                for x in 0..buf.area.width {
+                    out.push_str(buf[(x, y)].symbol());
+                }
+                out.push('\n');
+            }
+            out
+        }
+
+        let mut app = App::new();
+        let mut surface = ConfigSurface::new();
+        surface.on_enter(&mut app);
+        surface.tier = Tier::Providers;
+
+        // The test only proves something if the catalog overflows the viewport.
+        assert!(
+            PROVIDER_CATALOG.len() > 10,
+            "test assumes the provider catalog overflows a short terminal"
+        );
+        let last = PROVIDER_CATALOG.len() - 1;
+        let last_name = PROVIDER_CATALOG[last].name;
+
+        // Focus at the top: the last row sits below the fold and is not drawn.
+        surface.providers_focus = 0;
+        let top = render_at(&mut surface, &app, 14);
+        assert!(
+            !top.contains(last_name),
+            "last provider ({last_name}) must be off-screen when focus is at the top:\n{top}"
+        );
+
+        // Focus on the last row: it must scroll into view.
+        surface.providers_focus = last;
+        let bottom = render_at(&mut surface, &app, 14);
+        assert!(
+            bottom.contains(last_name),
+            "last provider ({last_name}) must scroll into view when focused:\n{bottom}"
+        );
     }
 
     /// Pressing Enter on a non-deferred entry with env vars opens the
