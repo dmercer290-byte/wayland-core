@@ -30,6 +30,7 @@ pub mod config;
 pub mod error;
 mod imap;
 pub mod smtp;
+mod uid_store;
 
 /// Production email channel adapter.
 pub struct EmailChannel {

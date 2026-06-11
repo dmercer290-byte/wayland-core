@@ -11,6 +11,7 @@ use wcore_channels::event::{Attachment, ChannelEvent, ChatType, IncomingMessage,
 
 use crate::error::EmailError;
 use crate::smtp::ReplyContext;
+use crate::uid_store;
 
 /// Shared index mapping an inbound RFC `Message-ID` (== `IncomingMessage.id`)
 /// to the threading context needed to reply to it. Populated by the IMAP
@@ -102,6 +103,18 @@ pub(crate) fn imap_poll_blocking(args: ImapPollArgs) {
         )
     };
 
+    // Resume the UID watermark from disk so a restart neither replays the
+    // mailbox nor skips mail that arrived while we were down. `seeded` tracks
+    // whether the watermark is authoritative: false until we load a persisted
+    // value or seed from the mailbox's UIDNEXT on first connect (poll_once).
+    let mut seeded = match uid_store::load(&host, &user, &mailbox) {
+        Some(uid) => {
+            *last_seen_uid.lock().unwrap() = uid;
+            true
+        }
+        None => false,
+    };
+
     while !*shutdown.borrow() {
         match poll_once(
             &host,
@@ -114,6 +127,7 @@ pub(crate) fn imap_poll_blocking(args: ImapPollArgs) {
             &last_seen_uid,
             &reply_index,
             &runtime_handle,
+            &mut seeded,
         ) {
             Ok(_) => {}
             Err(e) => {
@@ -156,6 +170,7 @@ fn poll_once(
     last_seen_uid: &Arc<StdMutex<u32>>,
     reply_index: &ReplyIndex,
     runtime_handle: &tokio::runtime::Handle,
+    seeded: &mut bool,
 ) -> Result<(), EmailError> {
     let tls =
         native_tls::TlsConnector::new().map_err(|e| EmailError::Imap(format!("tls init: {e}")))?;
@@ -164,9 +179,38 @@ fn poll_once(
     let mut session = client
         .login(user, pass)
         .map_err(|(e, _)| EmailError::Auth(format!("imap login: {e}")))?;
-    session
+    let mailbox_meta = session
         .select(mailbox)
         .map_err(|e| EmailError::Imap(format!("select {mailbox}: {e}")))?;
+
+    // First connect with no persisted watermark: seed to the current high UID
+    // (UIDNEXT - 1) so pre-existing mail is NOT replayed as new inbound — only
+    // messages that arrive after startup are delivered. Persist immediately so
+    // a restart resumes from here rather than re-seeding past missed mail.
+    if !*seeded {
+        let seed_high = match mailbox_meta.uid_next {
+            Some(next) => next.saturating_sub(1),
+            // Server omitted UIDNEXT: fall back to the max existing UID.
+            None => session
+                .uid_search("1:*")
+                .map(|s| s.into_iter().max().unwrap_or(0))
+                .unwrap_or(0),
+        };
+        {
+            let mut g = last_seen_uid.lock().unwrap();
+            if seed_high > *g {
+                *g = seed_high;
+            }
+        }
+        let seeded_to = *last_seen_uid.lock().unwrap();
+        uid_store::save(host, user, mailbox, seeded_to);
+        *seeded = true;
+        tracing::info!(
+            target: "wcore_channel_email::imap",
+            seed_high = seeded_to,
+            "seeded imap watermark on first connect; pre-existing mail will not be replayed",
+        );
+    }
 
     let start_uid = {
         let g = last_seen_uid.lock().unwrap();
@@ -238,12 +282,18 @@ fn poll_once(
     }
 
     // Bump watermark even if parses failed — otherwise we'd loop on the
-    // same UID forever.
-    {
+    // same UID forever. Persist when it advances so a restart resumes here.
+    let advanced = {
         let mut g = last_seen_uid.lock().unwrap();
         if high_water > *g {
             *g = high_water;
+            true
+        } else {
+            false
         }
+    };
+    if advanced {
+        uid_store::save(host, user, mailbox, high_water);
     }
 
     if !new_events.is_empty() {
