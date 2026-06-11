@@ -58,6 +58,19 @@ struct Rooms {
 struct JoinedRoom {
     #[serde(default)]
     timeline: Timeline,
+    #[serde(default)]
+    summary: RoomSummary,
+}
+
+/// Subset of a joined room's `summary` block. Matrix reports
+/// `m.joined_member_count` here; a value of `2` is the standard signal for a
+/// 1:1 direct chat. (The fuller signal is the `m.direct` account-data event;
+/// this count is the cheapest in-band approximation and degrades to Group when
+/// the homeserver omits the summary on an incremental sync.)
+#[derive(Debug, Clone, Deserialize, Default)]
+struct RoomSummary {
+    #[serde(rename = "m.joined_member_count", default)]
+    joined_member_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -277,14 +290,20 @@ async fn sync_once(
 /// - Only `m.room.message` timeline events become messages.
 /// - Events sent by `bot_user_id` are skipped to avoid self-loops.
 /// - `conversation_id` is the room id; `sender`/`author` is the sender mxid.
-/// - `chat_type` defaults to [`ChatType::Group`]: Matrix can't cheaply tell DM
-///   from group without reading `m.direct` account-data. A later refinement can
-///   read `m.direct` and set [`ChatType::Direct`] for 1:1 rooms.
+/// - `chat_type` is [`ChatType::Direct`] when the room summary reports exactly
+///   two joined members (the standard 1:1-DM signal), else [`ChatType::Group`].
+///   This stops DMs being misrouted through group policy and silently dropped.
 /// - `was_mentioned` is best-effort: set when `m.mentions.user_ids` includes
 ///   the bot, or the message body literally contains the bot's mxid.
 fn parse_sync_events(resp: &SyncResponse, bot_user_id: &str) -> Vec<ChannelEvent> {
     let mut events = Vec::new();
     for (room_id, room) in &resp.rooms.join {
+        // A 1:1 room (2 joined members) is a direct chat; anything else is a
+        // group. Falls back to Group when the homeserver omits the count.
+        let chat_type = match room.summary.joined_member_count {
+            Some(2) => ChatType::Direct,
+            _ => ChatType::Group,
+        };
         for ev in &room.timeline.events {
             if ev.event_type != "m.room.message" {
                 continue;
@@ -309,7 +328,7 @@ fn parse_sync_events(resp: &SyncResponse, bot_user_id: &str) -> Vec<ChannelEvent
 
             let msg = IncomingMessage {
                 sender_id: ev.sender.clone(),
-                chat_type: ChatType::Group,
+                chat_type,
                 platform: Some("matrix".into()),
                 was_mentioned,
                 attachments: attachments_for(&ev.content),
@@ -381,6 +400,38 @@ mod tests {
         assert_eq!(msg.platform.as_deref(), Some("matrix"));
         assert_eq!(msg.chat_type, ChatType::Group);
         assert!(!msg.was_mentioned);
+    }
+
+    // 1b. A room whose summary reports two joined members is a direct chat, so
+    //     its messages must be ChatType::Direct (not misrouted as a group).
+    #[test]
+    fn two_member_room_is_direct() {
+        let body = r#"{
+            "next_batch": "s3",
+            "rooms": {
+                "join": {
+                    "!dm:matrix.example.org": {
+                        "summary": { "m.joined_member_count": 2 },
+                        "timeline": {
+                            "events": [
+                                {
+                                    "type": "m.room.message",
+                                    "sender": "@alice:matrix.example.org",
+                                    "event_id": "$dm1",
+                                    "origin_server_ts": 1700000020000,
+                                    "content": { "msgtype": "m.text", "body": "psst" }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }"#;
+        let events = parse(body, BOT);
+        let ChannelEvent::MessageReceived { msg } = &events[0] else {
+            panic!("expected MessageReceived, got {:?}", events[0]);
+        };
+        assert_eq!(msg.chat_type, ChatType::Direct);
     }
 
     // 2. An event sent by the bot's own user id is skipped (no self-loop).

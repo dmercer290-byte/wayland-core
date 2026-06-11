@@ -103,6 +103,14 @@ impl Channel for MatrixChannel {
         "matrix"
     }
 
+    /// Conservative per-message body cap. A Matrix event must serialize under
+    /// the spec's 65536-byte hard limit (including all envelope fields), so a
+    /// homeserver rejects an over-long `body`. Declaring the cap makes the
+    /// channel manager chunk long replies instead of sending one rejected event.
+    fn max_message_len(&self) -> Option<usize> {
+        Some(32_768)
+    }
+
     async fn start(&mut self) -> Result<(), ChannelError> {
         if self.poll_handle.is_some() {
             // Already running — idempotent.
