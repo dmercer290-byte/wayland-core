@@ -2214,12 +2214,32 @@ impl AgentBootstrap {
                         .map(|c| (c.name, c.inbound))
                         .collect();
 
+                // Inbound-media enricher: resolve image/audio attachments to
+                // derived text (description/transcript) before the turn
+                // prompt is built, reusing the SAME backends + SSRF-safe
+                // fetchers the agent's vision/transcribe tools use. Inert
+                // (and skipped) when neither backend has an API key wired.
+                let media_enricher = {
+                    let enricher = crate::channel_media::ChannelMediaEnricher::new(
+                        crate::tool_backends::build_vision_backend(),
+                        crate::tool_backends::build_image_fetcher(),
+                        crate::tool_backends::build_transcription_backend(),
+                        crate::tool_backends::build_audio_fetcher(),
+                    );
+                    if enricher.is_inert() {
+                        None
+                    } else {
+                        Some(Arc::new(enricher))
+                    }
+                };
+
                 let dispatcher: Arc<dyn crate::channel_inbound::TurnDispatcher> =
                     Arc::new(crate::channel_dispatch::ChannelTurnDispatcher::new(
                         config_for_dispatch,
                         self.workspace.clone(),
                         provider.clone(),
                         postures,
+                        media_enricher,
                     ));
                 let subscriber = crate::channel_inbound::InboundSubscriber::new(
                     std::sync::Arc::clone(&lifted),

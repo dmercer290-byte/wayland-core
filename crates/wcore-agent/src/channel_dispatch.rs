@@ -55,6 +55,7 @@ use wcore_providers::LlmProvider;
 
 use crate::bootstrap::AgentBootstrap;
 use crate::channel_inbound::TurnDispatcher;
+use crate::channel_media::ChannelMediaEnricher;
 use crate::channel_tools::ChannelToolScope;
 use crate::engine::AgentEngine;
 use crate::output::OutputSink;
@@ -76,6 +77,11 @@ pub struct ChannelTurnDispatcher {
     /// `Arc<Mutex<AgentEngine>>` so concurrent turns for the SAME session
     /// serialise on the inner mutex while different sessions run freely.
     engines: Arc<Mutex<HashMap<String, Arc<Mutex<AgentEngine>>>>>,
+    /// Optional inbound-media enricher. `Some` only when the host wired a
+    /// vision and/or transcription backend; otherwise inbound attachments
+    /// stay bare-URL summaries. Resolves image/audio attachments to derived
+    /// text before the turn prompt is built.
+    media: Option<Arc<ChannelMediaEnricher>>,
 }
 
 impl ChannelTurnDispatcher {
@@ -89,6 +95,7 @@ impl ChannelTurnDispatcher {
         cwd: String,
         provider: Arc<dyn LlmProvider>,
         postures: HashMap<String, ChannelToolScope>,
+        media: Option<Arc<ChannelMediaEnricher>>,
     ) -> Self {
         Self {
             config,
@@ -96,6 +103,26 @@ impl ChannelTurnDispatcher {
             provider,
             postures,
             engines: Arc::new(Mutex::new(HashMap::new())),
+            media,
+        }
+    }
+
+    /// Build the turn prompt, eagerly enriching inbound media first when an
+    /// enricher is installed and the message carries attachments. The
+    /// enrichment mutates a per-turn clone — the kernel's `IncomingMessage`
+    /// is left untouched.
+    async fn prompt_for(
+        &self,
+        channel_name: &str,
+        msg: &wcore_channels::IncomingMessage,
+    ) -> String {
+        match &self.media {
+            Some(media) if !msg.attachments.is_empty() => {
+                let mut enriched = msg.clone();
+                media.enrich(&mut enriched.attachments, channel_name).await;
+                build_turn_prompt(&enriched)
+            }
+            _ => build_turn_prompt(msg),
         }
     }
 
@@ -239,10 +266,15 @@ fn build_turn_prompt(msg: &wcore_channels::IncomingMessage) -> String {
     for (i, att) in msg.attachments.iter().enumerate() {
         let kind = format!("{:?}", att.kind);
         let ty = att.content_type.as_deref().unwrap_or("unknown type");
-        // Prefer the transcription when present (e.g. a voice note already
-        // transcribed by the connector); else describe the media reference.
+        // Prefer derived text when present — a transcript for audio, a
+        // description for images (populated by the connector or by the
+        // inbound-media enricher); else describe the bare media reference.
         if let Some(t) = att.transcribed.as_deref() {
-            out.push_str(&format!("\n  {}. {kind} ({ty}) — transcript: {t}", i + 1));
+            let label = match att.kind {
+                wcore_channels::MediaKind::Image => "description",
+                _ => "transcript",
+            };
+            out.push_str(&format!("\n  {}. {kind} ({ty}) — {label}: {t}", i + 1));
         } else {
             out.push_str(&format!("\n  {}. {kind} ({ty}) — {}", i + 1, att.url));
         }
@@ -271,7 +303,7 @@ impl TurnDispatcher for ChannelTurnDispatcher {
         // inbound event); the dedupe cache upstream already guarantees one
         // dispatch per id.
         let msg_id = msg.id.clone();
-        let prompt = build_turn_prompt(msg);
+        let prompt = self.prompt_for(channel_name, msg).await;
         let result = {
             let mut guard = engine.lock().await;
             guard.run(&prompt, &msg_id).await?
@@ -315,6 +347,25 @@ mod tests {
         assert!(p.contains("Image (image/png) — https://x/a.png"));
         assert!(p.contains("Audio (unknown type) — transcript: hi there"));
         assert!(p.trim_end().ends_with(']'));
+    }
+
+    #[test]
+    fn turn_prompt_labels_enriched_image_as_description() {
+        // An image whose `transcribed` was populated by the media enricher
+        // surfaces under a "description" label (not "transcript").
+        let mut msg = wcore_channels::IncomingMessage::new("m1", "c1", "alice", "look", 0);
+        msg.attachments = vec![wcore_channels::Attachment {
+            url: "https://x/a.png".into(),
+            content_type: Some("image/png".into()),
+            kind: wcore_channels::MediaKind::Image,
+            transcribed: Some("a red bicycle".into()),
+            ..Default::default()
+        }];
+        let p = build_turn_prompt(&msg);
+        assert!(
+            p.contains("Image (image/png) — description: a red bicycle"),
+            "got: {p}"
+        );
     }
 
     #[test]
