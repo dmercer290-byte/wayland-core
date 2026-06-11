@@ -13,9 +13,15 @@ pub const INTENT_GUILD_MESSAGES: u64 = 1 << 9;
 /// message (privileged intent; must be enabled in the Discord
 /// developer portal for the bot).
 pub const INTENT_MESSAGE_CONTENT: u64 = 1 << 15;
-/// Default intents — both message intents required for inbound message
-/// text to arrive. = 33792.
-pub const DEFAULT_INTENTS: u64 = INTENT_GUILD_MESSAGES | INTENT_MESSAGE_CONTENT;
+/// DIRECT_MESSAGES (bit 12) — receive MESSAGE_CREATE in DM channels.
+/// Discord delivers ZERO DM message events unless the connection IDENTIFYs
+/// with this intent, so without it the bot is deaf to direct messages.
+pub const INTENT_DIRECT_MESSAGES: u64 = 1 << 12;
+/// Default intents — guild + DM message events plus message content, the
+/// minimum for inbound text to arrive on both surfaces. = 37376
+/// (512 | 32768 | 4096).
+pub const DEFAULT_INTENTS: u64 =
+    INTENT_GUILD_MESSAGES | INTENT_MESSAGE_CONTENT | INTENT_DIRECT_MESSAGES;
 
 /// Per-channel Discord config. Parsed from the `[options]` table of
 /// `~/.wayland/channels/<name>.toml`.
@@ -65,6 +71,16 @@ credential_handle = "discord.acme.bot_token"
         assert!(cfg.allowed_channel_ids.is_empty());
         assert_eq!(cfg.intents, DEFAULT_INTENTS);
         assert_eq!(cfg.heartbeat_grace_ms, 5_000);
+    }
+
+    #[test]
+    fn default_intents_cover_guild_dm_and_content() {
+        // Regression: DIRECT_MESSAGES (bit 12) was missing, so the default bot
+        // received no DM events. All three surfaces must be present by default.
+        assert_ne!(DEFAULT_INTENTS & INTENT_GUILD_MESSAGES, 0);
+        assert_ne!(DEFAULT_INTENTS & INTENT_DIRECT_MESSAGES, 0);
+        assert_ne!(DEFAULT_INTENTS & INTENT_MESSAGE_CONTENT, 0);
+        assert_eq!(DEFAULT_INTENTS, 37376);
     }
 
     #[test]

@@ -155,6 +155,23 @@ impl Channel for DiscordChannel {
             })?;
         self.bot_token = Some(token.clone());
 
+        // Resolve this bot's own user id so the gateway can do precise
+        // is_self / mention detection. Without it a mention-gated guild
+        // channel can never admit a turn. Best-effort: on failure proceed
+        // with None (DMs and explicit-id paths still work; mention gating
+        // just stays conservative) rather than failing the whole start.
+        let bot_id = match rest::get_current_user_id(&self.http, &self.api_base, &token).await {
+            Ok(id) => Some(id),
+            Err(e) => {
+                tracing::warn!(
+                    target: "wcore_channel_discord",
+                    error = %e,
+                    "could not resolve bot user id via /users/@me; mention/self detection degraded",
+                );
+                None
+            }
+        };
+
         // Spawn the gateway task. The gateway driver pushes its own
         // ConnectionStateChanged(Connected) once IDENTIFY completes.
         let (tx, rx) = watch::channel(false);
@@ -167,10 +184,7 @@ impl Channel for DiscordChannel {
             allowed_channel_ids: allowed,
             inbox: Arc::clone(&self.inbox),
             shutdown: rx,
-            // bot_id is populated from the READY event; pre-READY messages
-            // will have is_self=false and was_mentioned=false (conservative).
-            // A future pass can resolve via GET /users/@me at start() time.
-            bot_id: None,
+            bot_id,
         };
         let handle = tokio::spawn(gateway::gateway_loop(args));
         self.gateway_handle = Some(handle);

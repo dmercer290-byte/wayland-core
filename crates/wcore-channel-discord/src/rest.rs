@@ -220,6 +220,39 @@ pub(crate) fn parse_iso8601_to_epoch(ts: &str) -> i64 {
 /// while a turn runs, so retrying a missed indicator is pointless — the
 /// next keepalive tick supersedes it. A failure is mapped to a structured
 /// error the caller logs and ignores.
+/// Resolve this bot's own stable user id via `GET /users/@me`. Called at
+/// `start()` so the gateway can do precise `is_self` / mention detection —
+/// without it every guild message is conservatively non-self and non-mention,
+/// so a mention-gated server bot can never admit a turn.
+pub(crate) async fn get_current_user_id(
+    http: &wcore_egress::EgressClient,
+    api_base: &str,
+    bot_token: &str,
+) -> Result<String, DiscordError> {
+    let url = format!("{api_base}/api/v10/users/@me");
+    let auth = format!("Bot {bot_token}");
+    let resp = http
+        .get(&url)
+        .header(reqwest::header::AUTHORIZATION, &auth)
+        .send()
+        .await
+        .map_err(|e| DiscordError::Http(format!("network: {e}")))?;
+    if !resp.status().is_success() {
+        return Err(DiscordError::Auth(format!(
+            "GET /users/@me returned HTTP {}",
+            resp.status().as_u16()
+        )));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| DiscordError::Decode(format!("/users/@me decode: {e}")))?;
+    body.get("id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| DiscordError::Decode("/users/@me: missing id field".to_string()))
+}
+
 pub(crate) async fn trigger_typing(
     http: &wcore_egress::EgressClient,
     api_base: &str,
@@ -518,5 +551,23 @@ mod reaction_tests {
         .await
         .unwrap_err();
         assert!(matches!(err, DiscordError::Rejected { .. }), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn get_current_user_id_parses_id_from_users_me() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/api/v10/users/@me")
+            .match_header("authorization", "Bot tok")
+            .with_status(200)
+            .with_body(r#"{"id":"998877","username":"acme-bot"}"#)
+            .create_async()
+            .await;
+        let http = wcore_egress::EgressClient::new();
+        let id = get_current_user_id(&http, &server.url(), "tok")
+            .await
+            .unwrap();
+        assert_eq!(id, "998877");
+        mock.assert_async().await;
     }
 }
