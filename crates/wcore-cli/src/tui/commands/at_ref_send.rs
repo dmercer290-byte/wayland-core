@@ -11,9 +11,10 @@
 //!
 //! Scope: the **local, repo-backed** kinds — `@file`, `@dir` (via
 //! [`at_ref_resolve::resolve`]), `@diff` (via `git diff` in argv mode) and
-//! `@symbol` (via the repomap symbol index). The kinds that need network
-//! egress (`@url`), a captured shell buffer (`@output`) or a session store
-//! (`@session`) are left as their literal text — a strict no-op, no worse
+//! `@symbol` (via the repomap symbol index). `@session` resolves to a past
+//! session's summary when a session store is supplied via [`SendCtx`]. The
+//! two kinds that need a network fetch (`@url`) or a captured shell buffer
+//! (`@output`) are left as their literal text — a strict no-op, no worse
 //! than today — and are the documented follow-up. Refusals (a
 //! secret/git-ignored `@file`) are surfaced as an explicit note, never a
 //! silent omission, matching the guarantee in [`at_ref_resolve`].
@@ -22,7 +23,7 @@
 //! UI thread), which is why `@diff`'s `git` subprocess is awaited here.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use wcore_config::shell::shell_command_argv;
 
@@ -56,6 +57,20 @@ enum Resolvable {
     /// `@SymbolName` — a function/type/trait definition, looked up in the
     /// repomap symbol index.
     Symbol(String),
+    /// `@session <id>` — a past session, summarized as reference context.
+    /// Resolved only when a session store is supplied via [`SendCtx`].
+    Session(String),
+}
+
+/// Optional capabilities the resolver can draw on for the non-local kinds.
+/// The default (no capabilities) resolves the repo-backed kinds and leaves
+/// the rest literal — which is why the bare [`resolve_message`] still works
+/// for tests and any call site without a session store.
+#[derive(Default)]
+pub struct SendCtx {
+    /// `(session directory, max_sessions)` — enables `@session`. `None`
+    /// leaves an `@session` reference as literal text.
+    pub session_store: Option<(PathBuf, usize)>,
 }
 
 /// Resolve the `@`-references in `text` against `root`, returning the
@@ -65,6 +80,12 @@ enum Resolvable {
 /// unchanged (no empty header is appended). Otherwise the original text is
 /// preserved verbatim and a context block is appended.
 pub async fn resolve_message(text: &str, root: &Path) -> String {
+    resolve_message_with(text, root, &SendCtx::default()).await
+}
+
+/// [`resolve_message`] with extra capabilities. The engine bridge calls this
+/// with a populated [`SendCtx`] so `@session` can reach the on-disk store.
+pub async fn resolve_message_with(text: &str, root: &Path, ctx: &SendCtx) -> String {
     let refs = scan(text);
     if refs.is_empty() {
         return text.to_string();
@@ -93,6 +114,15 @@ pub async fn resolve_message(text: &str, root: &Path) -> String {
             Resolvable::Symbol(name) => {
                 if seen.insert(format!("@{name}")) {
                     blocks.push(render_symbol(name, root).await);
+                }
+            }
+            Resolvable::Session(id) => {
+                // Only resolvable with a session store; otherwise the
+                // reference stays literal (no block, no header).
+                if let Some(store) = ctx.session_store.clone()
+                    && seen.insert(format!("@session {id}"))
+                {
+                    blocks.push(render_session(id, store).await);
                 }
             }
         }
@@ -131,11 +161,18 @@ fn scan(text: &str) -> Vec<Resolvable> {
                 }
                 out.push(Resolvable::Diff(base));
             }
-            // Network / session / shell-buffer kinds: consume their argument
-            // token so it is not re-scanned, but leave them literal (v1
-            // follow-up — they need egress / a session store / a captured
-            // shell buffer respectively).
-            "@url" | "@session" => {
+            "@session" => {
+                // `@session <id>` — capture the id; resolution needs a store
+                // (supplied via SendCtx), else it stays literal downstream.
+                if let Some(id) = toks.get(i + 1).filter(|n| !n.starts_with('@')) {
+                    out.push(Resolvable::Session((*id).to_string()));
+                    i += 1;
+                }
+            }
+            // Network / shell-buffer kinds: consume their argument token so it
+            // is not re-scanned, but leave them literal (follow-up — they need
+            // egress / a captured shell buffer respectively).
+            "@url" => {
                 let consumes_arg = toks.get(i + 1).is_some_and(|n| !n.starts_with('@'));
                 if consumes_arg {
                     i += 1;
@@ -333,6 +370,43 @@ fn read_def_snippet(path: &Path, start_line: usize) -> String {
     lines[start..end].join("\n")
 }
 
+/// Render `@session <id>` as a compact reference summary of a past session.
+/// Reads the lightweight session index (never loads the full transcript,
+/// which could blow the context window) on a blocking task. Returns a note
+/// on any failure.
+async fn render_session(id: String, store: (PathBuf, usize)) -> String {
+    tokio::task::spawn_blocking(move || render_session_blocking(&id, store))
+        .await
+        .unwrap_or_else(|e| format!("▌ @session — task failed: {e}"))
+}
+
+/// Blocking body of [`render_session`]: resolve the id (full or prefix) in
+/// the session index and format its metadata + stored summary.
+fn render_session_blocking(id: &str, store: (PathBuf, usize)) -> String {
+    let label = format!("@session {id}");
+    let (dir, max) = store;
+    let manager = wcore_agent::session::SessionManager::new(dir, max);
+    let metas = match manager.list() {
+        Ok(m) => m,
+        Err(e) => return format!("▌ {label} — could not list sessions: {e}"),
+    };
+    let Some(meta) = metas
+        .into_iter()
+        .find(|m| m.id == id || m.id.starts_with(id))
+    else {
+        return format!("▌ {label} — no session matches that id");
+    };
+    let summary = if meta.summary.trim().is_empty() {
+        "(no summary recorded)"
+    } else {
+        meta.summary.trim()
+    };
+    format!(
+        "▌ @session {} ({} · {} message(s) · updated {})\n{summary}",
+        meta.id, meta.model, meta.message_count, meta.updated_at
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,6 +477,44 @@ mod tests {
         fs::write(tmp.path().join("lib.rs"), "pub fn other() {}\n").unwrap();
         let out = resolve_message("find @NoSuchSymbol", tmp.path()).await;
         assert!(out.contains("no symbol by that name"));
+    }
+
+    #[tokio::test]
+    async fn session_stays_literal_without_a_store_but_resolves_with_one() {
+        use wcore_agent::session::{Session, SessionManager};
+        let tmp = TempDir::new().unwrap();
+        let store_dir = TempDir::new().unwrap();
+        let manager = SessionManager::new(store_dir.path().to_path_buf(), 50);
+        let session: Session = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "id": "deadbeefcafef00d",
+            "created_at": "2026-06-01T05:00:00Z",
+            "updated_at": "2026-06-01T05:10:00Z",
+            "provider": "anthropic",
+            "model": "claude-opus",
+            "cwd": "",
+            "messages": [
+                { "role": "user", "content": [ { "type": "text", "text": "a past question" } ] }
+            ],
+        }))
+        .expect("session fixture");
+        manager.save(&session).expect("save");
+        manager.update_index_for(&session).expect("index");
+
+        // No store in the default ctx → the reference stays literal.
+        let bare = resolve_message("recall @session deadbeef", tmp.path()).await;
+        assert_eq!(bare, "recall @session deadbeef");
+
+        // With the store wired in, it resolves to a session summary block.
+        let ctx = SendCtx {
+            session_store: Some((store_dir.path().to_path_buf(), 50)),
+        };
+        let out = resolve_message_with("recall @session deadbeef", tmp.path(), &ctx).await;
+        assert!(out.contains(CONTEXT_HEADER));
+        assert!(
+            out.contains("deadbeefcafef00d"),
+            "resolved session block must name the session: {out}"
+        );
     }
 
     #[tokio::test]

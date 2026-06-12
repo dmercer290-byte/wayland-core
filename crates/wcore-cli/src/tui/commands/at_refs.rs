@@ -67,8 +67,10 @@ pub use at_ref_resolve::{
     resolve,
 };
 // Send-time resolution (Wave 2): the engine bridge calls this on the
-// outgoing prompt so `@file`/`@dir`/`@diff` arrive as real content.
-pub use at_ref_send::resolve_message;
+// outgoing prompt so `@file`/`@dir`/`@diff`/`@symbol`/`@session` arrive as
+// real content. `resolve_message_with` carries a `SendCtx` (session store).
+#[allow(unused_imports)]
+pub use at_ref_send::{SendCtx, resolve_message, resolve_message_with};
 
 #[cfg(test)]
 mod tests {
