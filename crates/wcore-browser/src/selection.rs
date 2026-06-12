@@ -69,6 +69,18 @@ pub fn select_provider(inputs: SelectionInputs) -> Arc<dyn BrowserProvider> {
             return Arc::new(ChromiumBackend::new()) as Arc<dyn BrowserProvider>;
         }
     }
+    // 2b. Chromium requested but feature compiled out: surface the
+    // misconfiguration instead of silently dropping the hint and using
+    // Camoufox. The selection is provider-neutral (`Arc<...>`, not a
+    // `Result`), so we warn rather than error and still fall through.
+    #[cfg(not(feature = "chromium"))]
+    if matches!(inputs.hint, ProviderHint::Chromium) {
+        tracing::warn!(
+            "ProviderHint::Chromium requested but wcore-browser was built without the \
+             `chromium` feature; falling back to Camoufox. Rebuild with `--features chromium` \
+             to honor the hint."
+        );
+    }
     // 3. Camoufox (default). Wire the policy in when provided.
     let url = inputs
         .camoufox_url
@@ -106,6 +118,19 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(p.backend_name(), "chromium");
+    }
+
+    #[cfg(not(feature = "chromium"))]
+    #[test]
+    fn chromium_hint_without_feature_warns_and_falls_back_to_camoufox() {
+        // When the `chromium` feature is compiled out, a Chromium hint must
+        // not be silently dropped: the warn-log path runs and selection still
+        // falls back to Camoufox (the only non-cloud default).
+        let p = select_provider(SelectionInputs {
+            hint: ProviderHint::Chromium,
+            ..Default::default()
+        });
+        assert_eq!(p.backend_name(), "camoufox");
     }
 
     #[test]

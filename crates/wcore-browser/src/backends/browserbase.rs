@@ -16,7 +16,6 @@
 use async_trait::async_trait;
 use serde_json::json;
 
-use crate::aria::AriaSnapshot;
 use crate::op::BrowserOp;
 use crate::provider::{BrowserOpError, BrowserProvider, BrowserSession, OpResult, SessionCtx};
 
@@ -150,16 +149,16 @@ impl BrowserProvider for BrowserbaseBackend {
                 })
             }
             BrowserOp::Snapshot {} => {
-                // Browserbase doesn't expose a native ARIA endpoint; we
-                // request a "snapshot" action and return an empty snapshot
-                // wrapping any URL/title the server reports. For live
-                // Browserbase use, callers should prefer Camoufox when an
-                // ARIA tree is required. This still ships a REAL action call.
-                let body = json!({ "action": "snapshot" });
-                self.post_action(sid, &body).await?;
-                Ok(OpResult::Snapshot {
-                    snapshot: AriaSnapshot::empty(),
-                })
+                // Browserbase doesn't expose a native ARIA endpoint. Returning
+                // an empty snapshot with Ok would silently hand ARIA-based
+                // navigation an empty tree; instead we surface Unsupported so
+                // selection falls back to Camoufox when an ARIA tree is
+                // required, enforcing this module's own stated preference.
+                Err(BrowserOpError::Unsupported(
+                    "Browserbase exposes no native ARIA snapshot endpoint; use \
+                     Camoufox when an ARIA tree is required. See docs/providers.md."
+                        .into(),
+                ))
             }
             BrowserOp::Click { target } => {
                 let body = json!({
@@ -506,6 +505,27 @@ mod tests {
             Err(BrowserOpError::Unsupported(reason)) => {
                 assert!(
                     reason.contains("pre-signed") || reason.contains("Camoufox"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected Unsupported with reason, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn snapshot_returns_unsupported_so_selection_falls_back() {
+        // Browserbase has no ARIA endpoint: Snapshot must surface Unsupported
+        // (not silently Ok-with-empty) so callers fall back to Camoufox. No
+        // mock is registered — the op short-circuits before any HTTP call.
+        let server = MockServer::start().await;
+        let bb = backend_for(&server);
+        let r = bb
+            .dispatch(&SessionCtx::for_test("bb-006"), BrowserOp::Snapshot {})
+            .await;
+        match r {
+            Err(BrowserOpError::Unsupported(reason)) => {
+                assert!(
+                    reason.contains("ARIA") || reason.contains("Camoufox"),
                     "unexpected reason: {reason}"
                 );
             }
