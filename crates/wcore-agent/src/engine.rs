@@ -882,6 +882,11 @@ pub struct AgentEngine {
     /// other case (no prelude, resume — where construction already populated
     /// `messages` before session-start hooks run, so the prelude path is skipped).
     session_start_injected_len: usize,
+    /// Hook actions (InjectMessage / SwitchModel) fired since the last
+    /// `TurnTrace` was emitted, accumulated across the turn's pre-turn,
+    /// post-tool-use, and turn-end hook phases. Drained into the next
+    /// `TurnTrace.hook_actions` via `std::mem::take` at each emission site.
+    pending_hook_actions: Vec<wcore_observability::trace::HookActionRecord>,
 }
 
 impl Drop for AgentEngine {
@@ -1131,6 +1136,8 @@ impl AgentEngine {
             compaction_floor: 0,
             // C1 / A2 — no SessionStart prelude applied at construction.
             session_start_injected_len: 0,
+            // No hook actions have fired before the first turn.
+            pending_hook_actions: Vec::new(),
         }
     }
 
@@ -1290,6 +1297,8 @@ impl AgentEngine {
             // C1 / A2 — resume populates `messages` here at construction, so
             // the session-start prelude path is skipped; baseline stays 0.
             session_start_injected_len: 0,
+            // No hook actions have fired before the first turn.
+            pending_hook_actions: Vec::new(),
         }
     }
 
@@ -3664,7 +3673,9 @@ impl AgentEngine {
                         &self.compat,
                     ),
                     tool_calls: vec![],
-                    hook_actions: vec![],
+                    // Drain hook actions fired this turn into the trace.
+                    // partial: populated in a future pass when a streaming-drain trigger exists
+                    hook_actions: std::mem::take(&mut self.pending_hook_actions),
                     source_product: SOURCE_PRODUCT.to_string(),
                 };
                 if let Ok(trace_json) = serde_json::to_value(&trace) {
@@ -3915,6 +3926,7 @@ impl AgentEngine {
                             results: vec![],
                             modifiers: vec![],
                             hook_outcomes: vec![],
+                            cancelled_ids: vec![],
                         })
                     }
                 },
@@ -4033,6 +4045,12 @@ impl AgentEngine {
                         // method had zero callers).
                         *trace = trace.clone().with_result_snippet(content);
 
+                        // S2: flag traces whose result came from the dispatch
+                        // timeout-cancel path (synthesized, not a completed run).
+                        if outcome.cancelled_ids.contains(tool_use_id) {
+                            *trace = trace.clone().with_cancelled(true);
+                        }
+
                         // Token-opt: native Bash output compaction. The human
                         // already saw full output via `emit_tool_result`
                         // above; compact only the model's copy (applied below,
@@ -4103,7 +4121,9 @@ impl AgentEngine {
                     &self.compat,
                 ),
                 tool_calls: tool_call_traces,
-                hook_actions: vec![],
+                // Drain hook actions fired this turn into the trace.
+                // partial: populated in a future pass when a streaming-drain trigger exists
+                hook_actions: std::mem::take(&mut self.pending_hook_actions),
                 source_product: SOURCE_PRODUCT.to_string(),
             };
             if let Ok(trace_json) = serde_json::to_value(&trace) {
@@ -5106,7 +5126,9 @@ impl AgentEngine {
     /// Returns the block reason when set so the caller can terminate;
     /// `None` means proceed. `modified_input` remains a pre-tool-use
     /// concern and is still ignored here.
-    fn apply_pre_turn_outcome(&mut self, outcome: crate::hooks::HookOutcome) -> Option<String> {
+    fn apply_pre_turn_outcome(&mut self, mut outcome: crate::hooks::HookOutcome) -> Option<String> {
+        // Accumulate fired hook actions for the next TurnTrace.
+        self.pending_hook_actions.append(&mut outcome.fired_actions);
         if let Some(new_model) = outcome.switch_model {
             // D014: an explicit user `/model` pin outranks a hook switch_model.
             self.apply_switch_model(new_model);
@@ -5133,7 +5155,11 @@ impl AgentEngine {
     /// Apply a `HookOutcome` produced after a turn ends (the `on_turn_end`
     /// phase). `switch_model` applies to the NEXT turn; `injected_messages`
     /// are appended for the next turn.
-    fn apply_turn_end_outcome(&mut self, outcome: crate::hooks::HookOutcome) {
+    fn apply_turn_end_outcome(&mut self, mut outcome: crate::hooks::HookOutcome) {
+        // Accumulate fired hook actions for the next TurnTrace. PostToolUse
+        // outcomes also flow through here (engine.rs turn-end loop), so this
+        // covers the post-tool-use phase too.
+        self.pending_hook_actions.append(&mut outcome.fired_actions);
         if let Some(new_model) = outcome.switch_model {
             // D014: an explicit user `/model` pin outranks a hook switch_model.
             self.apply_switch_model(new_model);
@@ -6142,6 +6168,7 @@ mod set_config_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
+            pending_hook_actions: Vec::new(),
         }
     }
 
@@ -6865,6 +6892,7 @@ mod phase6_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
+            pending_hook_actions: Vec::new(),
         }
     }
 
@@ -7147,6 +7175,7 @@ mod compact_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
+            pending_hook_actions: Vec::new(),
         }
     }
 
@@ -8168,6 +8197,7 @@ mod plan_mode_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
+            pending_hook_actions: Vec::new(),
         }
     }
 
@@ -8583,6 +8613,7 @@ mod hook_integration_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
+            pending_hook_actions: Vec::new(),
         }
     }
 
@@ -9289,6 +9320,7 @@ mod approval_bridge_engine_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
+            pending_hook_actions: Vec::new(),
         }
     }
 
@@ -9509,6 +9541,7 @@ mod user_model_writeback_tests {
             config: wcore_config::config::Config::default(),
             compaction_floor: 0,
             session_start_injected_len: 0,
+            pending_hook_actions: Vec::new(),
         }
     }
 
@@ -11179,6 +11212,87 @@ mod session_start_apply_tests {
             "no dispatcher ⇒ log-only, nothing applied"
         );
         assert_eq!(engine.session_start_injected_len, 0);
+    }
+
+    // ---- rank 76: TurnTrace.hook_actions reflects fired Rust-hook actions ----
+
+    /// A Rust hook that injects a message on `on_turn_end` — exercises the
+    /// honoured `InjectMessage` arm that now records a `HookActionRecord`.
+    struct TurnEndInjectHook;
+
+    #[async_trait]
+    impl crate::hooks::Hook for TurnEndInjectHook {
+        fn name(&self) -> &str {
+            "turn_end_injector"
+        }
+        async fn on_turn_end(
+            &self,
+            _turn: usize,
+            _result: &crate::hooks::TurnResult,
+        ) -> crate::hooks::HookAction {
+            crate::hooks::HookAction::InjectMessage(Message::now(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "injected-by-hook".to_string(),
+                }],
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn turn_trace_records_hook_action_from_turn_end_hook() {
+        use wcore_config::compat::ProviderCompat;
+        use wcore_config::config::{Config, ProviderType};
+        use wcore_observability::trace::TurnTrace;
+
+        let cfg = Config {
+            provider_label: "openai".into(),
+            provider: ProviderType::OpenAI,
+            api_key: "sk-test".into(),
+            base_url: "http://localhost:0".into(),
+            model: "gpt-test-model".into(),
+            max_tokens: 1024,
+            max_turns: Some(1),
+            compat: ProviderCompat::openai_defaults(),
+            ..Default::default()
+        };
+        // A single text-only turn (no tool calls) drives the engine to the
+        // turn-end hook phase + the TurnTrace emission.
+        let script = vec![
+            LlmEvent::TextDelta("done".into()),
+            LlmEvent::Done {
+                stop_reason: wcore_types::message::StopReason::EndTurn,
+                finish_reason: wcore_types::message::FinishReason::Stop,
+                usage: wcore_types::message::TokenUsage::default(),
+            },
+        ];
+        let (mut engine, _handle) = crate::bootstrap::AgentBootstrap::build_for_test(cfg, script);
+        engine
+            .hooks
+            .as_mut()
+            .expect("build_for_test installs a HookEngine")
+            .register_rust_hook(Box::new(TurnEndInjectHook));
+
+        let out = engine
+            .run_synthetic_turn("anything")
+            .await
+            .expect("synthetic turn should succeed");
+
+        // Find the TraceEvent and deserialize its TurnTrace payload.
+        let trace: TurnTrace = out
+            .events
+            .iter()
+            .find(|e| e["type"] == "trace_event")
+            .and_then(|e| serde_json::from_value(e["trace"].clone()).ok())
+            .expect("a TurnTrace must be emitted");
+
+        assert!(
+            !trace.hook_actions.is_empty(),
+            "the turn-end InjectMessage must be recorded in hook_actions"
+        );
+        let rec = &trace.hook_actions[0];
+        assert_eq!(rec.kind, "InjectMessage");
+        assert_eq!(rec.hook_name, "turn_end_injector");
     }
 
     // ---- C1 / Task A3 — PrePrompt contribution applied to the request tail ----

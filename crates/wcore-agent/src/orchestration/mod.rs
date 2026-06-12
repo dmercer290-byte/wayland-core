@@ -91,6 +91,12 @@ pub struct ToolCallOutcome {
     /// at the orchestration layer (eprintln) so the entries here only
     /// carry `injected_messages` and `switch_model`.
     pub hook_outcomes: Vec<crate::hooks::HookOutcome>,
+    /// `tool_use` ids whose result was synthesized because the dispatch
+    /// timeout-cancel path won (see `execute_single_with_streaming`), not
+    /// because the tool ran to completion. The engine reads these to set
+    /// `ToolCallTrace.cancelled` on the matching trace. Empty on the normal
+    /// path.
+    pub cancelled_ids: Vec<String>,
 }
 
 impl std::ops::Deref for ToolCallOutcome {
@@ -284,6 +290,10 @@ pub async fn execute_tool_calls_with_policy_gate(
             .map(|m| m.expect("merge covers all indices"))
             .collect(),
         hook_outcomes: inner_outcome.hook_outcomes,
+        // Cancelled ids are the inner dispatcher's tool_use ids; the policy
+        // gate only filters denied tools (which never dispatch), so forwarding
+        // verbatim keeps the mapping correct.
+        cancelled_ids: inner_outcome.cancelled_ids,
     })
 }
 
@@ -314,6 +324,8 @@ pub async fn execute_tool_calls_with_budget(
     let mut results = Vec::new();
     let mut modifiers = Vec::new();
     let mut hook_outcomes = Vec::new();
+    // `tool_use` ids whose result came from the dispatch timeout-cancel path.
+    let mut cancelled_ids = Vec::new();
 
     for batch in partition(registry, tool_calls) {
         if batch.is_concurrent {
@@ -355,7 +367,10 @@ pub async fn execute_tool_calls_with_budget(
                 })
                 .collect();
             let batch_results = futures::future::join_all(futures).await;
-            for (block, modifier, post_outcome) in batch_results {
+            for (block, modifier, post_outcome, was_cancelled) in batch_results {
+                if was_cancelled && let ContentBlock::ToolResult { tool_use_id, .. } = &block {
+                    cancelled_ids.push(tool_use_id.clone());
+                }
                 results.push(block);
                 modifiers.push(modifier);
                 hook_outcomes.push(post_outcome);
@@ -372,24 +387,31 @@ pub async fn execute_tool_calls_with_budget(
                         let block;
                         let modifier;
                         let post_outcome;
+                        let was_cancelled;
                         {
                             let hooks_shared: Option<&HookEngine> = hooks.as_deref();
-                            (block, modifier, post_outcome) = execute_single_with_streaming(
-                                registry,
-                                call,
-                                hooks_shared,
-                                compaction_level,
-                                toon_enabled,
-                                streaming.clone(),
-                                budget,
-                                cancel,
-                                file_write_notifier,
-                            )
-                            .await;
+                            (block, modifier, post_outcome, was_cancelled) =
+                                execute_single_with_streaming(
+                                    registry,
+                                    call,
+                                    hooks_shared,
+                                    compaction_level,
+                                    toon_enabled,
+                                    streaming.clone(),
+                                    budget,
+                                    cancel,
+                                    file_write_notifier,
+                                )
+                                .await;
                         }
                         // Merge skill hooks after a successful sequential execution.
                         if !block_is_error(&block) {
                             maybe_merge_skill_hooks(registry, call, hooks.as_deref_mut());
+                        }
+                        if was_cancelled
+                            && let ContentBlock::ToolResult { tool_use_id, .. } = &block
+                        {
+                            cancelled_ids.push(tool_use_id.clone());
                         }
                         results.push(block);
                         modifiers.push(modifier);
@@ -404,6 +426,7 @@ pub async fn execute_tool_calls_with_budget(
         results,
         modifiers,
         hook_outcomes,
+        cancelled_ids,
     })
 }
 
@@ -494,6 +517,8 @@ async fn execute_single(
     ContentBlock,
     Option<ContextModifier>,
     crate::hooks::HookOutcome,
+    // `was_cancelled`: true only when the dispatch timeout-cancel path won.
+    bool,
 ) {
     execute_single_with_budget(
         registry,
@@ -526,6 +551,8 @@ async fn execute_single_with_budget(
     ContentBlock,
     Option<ContextModifier>,
     crate::hooks::HookOutcome,
+    // `was_cancelled`: true only when the dispatch timeout-cancel path won.
+    bool,
 ) {
     execute_single_with_streaming(
         registry,
@@ -564,6 +591,9 @@ async fn execute_single_with_streaming(
     ContentBlock,
     Option<ContextModifier>,
     crate::hooks::HookOutcome,
+    // `was_cancelled`: true only when the dispatch timeout-cancel path won
+    // (the tool's result is synthesized, not produced by a completed run).
+    bool,
 ) {
     let ContentBlock::ToolUse {
         id, name, input, ..
@@ -586,6 +616,7 @@ async fn execute_single_with_streaming(
                         },
                         None,
                         crate::hooks::HookOutcome::default(),
+                        false,
                     );
                 }
                 if let Some(v) = outcome.modified_input {
@@ -619,11 +650,15 @@ async fn execute_single_with_streaming(
                     },
                     None,
                     crate::hooks::HookOutcome::default(),
+                    false,
                 );
             }
         }
     }
 
+    // Set true only when the dispatch timeout-cancel path below wins, so the
+    // engine can flag the synthesized result's trace as cancelled.
+    let mut was_cancelled = false;
     let (result, modifier) = match registry.get(name) {
         Some(tool) => {
             let max_size = tool.max_result_size();
@@ -656,6 +691,7 @@ async fn execute_single_with_streaming(
                     },
                     None,
                     crate::hooks::HookOutcome::default(),
+                    false,
                 );
             }
             // W7 F4: route through execute_streaming when:
@@ -758,6 +794,9 @@ async fn execute_single_with_streaming(
                     // abort its own work, then synthesise an error
                     // result so the LLM still sees a paired tool_result.
                     call_cancel.cancel();
+                    // Flag the trace: this result was synthesized by the
+                    // cancel path, not produced by a completed tool run.
+                    was_cancelled = true;
                     let secs = timeout.as_secs();
                     eprintln!(
                         "[tool-timeout] tool={} call_id={} category={:?} elapsed>{}s",
@@ -878,6 +917,7 @@ async fn execute_single_with_streaming(
         },
         modifier,
         post_outcome,
+        was_cancelled,
     )
 }
 
@@ -902,6 +942,8 @@ pub async fn execute_tool_calls_with_approval(
     let mut results = Vec::new();
     let mut modifiers = Vec::new();
     let mut hook_outcomes = Vec::new();
+    // `tool_use` ids whose result came from the dispatch timeout-cancel path.
+    let mut cancelled_ids = Vec::new();
 
     for call in tool_calls {
         let ContentBlock::ToolUse {
@@ -1057,9 +1099,10 @@ pub async fn execute_tool_calls_with_approval(
         let result;
         let modifier;
         let post_outcome;
+        let was_cancelled;
         {
             let hooks_shared: Option<&HookEngine> = hooks.as_deref();
-            (result, modifier, post_outcome) = execute_single(
+            (result, modifier, post_outcome, was_cancelled) = execute_single(
                 registry,
                 call,
                 hooks_shared,
@@ -1069,6 +1112,9 @@ pub async fn execute_tool_calls_with_approval(
                 file_write_notifier,
             )
             .await;
+        }
+        if was_cancelled && let ContentBlock::ToolResult { tool_use_id, .. } = &result {
+            cancelled_ids.push(tool_use_id.clone());
         }
 
         // Emit tool_result event
@@ -1106,6 +1152,7 @@ pub async fn execute_tool_calls_with_approval(
         results,
         modifiers,
         hook_outcomes,
+        cancelled_ids,
     })
 }
 
@@ -1489,7 +1536,7 @@ mod tests {
             input: json!({}),
             extra: None,
         };
-        let (result, _, _) = execute_single(
+        let (result, _, _, _) = execute_single(
             &registry,
             &call,
             None,
@@ -1522,7 +1569,7 @@ mod tests {
             input: json!({"tasks": "not_an_array"}),
             extra: None,
         };
-        let (result, _, _) = execute_single(
+        let (result, _, _, _) = execute_single(
             &registry,
             &call,
             None,
@@ -1553,7 +1600,7 @@ mod tests {
             input: json!({"tasks": [{"name": "t1", "prompt": "do x"}]}),
             extra: None,
         };
-        let (result, _, _) = execute_single(
+        let (result, _, _, _) = execute_single(
             &registry,
             &call,
             None,
@@ -1583,7 +1630,7 @@ mod tests {
             input: json!({}),
             extra: None,
         };
-        let (result, _, _) = execute_single(
+        let (result, _, _, _) = execute_single(
             &registry,
             &call,
             None,
@@ -1848,5 +1895,78 @@ mod tests {
             content, "yes",
             "synthesized result must equal the approved answer"
         );
+    }
+
+    // ---- rank 58: dispatch timeout-cancel surfaces a cancelled id ----------
+
+    /// A tool whose `execute` never resolves. Combined with `start_paused`
+    /// tokio time, the dispatch wrapper's per-category timeout (`Info` = 30s)
+    /// elapses in virtual time, firing the cancel path under test.
+    struct HangingTool;
+
+    #[async_trait::async_trait]
+    impl Tool for HangingTool {
+        fn name(&self) -> &str {
+            "Hanging"
+        }
+        fn description(&self) -> &str {
+            "A tool that never returns (for the timeout-cancel test)"
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            json!({ "type": "object", "properties": {} })
+        }
+        fn is_concurrency_safe(&self, _input: &serde_json::Value) -> bool {
+            false
+        }
+        async fn execute(&self, _input: serde_json::Value) -> wcore_types::tool::ToolResult {
+            // Park forever; the dispatcher's timeout is the only way out.
+            std::future::pending::<()>().await;
+            unreachable!("HangingTool::execute never resolves")
+        }
+        // `Info` (30s) is the shortest category — auto-advanced instantly
+        // under start_paused.
+        fn category(&self) -> wcore_protocol::events::ToolCategory {
+            wcore_protocol::events::ToolCategory::Info
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dispatch_timeout_records_cancelled_id() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(HangingTool));
+        let confirmer = Arc::new(Mutex::new(ToolConfirmer::new(true, vec![])));
+        let call = ContentBlock::ToolUse {
+            id: "call-hang-1".into(),
+            name: "Hanging".into(),
+            input: json!({}),
+            extra: None,
+        };
+
+        let outcome = execute_tool_calls_with_budget(
+            &registry,
+            std::slice::from_ref(&call),
+            &confirmer,
+            None,
+            wcore_compact::CompactionLevel::Off,
+            false,
+            None,
+            None,
+            &CancellationToken::new(),
+            None,
+        )
+        .await
+        .expect("dispatch should not abort the batch");
+
+        // The timed-out tool's id is surfaced for the engine to flag on the
+        // ToolCallTrace; its result is a synthesized error, not a real run.
+        assert_eq!(
+            outcome.cancelled_ids,
+            vec!["call-hang-1".to_string()],
+            "the timed-out tool_use id must be reported as cancelled"
+        );
+        let ContentBlock::ToolResult { is_error, .. } = &outcome.results[0] else {
+            panic!("expected a ToolResult");
+        };
+        assert!(is_error, "a cancelled dispatch yields an error result");
     }
 }

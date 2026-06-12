@@ -314,11 +314,18 @@ pub struct ExecutionTrace {
     pub source_product: String,
 }
 
-/// Stub for the hook-engine record. W2 fills this in; W1 keeps it as an
-/// empty marker so `TurnTrace.hook_actions: Vec<HookActionRecord>` compiles.
+/// One non-`Continue` hook action fired during a turn. The agent-level hook
+/// engine records these (InjectMessage / SwitchModel / Block / ModifyInput at
+/// a phase where it is honoured) so a `TurnTrace` carries the hook activity it
+/// triggered rather than an empty vector.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookActionRecord {
+    /// Action variant that fired (e.g. `"InjectMessage"`, `"SwitchModel"`).
     pub kind: String,
+    /// Registered name of the hook that produced the action. `#[serde(default)]`
+    /// so traces written before this field existed still deserialize (empty).
+    #[serde(default)]
+    pub hook_name: String,
     pub timestamp_ms: u64,
 }
 

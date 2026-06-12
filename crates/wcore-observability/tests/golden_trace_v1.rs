@@ -125,15 +125,31 @@ fn golden_task_outcome_variants_serialize_with_kind_tag() {
 
 #[test]
 fn golden_hook_action_record_shape() {
-    // W1 leaves HookActionRecord as a minimal stub; W2 extends it. Locking
-    // the stub shape now prevents W2 from accidentally renaming the slot.
+    // Lock the HookActionRecord wire shape so a future change can't silently
+    // rename a slot. `hook_name` carries which hook fired the action.
     let r = HookActionRecord {
-        kind: "pre_tool".into(),
+        kind: "InjectMessage".into(),
+        hook_name: "verify_write".into(),
         timestamp_ms: 1_700_000_000_000,
     };
     let got = serde_json::to_value(&r).unwrap();
     assert_eq!(
         got,
-        json!({ "kind": "pre_tool", "timestamp_ms": 1_700_000_000_000_u64 })
+        json!({
+            "kind": "InjectMessage",
+            "hook_name": "verify_write",
+            "timestamp_ms": 1_700_000_000_000_u64
+        })
     );
+}
+
+#[test]
+fn hook_action_record_defaults_hook_name_for_legacy_traces() {
+    // Older traces predate `hook_name`; `#[serde(default)]` must let them
+    // deserialize with an empty name rather than failing the whole TurnTrace.
+    let legacy = json!({ "kind": "pre_tool", "timestamp_ms": 1_700_000_000_000_u64 });
+    let r: HookActionRecord = serde_json::from_value(legacy).unwrap();
+    assert_eq!(r.kind, "pre_tool");
+    assert_eq!(r.hook_name, "");
+    assert_eq!(r.timestamp_ms, 1_700_000_000_000);
 }

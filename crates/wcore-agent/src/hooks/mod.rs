@@ -115,6 +115,18 @@ pub struct HookOutcome {
     /// to leak into the transcript on every tool call (see audit
     /// `.planning/audits/2026-05-27-v0.9.1.2-findings-f10-hook-leak-bypass.md`).
     pub hook_trace: Vec<String>,
+    /// Non-`Continue` Rust-hook actions fired in this phase, recorded for the
+    /// `TurnTrace.hook_actions` telemetry. Each carries the action's variant
+    /// name + the hook that produced it. Empty when no hook acted.
+    pub fired_actions: Vec<wcore_observability::trace::HookActionRecord>,
+}
+
+/// Current UNIX-epoch milliseconds as `u64`, for stamping `HookActionRecord`s.
+/// Mirrors `crate::agents::bus::now_ms` (which returns `u128`); milliseconds
+/// since epoch fit `u64` for ~584M years, so the cast never truncates in
+/// practice. Returns 0 on a clock-before-epoch anomaly rather than panicking.
+fn hook_action_now_ms() -> u64 {
+    crate::agents::bus::now_ms() as u64
 }
 
 /// Composing engine. Wraps the existing shell hook executor plus a
@@ -321,8 +333,26 @@ impl HookEngine {
                         hook.name()
                     ));
                 }
-                HookAction::InjectMessage(m) => outcome.injected_messages.push(m),
-                HookAction::SwitchModel(s) => outcome.switch_model = Some(s),
+                HookAction::InjectMessage(m) => {
+                    outcome
+                        .fired_actions
+                        .push(wcore_observability::trace::HookActionRecord {
+                            kind: "InjectMessage".to_string(),
+                            hook_name: hook.name().to_string(),
+                            timestamp_ms: hook_action_now_ms(),
+                        });
+                    outcome.injected_messages.push(m);
+                }
+                HookAction::SwitchModel(s) => {
+                    outcome
+                        .fired_actions
+                        .push(wcore_observability::trace::HookActionRecord {
+                            kind: "SwitchModel".to_string(),
+                            hook_name: hook.name().to_string(),
+                            timestamp_ms: hook_action_now_ms(),
+                        });
+                    outcome.switch_model = Some(s);
+                }
             }
         }
         // Task 1.3: fire plugin hooks registered at PostToolUse.
@@ -431,8 +461,26 @@ impl HookEngine {
                         hook.name()
                     ));
                 }
-                HookAction::InjectMessage(m) => outcome.injected_messages.push(m),
-                HookAction::SwitchModel(s) => outcome.switch_model = Some(s),
+                HookAction::InjectMessage(m) => {
+                    outcome
+                        .fired_actions
+                        .push(wcore_observability::trace::HookActionRecord {
+                            kind: "InjectMessage".to_string(),
+                            hook_name: hook.name().to_string(),
+                            timestamp_ms: hook_action_now_ms(),
+                        });
+                    outcome.injected_messages.push(m);
+                }
+                HookAction::SwitchModel(s) => {
+                    outcome
+                        .fired_actions
+                        .push(wcore_observability::trace::HookActionRecord {
+                            kind: "SwitchModel".to_string(),
+                            hook_name: hook.name().to_string(),
+                            timestamp_ms: hook_action_now_ms(),
+                        });
+                    outcome.switch_model = Some(s);
+                }
             }
         }
         // Task 1.3: fire plugin hooks registered at TurnStart.
@@ -473,8 +521,26 @@ impl HookEngine {
                         hook.name()
                     ));
                 }
-                HookAction::InjectMessage(m) => outcome.injected_messages.push(m),
-                HookAction::SwitchModel(s) => outcome.switch_model = Some(s),
+                HookAction::InjectMessage(m) => {
+                    outcome
+                        .fired_actions
+                        .push(wcore_observability::trace::HookActionRecord {
+                            kind: "InjectMessage".to_string(),
+                            hook_name: hook.name().to_string(),
+                            timestamp_ms: hook_action_now_ms(),
+                        });
+                    outcome.injected_messages.push(m);
+                }
+                HookAction::SwitchModel(s) => {
+                    outcome
+                        .fired_actions
+                        .push(wcore_observability::trace::HookActionRecord {
+                            kind: "SwitchModel".to_string(),
+                            hook_name: hook.name().to_string(),
+                            timestamp_ms: hook_action_now_ms(),
+                        });
+                    outcome.switch_model = Some(s);
+                }
             }
         }
         // Task 1.3: fire plugin hooks registered at TurnEnd.
