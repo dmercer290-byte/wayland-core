@@ -393,6 +393,12 @@ async fn post_with_retry<B: Serialize>(
     Err(last_err)
 }
 
+/// Telegram's own ceiling for the `getUpdates?timeout=` long-poll wait. The
+/// config doc advertises this cap; enforce it at the single normalization
+/// point so a misconfigured value can't push the HTTP read timeout (which is
+/// derived from it) arbitrarily high.
+pub(crate) const MAX_LONG_POLL_TIMEOUT_SECS: u32 = 120;
+
 /// One call to `getUpdates`. Returns the decoded `Vec<Update>` (possibly
 /// empty). Long-poll timeouts surface as `Ok(vec![])`. Network / 5xx
 /// surface as `Err`; callers back off and retry.
@@ -403,6 +409,10 @@ pub(crate) async fn get_updates(
     offset: i64,
     timeout_secs: u32,
 ) -> Result<Vec<Update>, TelegramError> {
+    // Clamp to Telegram's documented ceiling here — the lone normalization
+    // point — so both the `timeout=` query and the derived HTTP read timeout
+    // stay bounded regardless of the configured value.
+    let timeout_secs = timeout_secs.min(MAX_LONG_POLL_TIMEOUT_SECS);
     let url = format!("{api_base}/bot{bot_token}/getUpdates");
     let timeout_str = timeout_secs.to_string();
     let offset_str = offset.to_string();
@@ -840,6 +850,30 @@ mod tests {
             .await;
         let http = wcore_egress::EgressClient::new();
         let updates = get_updates(&http, &server.url(), "1:tok", 0, 0)
+            .await
+            .expect("getUpdates succeeds");
+        assert!(updates.is_empty());
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn get_updates_clamps_timeout_to_telegram_ceiling() {
+        // A configured 600 must be clamped to Telegram's 120 ceiling before it
+        // reaches the `timeout=` query (and the derived HTTP read timeout). The
+        // mock only matches when timeout=120, so an unclamped 600 fails it.
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/bot1:tok/getUpdates")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "timeout".into(),
+                MAX_LONG_POLL_TIMEOUT_SECS.to_string(),
+            ))
+            .with_status(200)
+            .with_body(r#"{"ok":true,"result":[]}"#)
+            .create_async()
+            .await;
+        let http = wcore_egress::EgressClient::new();
+        let updates = get_updates(&http, &server.url(), "1:tok", 0, 600)
             .await
             .expect("getUpdates succeeds");
         assert!(updates.is_empty());

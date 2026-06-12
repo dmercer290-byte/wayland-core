@@ -187,13 +187,19 @@ impl Channel for TelegramChannel {
             let _ = tx.send(true);
         }
         if let Some(handle) = self.poll_handle.take() {
-            // Give the loop a brief moment to observe the shutdown
-            // signal and drop out; if it lingers, abort.
-            let abort = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
-            if abort.is_err() {
-                // Best-effort cancellation. Reconstruct a noop handle so
-                // we don't leak; calling `abort` on the join handle is
-                // the proper cleanup but we've already moved it.
+            // Capture an abort handle BEFORE moving `handle` into timeout() —
+            // otherwise the join handle is consumed by the await and the abort
+            // can never fire, leaving a lingering poller that briefly runs
+            // alongside the next start()'s poller (transient getUpdates 409).
+            let abort_handle = handle.abort_handle();
+            // Give the loop a brief moment to observe the shutdown signal and
+            // drop out; if it lingers past the grace window, abort it so a
+            // quick stop->start can't run two pollers at once.
+            if tokio::time::timeout(std::time::Duration::from_secs(2), handle)
+                .await
+                .is_err()
+            {
+                abort_handle.abort();
                 tracing::warn!(
                     target: "wcore_channel_telegram",
                     channel = %self.name,
@@ -781,7 +787,15 @@ parse_mode = "MarkdownV2"
     }
 
     // -----------------------------------------------------------------
-    // 8. stop() ends the poll task cleanly.
+    // 8. stop() ends the poll task cleanly and clears all state.
+    //
+    // The abort-on-timeout path (Rank 81) fires only when the poll task
+    // lingers past the 2s grace window. That can't be reproduced
+    // deterministically here: the loop races every getUpdates against the
+    // shutdown signal via `tokio::select!`, so it always exits well within
+    // the grace and the timeout branch is never taken. This test guards the
+    // common path — stop() completes and the channel returns to a clean
+    // Disconnected state with the handle, sender, and token all cleared.
     // -----------------------------------------------------------------
     #[tokio::test]
     async fn stop_ends_poll_task_cleanly() {
