@@ -230,7 +230,11 @@ impl Channel for WhatsappChannel {
             msg.conversation_id.clone()
         };
 
-        let req = api::SendMessageRequest::new_text(recipient.clone(), msg.text.clone());
+        // Quote the message being replied to (if this turn is a reply) so the
+        // bot threads in-context. `reply_to` carries the inbound wamid via the
+        // shared inbound subscriber; None for a fresh message.
+        let req = api::SendMessageRequest::new_text(recipient.clone(), msg.text.clone())
+            .with_reply_context(msg.reply_to.clone());
 
         let resp = api::send_message(
             &self.http,

@@ -43,6 +43,21 @@ use wcore_channels::{
     TurnAdmission, evaluate,
 };
 
+/// Pick the outbound reply target for a turn's reply.
+///
+/// Prefers `reply_to_message_id` — the specific message the inbound quoted,
+/// which reply-quoting platforms (Telegram, Discord, WhatsApp, Matrix, …) need
+/// to thread in-context — and falls back to `thread_id` (the thread root that
+/// Slack's `thread_ts` requires). For Slack the two coincide whenever
+/// `reply_to_message_id` is set, so this is a strict no-op there; for the other
+/// connectors it carries the quoted id that was previously dropped. Returns
+/// `None` when the inbound is neither a reply nor in a thread.
+fn outbound_reply_target(msg: &IncomingMessage) -> Option<String> {
+    msg.reply_to_message_id
+        .clone()
+        .or_else(|| msg.thread_id.clone())
+}
+
 /// Seam between the inbound subscriber and the agent engine.
 ///
 /// An implementation drives one agent turn for `session_key` from the
@@ -243,7 +258,7 @@ impl InboundSubscriber {
                                         let outgoing = OutgoingMessage {
                                             conversation_id: msg.conversation_id.clone(),
                                             text: reply,
-                                            reply_to: msg.thread_id.clone(),
+                                            reply_to: outbound_reply_target(&msg),
                                             attachments: Vec::new(),
                                         };
                                         let guard = manager.lock().await;
@@ -481,6 +496,32 @@ mod tests {
         m.sender_id = "u1".into();
         m.chat_type = ChatType::Direct;
         m
+    }
+
+    #[test]
+    fn outbound_reply_target_prefers_reply_id_over_thread() {
+        let mut m = dm("1");
+        m.reply_to_message_id = Some("wamid.QUOTE".into());
+        m.thread_id = Some("thread-root".into());
+        // A reply must quote the specific message, not the thread root.
+        assert_eq!(outbound_reply_target(&m), Some("wamid.QUOTE".to_string()));
+    }
+
+    #[test]
+    fn outbound_reply_target_falls_back_to_thread() {
+        let mut m = dm("2");
+        m.thread_id = Some("1700000001.000100".into());
+        // No quoted id (Slack thread root / in-thread message): use thread_id.
+        assert_eq!(
+            outbound_reply_target(&m),
+            Some("1700000001.000100".to_string())
+        );
+    }
+
+    #[test]
+    fn outbound_reply_target_none_when_neither() {
+        // A fresh, unthreaded message replies without a target.
+        assert_eq!(outbound_reply_target(&dm("3")), None);
     }
 
     /// Register a `CapturingChannel` with the queued inbound, build a

@@ -34,6 +34,17 @@ pub struct SendMessageRequest {
     #[serde(rename = "type")]
     pub kind: &'static str,
     pub text: TextBody,
+    /// Reply-in-context: quotes a prior message by its wamid. Serialized as
+    /// `"context":{"message_id":"<wamid>"}` per the Cloud API; omitted when the
+    /// outbound is not a reply.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<MessageContext>,
+}
+
+/// Quoted-message reference for reply-in-context outbound messages.
+#[derive(Debug, Clone, Serialize)]
+pub struct MessageContext {
+    pub message_id: String,
 }
 
 impl SendMessageRequest {
@@ -46,7 +57,17 @@ impl SendMessageRequest {
                 body: body.into(),
                 preview_url: false,
             },
+            context: None,
         }
+    }
+
+    /// Quote `wamid` as the reply context. A no-op when `wamid` is `None` (a
+    /// non-reply message), leaving `context` omitted from the serialized body.
+    pub fn with_reply_context(mut self, wamid: Option<String>) -> Self {
+        self.context = wamid
+            .filter(|id| !id.is_empty())
+            .map(|message_id| MessageContext { message_id });
+        self
     }
 }
 
@@ -429,6 +450,36 @@ pub async fn download_media(
 #[cfg(test)]
 mod reaction_tests {
     use super::*;
+
+    #[test]
+    fn send_text_omits_context_when_not_a_reply() {
+        let req = SendMessageRequest::new_text("15551234567", "hi").with_reply_context(None);
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["type"], "text");
+        assert_eq!(json["text"]["body"], "hi");
+        assert!(
+            json.get("context").is_none(),
+            "non-reply message must omit context entirely"
+        );
+    }
+
+    #[test]
+    fn send_text_quotes_wamid_in_context_on_reply() {
+        let req = SendMessageRequest::new_text("15551234567", "yes")
+            .with_reply_context(Some("wamid.QUOTED".to_string()));
+        let json = serde_json::to_value(&req).unwrap();
+        // Cloud API reply-in-context shape: context.message_id = quoted wamid.
+        assert_eq!(json["context"]["message_id"], "wamid.QUOTED");
+    }
+
+    #[test]
+    fn send_text_treats_empty_reply_id_as_no_reply() {
+        // An empty reply_to must not produce an invalid empty-context body.
+        let req = SendMessageRequest::new_text("15551234567", "hi")
+            .with_reply_context(Some(String::new()));
+        let json = serde_json::to_value(&req).unwrap();
+        assert!(json.get("context").is_none());
+    }
 
     #[test]
     fn reaction_request_shape() {
