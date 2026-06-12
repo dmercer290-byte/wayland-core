@@ -53,6 +53,14 @@ impl PluginAccessGate {
             "register_user_models",
         )
     }
+    /// Gate for `ScopedMemoryClient`. Granted only when the manifest declares
+    /// at least one readable OR writable partition; an empty grant means the
+    /// plugin has no memory access at all and the client must not be vended.
+    pub fn require_memory_access(m: &PluginManifest) -> PluginResult<()> {
+        let granted = !m.permissions.memory_partitions_readable.is_empty()
+            || !m.permissions.memory_partitions_writable.is_empty();
+        require_flag(m, granted, "memory_access")
+    }
 }
 
 fn require_flag(m: &PluginManifest, flag: bool, op: &'static str) -> PluginResult<()> {

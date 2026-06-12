@@ -52,9 +52,15 @@ pub struct PluginContext<'a> {
     /// (e.g. CI runner without a docker daemon).
     pub sandbox: Option<std::sync::Arc<wcore_sandbox::SandboxRegistry>>,
 
-    /// Always-on observability + read views. Permission for memory access
-    /// lives inside the client (per-partition), not at construction time.
+    /// Always-on observability + read views.
     pub config: ScopedConfigReader<'a>,
     pub logger: ScopedPluginLogger<'a>,
-    pub memory: ScopedMemoryClient<'a>,
+    /// `Option` because `ScopedMemoryClient::new` is now gated by
+    /// `PluginAccessGate::require_memory_access` (mirroring the other
+    /// `register_*` registries): a manifest that declares no readable or
+    /// writable partitions is denied a client and gets `None` here, instead of
+    /// receiving a client whose every `read`/`write` would fail per-partition.
+    /// The host (wcore-agent) constructs this by mapping
+    /// `ScopedMemoryClient::new(...).ok()`.
+    pub memory: Option<ScopedMemoryClient<'a>>,
 }

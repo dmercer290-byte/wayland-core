@@ -86,7 +86,7 @@ async fn initialize_registers_honcho_user_model_spec() {
     let user_models = ScopedUserModelRegistry::new(&manifest, &mut user_models_host).ok();
     let config = ScopedConfigReader::new(&config_host);
     let logger = ScopedPluginLogger::new(&manifest.plugin.name);
-    let memory = ScopedMemoryClient::new(&manifest, &mut memory_host);
+    let memory = ScopedMemoryClient::new(&manifest, &mut memory_host).ok();
 
     let mut ctx = PluginContext {
         manifest: &manifest,

@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 
+use crate::access_gate::PluginAccessGate;
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
 use crate::memory_spec::{MemoryItem, MemoryQuery, Partition};
@@ -27,15 +28,16 @@ pub struct ScopedMemoryClient<'a> {
 }
 
 impl<'a> ScopedMemoryClient<'a> {
-    pub fn new(manifest: &PluginManifest, host: &'a mut dyn MemoryHost) -> Self {
+    pub fn new(manifest: &PluginManifest, host: &'a mut dyn MemoryHost) -> PluginResult<Self> {
+        PluginAccessGate::require_memory_access(manifest)?;
         let readable = parse_set(&manifest.permissions.memory_partitions_readable);
         let writable = parse_set(&manifest.permissions.memory_partitions_writable);
-        Self {
+        Ok(Self {
             plugin_name: manifest.plugin.name.clone(),
             readable,
             writable,
             host,
-        }
+        })
     }
 
     pub fn read(&self, partition: Partition, query: &MemoryQuery) -> PluginResult<Vec<MemoryItem>> {
@@ -80,4 +82,76 @@ fn parse_set(list: &[String]) -> HashSet<Partition> {
             _ => None,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Inert host — the gate must reject (or admit) before any host call.
+    struct NoopHost;
+    impl MemoryHost for NoopHost {
+        fn host_read(
+            &self,
+            _partition: Partition,
+            _query: &MemoryQuery,
+        ) -> Result<Vec<MemoryItem>, String> {
+            Ok(Vec::new())
+        }
+        fn host_write(&mut self, _partition: Partition, _item: MemoryItem) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn manifest(toml: &str) -> PluginManifest {
+        PluginManifest::from_toml_str(toml).unwrap()
+    }
+
+    const HEADER: &str = r#"
+[plugin]
+name = "wayland-mem"
+version = "1.0.0"
+description = "t"
+entry = "builtin:m"
+authors = ["t"]
+license = "MIT"
+[permissions]
+"#;
+
+    #[test]
+    fn new_denies_manifest_without_memory_partitions() {
+        let m = manifest(HEADER);
+        let mut host = NoopHost;
+        let err = match ScopedMemoryClient::new(&m, &mut host) {
+            Err(e) => e,
+            Ok(_) => panic!("expected PermissionDenied when no partitions are declared"),
+        };
+        match err {
+            PluginError::PermissionDenied { plugin, operation } => {
+                assert_eq!(plugin, "wayland-mem");
+                assert_eq!(operation, "memory_access");
+            }
+            other => panic!("expected PermissionDenied, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn new_allows_manifest_with_readable_partition() {
+        let m = manifest(&format!("{HEADER}memory_partitions_readable = [\"P2\"]\n"));
+        let mut host = NoopHost;
+        let client =
+            ScopedMemoryClient::new(&m, &mut host).expect("readable partition grants access");
+        assert!(client.readable.contains(&Partition::P2));
+        assert!(client.writable.is_empty());
+    }
+
+    #[test]
+    fn new_allows_manifest_with_writable_partition() {
+        let m = manifest(&format!("{HEADER}memory_partitions_writable = [\"P2\"]\n"));
+        let mut host = NoopHost;
+        let client =
+            ScopedMemoryClient::new(&m, &mut host).expect("writable partition grants access");
+        assert!(client.writable.contains(&Partition::P2));
+        assert!(client.readable.is_empty());
+    }
 }

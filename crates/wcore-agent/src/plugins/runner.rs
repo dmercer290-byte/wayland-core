@@ -377,7 +377,16 @@ impl PluginRunner {
 
             let config = ScopedConfigReader::new(&self.config);
             let logger = ScopedPluginLogger::new(&manifest.plugin.name);
-            let memory = ScopedMemoryClient::new(manifest, &mut self.memory);
+            // Now gated like every sibling registry: `require_memory_access`
+            // returns `PermissionDenied` when the manifest grants no memory
+            // partitions, which `unwrap_scoped` maps to `None` (benign — the
+            // plugin didn't request memory) rather than a registration error.
+            let memory = unwrap_scoped(
+                ScopedMemoryClient::new(manifest, &mut self.memory),
+                &d.name,
+                "memory",
+                &mut errors,
+            );
 
             let mut ctx = PluginContext {
                 manifest,

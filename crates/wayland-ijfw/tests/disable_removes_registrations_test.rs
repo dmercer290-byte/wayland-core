@@ -170,7 +170,7 @@ async fn disabled_manifest_results_in_no_registrations() {
 
     let config = ScopedConfigReader::new(&config_host);
     let logger = ScopedPluginLogger::new(&manifest.plugin.name);
-    let memory = ScopedMemoryClient::new(&manifest, &mut memory_host);
+    let memory = ScopedMemoryClient::new(&manifest, &mut memory_host).ok();
 
     let ctx = PluginContext {
         manifest: &manifest,

@@ -23,7 +23,8 @@ impl MemoryHost for PermissiveMemory {
 fn p5_read_is_denied_per_manifest() {
     let m = PluginManifest::from_toml_str(MANIFEST_TOML).expect("manifest must parse");
     let mut host = PermissiveMemory;
-    let client = ScopedMemoryClient::new(&m, &mut host);
+    let client = ScopedMemoryClient::new(&m, &mut host)
+        .expect("wayland-ijfw manifest grants memory access (P2 readable)");
 
     let err = client
         .read(
@@ -51,7 +52,8 @@ fn p5_read_is_denied_per_manifest() {
 fn p5_write_is_denied_per_manifest() {
     let m = PluginManifest::from_toml_str(MANIFEST_TOML).expect("manifest must parse");
     let mut host = PermissiveMemory;
-    let mut client = ScopedMemoryClient::new(&m, &mut host);
+    let mut client = ScopedMemoryClient::new(&m, &mut host)
+        .expect("wayland-ijfw manifest grants memory access (P2 readable)");
 
     let err = client
         .write(
@@ -81,7 +83,8 @@ fn p5_write_is_denied_per_manifest() {
 fn p2_read_is_allowed_per_manifest() {
     let m = PluginManifest::from_toml_str(MANIFEST_TOML).expect("manifest must parse");
     let mut host = PermissiveMemory;
-    let client = ScopedMemoryClient::new(&m, &mut host);
+    let client = ScopedMemoryClient::new(&m, &mut host)
+        .expect("wayland-ijfw manifest grants memory access (P2 readable)");
 
     // Sanity-check: P2 is in the readable list, so the call must succeed.
     let items = client

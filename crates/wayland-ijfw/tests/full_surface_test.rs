@@ -164,7 +164,7 @@ async fn wayland_ijfw_exercises_every_register_method() {
 
     let config = ScopedConfigReader::new(&config_host);
     let logger = ScopedPluginLogger::new(&manifest.plugin.name);
-    let memory = ScopedMemoryClient::new(&manifest, &mut memory_host);
+    let memory = ScopedMemoryClient::new(&manifest, &mut memory_host).ok();
 
     let mut ctx = PluginContext {
         manifest: &manifest,
