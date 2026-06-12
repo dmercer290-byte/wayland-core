@@ -41,7 +41,7 @@ use parking_lot::Mutex;
 use tokio::process::Command;
 
 #[cfg(target_os = "linux")]
-use crate::backend::{AxTree, ComputerUseBackend, CuaSession, Platform};
+use crate::backend::{ComputerUseBackend, CuaSession, Platform};
 #[cfg(target_os = "linux")]
 use crate::error::{CuaError, CuaResult};
 #[cfg(target_os = "linux")]
@@ -125,12 +125,11 @@ impl ComputerUseBackend for LinuxWaylandBackend {
                 format,
                 redact,
             } => wlr_screenshot(region, format, redact).await,
-            CuaOp::AxTree {} => Ok(CuaOpResult::AxTree {
-                tree: AxTree::empty(
-                    self.cached_frontmost.lock().clone().unwrap_or_default(),
-                    String::new(),
-                ),
-            }),
+            CuaOp::AxTree {} => Err(crate::error::CuaError::Backend(
+                "AxTree (accessibility-tree navigation) is not implemented on this \
+                 backend yet; callers must treat this as a gap, not an empty desktop"
+                    .to_string(),
+            )),
             CuaOp::FrontmostApp {} => Ok(CuaOpResult::FrontmostApp {
                 app_id: self.cached_frontmost.lock().clone(),
             }),

@@ -123,6 +123,22 @@ async fn host_adapter_path_reifies_and_dispatches_safe_op() {
         other => panic!("unexpected screenshot result: {other:?}"),
     }
 
+    // Step 6: AxTree is a deliberate, typed gap on every backend until real
+    // AT-SPI / AXUIElement / UIAutomation wiring lands. It must surface a
+    // Backend error, never a silently-empty tree (which a caller could not
+    // distinguish from a blank desktop).
+    let r = tool
+        .dispatch(
+            CuaSession::for_test("e2e"),
+            CuaOp::AxTree {},
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(
+        matches!(r, Err(CuaError::Backend(_))),
+        "AxTree must surface a typed gap error, not an empty stub; got {r:?}"
+    );
+
     clear_wayland_env();
 }
 

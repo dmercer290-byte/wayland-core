@@ -20,7 +20,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
-use crate::backend::{AxTree, ComputerUseBackend, CuaSession, Platform};
+use crate::backend::{ComputerUseBackend, CuaSession, Platform};
 use crate::error::CuaResult;
 use crate::op::{CuaOp, CuaOpResult};
 
@@ -84,12 +84,11 @@ impl ComputerUseBackend for WindowsBackend {
                 format,
                 redact,
             } => gdi_screenshot(region, format, redact),
-            CuaOp::AxTree {} => Ok(CuaOpResult::AxTree {
-                tree: AxTree::empty(
-                    self.cached_frontmost.lock().clone().unwrap_or_default(),
-                    String::new(),
-                ),
-            }),
+            CuaOp::AxTree {} => Err(crate::error::CuaError::Backend(
+                "AxTree (accessibility-tree navigation) is not implemented on this \
+                 backend yet; callers must treat this as a gap, not an empty desktop"
+                    .to_string(),
+            )),
             CuaOp::FrontmostApp {} => Ok(CuaOpResult::FrontmostApp {
                 app_id: self.cached_frontmost.lock().clone(),
             }),
