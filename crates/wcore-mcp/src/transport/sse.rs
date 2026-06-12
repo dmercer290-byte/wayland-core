@@ -221,6 +221,14 @@ impl SseTransport {
                     }
                 }
             }
+
+            // Rank 26 — the listener exited (stream EOF, chunk error, or the
+            // mcp-40 buffer-overflow break). Any request still parked in
+            // `pending` will never receive its `message` event now. Drain the
+            // map and drop every sender so each waiting `request()` wakes
+            // immediately via its `Ok(Err(_))` arm ("Response channel closed
+            // unexpectedly") instead of waiting out the full `request_timeout`.
+            pending_clone.lock().await.clear();
         });
 
         Ok(Self {
@@ -587,6 +595,100 @@ mod tests {
         assert!(
             elapsed < Duration::from_secs(3),
             "the POST send timeout must fire promptly, took {elapsed:?}"
+        );
+    }
+
+    /// Rank 26 — when the listener task exits (stream EOF / chunk error /
+    /// buffer-overflow break) it must drain `pending` and drop every parked
+    /// sender so an in-flight `request()` fails FAST with the channel-closed
+    /// error, instead of waiting out the full `request_timeout`.
+    ///
+    /// We construct the transport directly (as the C6/Rank-25 tests do) with a
+    /// long request timeout and a listener that shares the real `pending` map
+    /// and exits immediately after draining it. A POST that 200s lets the
+    /// request reach the `rx.await`; the drained sender then resolves it
+    /// promptly via the `Ok(Err(_))` arm — well under the request timeout.
+    #[tokio::test]
+    async fn rank26_listener_exit_drains_pending_and_fails_fast() {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicU64;
+        use std::time::{Duration, Instant};
+
+        use reqwest::header::HeaderMap;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        use tokio::sync::Mutex;
+
+        use crate::protocol::JsonRpcRequest;
+        use crate::transport::McpTransport;
+
+        // Loopback server: accept the POST, 200 it, never send an SSE message.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let _ = socket.read(&mut buf).await;
+                    let _ = socket
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                        .await;
+                    let _ = socket.flush().await;
+                });
+            }
+        });
+
+        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let pending_clone = pending.clone();
+
+        // Listener stand-in: wait until the request has registered its pending
+        // oneshot, then drain the map (mirrors the production drain-on-exit) and
+        // exit. Dropping the senders is what wakes the parked request.
+        let listener_task = tokio::spawn(async move {
+            loop {
+                {
+                    let mut map = pending_clone.lock().await;
+                    if !map.is_empty() {
+                        map.clear();
+                        break;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        });
+
+        let transport = SseTransport {
+            client: wcore_egress::EgressClient::new(),
+            post_url: format!("http://{addr}/post"),
+            headers: HeaderMap::new(),
+            pending,
+            next_id: AtomicU64::new(1),
+            _listener: listener_task,
+            // A long request timeout: if the drain did NOT fail the request
+            // fast, this test would hang for ~30s and the elapsed assert would
+            // catch the regression.
+            request_timeout: Duration::from_secs(30),
+        };
+
+        let req = JsonRpcRequest::new(1, "tools/call", None);
+        let start = Instant::now();
+        let result = transport.request(&req).await;
+        let elapsed = start.elapsed();
+
+        assert!(
+            result.is_err(),
+            "a request parked when the listener exits must error, not hang"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("Response channel closed"),
+            "expected the channel-closed (fast-fail) error, got: {msg}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "listener-exit drain must fail the request fast, took {elapsed:?}"
         );
     }
 

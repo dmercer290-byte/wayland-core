@@ -26,6 +26,12 @@ tracing.workspace     = true
 
 workspace-hack.workspace = true
 
+# Rank 24 — stdio transport places the child in its own process group
+# (process_group(0)) and `killpg`s the whole group on close, so shell-wrapper
+# grandchildren (npx→node, uvx→python) are reaped instead of orphaned.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
 [features]
 test-utils = []
 

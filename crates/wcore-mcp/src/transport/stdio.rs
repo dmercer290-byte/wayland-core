@@ -190,6 +190,30 @@ fn windows_cmd_quote(arg: &str) -> String {
     out
 }
 
+/// SIGKILL the child's entire process group (Rank 24, unix-only).
+///
+/// The child is spawned with `process_group(0)`, so its PGID equals its own
+/// PID and every grandchild (`sh` → `npx` → `node`, `uvx` → `python`) inherits
+/// that group. `kill(-pgid, SIGKILL)` signals the whole group in one call, so
+/// no orphaned `node`/`python` processes linger after the transport closes.
+/// A bare `child.kill()` would reap only the direct `sh` wrapper.
+///
+/// `Child::id()` returns `None` once the child has been reaped (e.g. a prior
+/// `kill().await`); in that case there is nothing to signal and we no-op.
+/// `ESRCH` (group already gone) is benign and ignored.
+#[cfg(unix)]
+fn kill_process_group(child: &Child) {
+    if let Some(pid) = child.id() {
+        // SAFETY: `kill` is async-signal-safe and we only pass a process-group
+        // target (negated PID) plus a constant signal. The PID was assigned by
+        // a successful spawn and is the leader of its own group via
+        // `process_group(0)`; signalling a stale group merely returns ESRCH.
+        unsafe {
+            libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+        }
+    }
+}
+
 // Platform-agnostic unit tests for the cmd.exe quoting function. `shell_quote`
 // itself dispatches at runtime via `cfg!(windows)`, but `windows_cmd_quote` is
 // a pure string transform that compiles and runs on every platform, so the CI
@@ -353,6 +377,19 @@ impl StdioTransport {
         }
         // Per-server env entries from mcp-servers.toml layered last.
         cmd.envs(env);
+
+        // Rank 24 (unix) — put the child in its own process group so a
+        // `killpg` on close reaps the WHOLE subtree, not just the shell
+        // wrapper. `shell_command_builder` runs the server under `sh -c`,
+        // which then execs `npx`/`uvx` etc.; those fork further grandchildren
+        // (node, python). Without a dedicated group, `kill()` reaps only the
+        // `sh` PID and the real server is orphaned. `process_group(0)` makes
+        // the child's PGID equal its own PID (it becomes the group leader), so
+        // `kill(-pid, SIGKILL)` in `kill_process_group` signals every
+        // descendant. Windows keeps its existing `kill_on_drop` / Job-Object
+        // behavior (untouched).
+        #[cfg(unix)]
+        cmd.process_group(0);
 
         let mut child = cmd
             .spawn()
@@ -537,6 +574,11 @@ impl StdioTransport {
     async fn mark_dead(&self) {
         self.alive.store(false, Ordering::SeqCst);
         let mut child = self.child.lock().await;
+        // Rank 24 (unix) — SIGKILL the whole process group first so shell-
+        // wrapper grandchildren are reaped, then `start_kill` the tracked
+        // child so tokio still reaps the direct PID and updates its state.
+        #[cfg(unix)]
+        kill_process_group(&child);
         let _ = child.start_kill();
     }
 
@@ -655,6 +697,11 @@ impl McpTransport for StdioTransport {
         // is reaped; the EOF additionally unblocks a parked reader.
         {
             let mut child = self.child.lock().await;
+            // Rank 24 (unix) — kill the whole process group so shell-wrapper
+            // grandchildren (npx→node, uvx→python) are reaped, not orphaned.
+            // `kill().await` below additionally reaps the direct child PID.
+            #[cfg(unix)]
+            kill_process_group(&child);
             if let Err(e) = child.kill().await {
                 warn!(error = %e, "[mcp] stdio close: kill failed");
             }
@@ -886,6 +933,75 @@ mod tests {
         assert!(
             start.elapsed() < Duration::from_millis(100),
             "dead-transport request must fast-fail"
+        );
+    }
+
+    /// Rank 24 — `close()` must reap the child's grandchildren, not just the
+    /// `sh` wrapper. The fixture backgrounds a long `sleep` (a grandchild of
+    /// the `sh -c` wrapper, exactly mirroring `sh → npx → node`), records its
+    /// PID, then services one request. After `close()`, the grandchild must be
+    /// gone — proving the process-group kill reaped the whole subtree. Without
+    /// the `process_group(0)` + `killpg` fix this grandchild is orphaned and
+    /// `kill(pid, 0)` still reports it alive.
+    #[tokio::test]
+    async fn rank24_close_reaps_grandchildren() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let pid_path = tmp.path().join("grandchild.pid");
+
+        // Background a `sleep 300`, write ITS pid, then read one stdin line and
+        // emit a JSON-RPC response so `request()` round-trips.
+        let script = format!(
+            "sleep 300 & echo $! > {pid}; read line; \
+             printf '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}\\n'",
+            pid = pid_path.display()
+        );
+        let transport = StdioTransport::spawn("sh", &["-c".to_string(), script], &no_env())
+            .await
+            .expect("spawn grandchild fixture");
+
+        // Drive one request so the fixture runs far enough to spawn the
+        // grandchild and write its PID.
+        let _ = transport
+            .request(&JsonRpcRequest::new(1, "ping", None))
+            .await;
+
+        // Read the grandchild PID the fixture recorded.
+        let gpid: i32 = {
+            let mut tries = 0;
+            loop {
+                if let Ok(s) = std::fs::read_to_string(&pid_path)
+                    && let Ok(pid) = s.trim().parse::<i32>()
+                {
+                    break pid;
+                }
+                tries += 1;
+                assert!(tries < 100, "fixture never wrote grandchild pid");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+
+        // Grandchild should be alive before close.
+        // SAFETY: signal 0 is the standard liveness probe — sends no signal.
+        let alive_before = unsafe { libc::kill(gpid as libc::pid_t, 0) };
+        assert_eq!(alive_before, 0, "grandchild should be alive before close");
+
+        transport.close().await.expect("close ok");
+
+        // After close, the grandchild must be reaped. Poll briefly because the
+        // OS may take a moment to tear the group down.
+        let mut reaped = false;
+        for _ in 0..100 {
+            // SAFETY: signal 0 liveness probe; -1/ESRCH means the pid is gone.
+            let rc = unsafe { libc::kill(gpid as libc::pid_t, 0) };
+            if rc != 0 {
+                reaped = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(
+            reaped,
+            "grandchild pid {gpid} still alive after close — process group not reaped"
         );
     }
 
