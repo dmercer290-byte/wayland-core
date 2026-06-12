@@ -575,6 +575,13 @@ pub struct AgentEngine {
     /// qualifying for diff-resend. `None` in test engines and when the file
     /// cache is disabled; wired by `AgentBootstrap` via `set_file_cache`.
     file_cache: Option<Arc<std::sync::RwLock<wcore_tools::file_cache::FileStateCache>>>,
+    /// B7 writer-side wiring — the same `Arc<InMemorySessionState>` the
+    /// `wayland_status` / `wayland_telemetry_query` introspection backend
+    /// reads. When wired by `AgentBootstrap` (via [`set_session_state`]) the
+    /// engine pushes per-turn token totals and per-tool call counts into it,
+    /// so the introspection tools surface live numbers instead of zeroes.
+    /// `None` in test engines and sub-agents (no introspection surface).
+    session_state: Option<Arc<crate::session_state::InMemorySessionState>>,
     /// W6 F17 — audit-log handle for the recency input to `McpCurator`.
     /// `None` means the agent runs without M2 memory wiring (test envs);
     /// curation gracefully degrades to keyword-only ranking in that case.
@@ -1024,6 +1031,7 @@ impl AgentEngine {
             mcp_curation: config.mcp.curation.clone(),
             mcp_curation_cache: None,
             file_cache: None,
+            session_state: None,
             audit_log: None,
             // W7 Pre-flight 0: default to NullMemory; `AgentBootstrap`
             // calls `set_memory_api()` after construction when a real
@@ -1184,6 +1192,7 @@ impl AgentEngine {
             mcp_curation: config.mcp.curation.clone(),
             mcp_curation_cache: None,
             file_cache: None,
+            session_state: None,
             audit_log: None,
             // W7 Pre-flight 0: default to NullMemory; `AgentBootstrap`
             // calls `set_memory_api()` after construction when a real
@@ -2039,6 +2048,16 @@ impl AgentEngine {
         cache: Arc<std::sync::RwLock<wcore_tools::file_cache::FileStateCache>>,
     ) {
         self.file_cache = Some(cache);
+    }
+
+    /// B7 writer-side wiring: install the shared `InMemorySessionState` so
+    /// per-turn token totals and per-tool call counts land in the same struct
+    /// the `wayland_status` / `wayland_telemetry_query` introspection backend
+    /// reads. Called once by `AgentBootstrap` with the same `Arc` handed to
+    /// `build_introspection_backend`. Engines without an introspection surface
+    /// (tests, sub-agents) skip this and the counters simply stay at zero.
+    pub fn set_session_state(&mut self, state: Arc<crate::session_state::InMemorySessionState>) {
+        self.session_state = Some(state);
     }
 
     /// Token-opt (diff-resend): invalidate cached read bases for diffing by
@@ -3386,6 +3405,13 @@ impl AgentEngine {
             self.total_usage.cache_creation_tokens += turn_usage.cache_creation_tokens;
             self.total_usage.cache_read_tokens += turn_usage.cache_read_tokens;
 
+            // B7 writer-side wiring: mirror this turn's token usage into the
+            // live introspection state so `wayland_status` /
+            // `wayland_telemetry_query` report non-zero token counters.
+            if let Some(state) = &self.session_state {
+                state.add_token_usage(turn_usage.input_tokens, turn_usage.output_tokens);
+            }
+
             // M5.3 — charge the per-session/per-user budget tracker after the
             // turn's usage is finalized. Sink-side `BudgetEvent::Charge`
             // emission happens inside `tracker.charge`.
@@ -3918,6 +3944,14 @@ impl AgentEngine {
                         })
                         .unwrap_or("unknown");
                     self.output.emit_tool_result(tool_name, *is_error, content);
+
+                    // B7 writer-side wiring: bump the per-tool call counter in
+                    // the live introspection state (one increment per executed
+                    // tool result) so `wayland_status` reports real tool-call
+                    // activity instead of an empty histogram.
+                    if let Some(state) = &self.session_state {
+                        state.record_tool_call(tool_name);
+                    }
 
                     // W1: fill in the matching ToolCallTrace.
                     if let Some(trace) = tool_call_traces
@@ -5877,6 +5911,7 @@ mod set_config_tests {
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
             file_cache: None,
+            session_state: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -6598,6 +6633,7 @@ mod phase6_tests {
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
             file_cache: None,
+            session_state: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -6879,6 +6915,7 @@ mod compact_tests {
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
             file_cache: None,
+            session_state: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -7844,6 +7881,7 @@ mod plan_mode_tests {
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
             file_cache: None,
+            session_state: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -8258,6 +8296,7 @@ mod hook_integration_tests {
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
             file_cache: None,
+            session_state: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -8573,6 +8612,48 @@ mod hook_integration_tests {
         // The Arc must point at *something*; downstream W9 hooks dyn-dispatch
         // through it. Strong-count >= 1 proves the field is alive.
         assert!(Arc::strong_count(api) >= 1);
+    }
+
+    // ---- B7 (Rank 38): engine writer wired to the session state the
+    // `wayland_status` / `wayland_telemetry_query` tools read ---------------
+
+    #[test]
+    fn b7_session_state_wiring_surfaces_nonzero_to_reader() {
+        use crate::session_state::{InMemorySessionState, SessionStateReader};
+
+        // The introspection backend reads the live state through this Arc.
+        let state = Arc::new(InMemorySessionState::new("m"));
+        let reader: Arc<dyn SessionStateReader> = state.clone();
+
+        // Before wiring, the reader the tool sees is all zeroes — the exact
+        // symptom Rank 38 reported.
+        assert_eq!(reader.token_count_input(), 0);
+        assert_eq!(reader.token_count_output(), 0);
+        assert!(reader.tool_call_count().is_empty());
+
+        // Wire the SAME Arc into the engine (this is the deferred follow-up
+        // that Rank 38 flagged as missing).
+        let mut engine = make_engine("m");
+        engine.set_session_state(state);
+
+        // Drive the engine's writer surface exactly as the per-turn paths now
+        // do: token accounting after each turn, tool-call counter per result.
+        let wired = engine
+            .session_state
+            .as_ref()
+            .expect("engine must hold the session state after set_session_state");
+        wired.add_token_usage(120, 45);
+        wired.record_tool_call("Read");
+        wired.record_tool_call("Read");
+        wired.record_tool_call("Bash");
+
+        // The tool-side reader (a clone of the same Arc) now observes the
+        // engine's writes — non-zero counters, not the prior zeroes.
+        assert_eq!(reader.token_count_input(), 120);
+        assert_eq!(reader.token_count_output(), 45);
+        let calls = reader.tool_call_count();
+        assert_eq!(calls.get("Read"), Some(&2));
+        assert_eq!(calls.get("Bash"), Some(&1));
     }
 
     #[tokio::test]
@@ -8921,6 +9002,7 @@ mod approval_bridge_engine_tests {
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
             file_cache: None,
+            session_state: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(
@@ -9147,6 +9229,7 @@ mod user_model_writeback_tests {
             mcp_curation: wcore_config::config::McpCurationPolicy::default(),
             mcp_curation_cache: None,
             file_cache: None,
+            session_state: None,
             audit_log: None,
             memory_api: Arc::new(wcore_memory::NullMemory),
             dream_throttle: Arc::new(wcore_memory::consolidate::DreamThrottle::new(

@@ -787,14 +787,17 @@ impl AgentBootstrap {
         }
         // v0.9.0 W1 B7 — wayland_introspection: two tools share one backend.
         // The backend reads in-process session state (no env keys, no
-        // network); writer-side wiring of the same Arc into the engine is
-        // a deferred follow-up so the tools surface zeroes for now.
+        // network). The same concrete `Arc<InMemorySessionState>` is wired
+        // into the engine below (via `set_session_state`) so per-turn token
+        // totals and per-tool call counts land in the struct these tools read,
+        // instead of the tools surfacing zeroes.
+        let session_state = std::sync::Arc::new(crate::session_state::InMemorySessionState::new(
+            self.config.model.clone(),
+        ));
         let state_reader: std::sync::Arc<dyn crate::session_state::SessionStateReader> =
-            std::sync::Arc::new(crate::session_state::InMemorySessionState::new(
-                self.config.model.clone(),
-            ));
+            session_state.clone();
         let intro_backend =
-            crate::tool_backends::introspection::build_introspection_backend(state_reader.clone());
+            crate::tool_backends::introspection::build_introspection_backend(state_reader);
         registry.register(Box::new(
             wcore_tools::wayland_introspection::WaylandStatusTool::new(intro_backend.clone()),
         ));
@@ -1818,6 +1821,11 @@ impl AgentBootstrap {
         if let Some(fc) = file_cache_for_engine {
             engine.set_file_cache(fc);
         }
+        // B7 writer-side wiring — hand the engine the same
+        // `InMemorySessionState` the introspection backend reads, so per-turn
+        // token totals + per-tool call counts populate the struct that
+        // `wayland_status` / `wayland_telemetry_query` surface.
+        engine.set_session_state(session_state);
         // Wave 6A.1 — hand the on-disk plugin runtime keepalives to the
         // engine so they outlive the registered tool closures.
         engine.set_plugin_runtime_handles(plugin_runtime_keepalives);
