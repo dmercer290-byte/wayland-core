@@ -39,6 +39,39 @@ impl TraceSink for NullTraceSink {
     fn emit_evolution_event(&self, _event: &EvolutionEventTrace) {}
 }
 
+/// Capability-gated sink. Forwards every `emit_evolution_event` to `inner`
+/// only when `gepa_enabled` is true; otherwise it is a no-op like
+/// `NullTraceSink`. This is the host boundary referenced in `TraceSink`'s
+/// doc: the loop emits unconditionally, and gating on
+/// `capabilities.gepa_enabled` lives here rather than inside the loop.
+///
+/// `inner` is whatever real sink the host wants telemetry routed to (e.g. a
+/// `ProtocolSink`). The CLI binaries wrap a `NullTraceSink` because they have
+/// no protocol sink to forward to; that keeps the gating seam correct so a
+/// host embedding the loop can inject a real inner sink without re-plumbing.
+pub struct GatedTraceSink {
+    inner: Arc<dyn TraceSink>,
+    gepa_enabled: bool,
+}
+
+impl GatedTraceSink {
+    /// Wrap `inner`, forwarding events only when `gepa_enabled` is true.
+    pub fn new(inner: Arc<dyn TraceSink>, gepa_enabled: bool) -> Self {
+        Self {
+            inner,
+            gepa_enabled,
+        }
+    }
+}
+
+impl TraceSink for GatedTraceSink {
+    fn emit_evolution_event(&self, event: &EvolutionEventTrace) {
+        if self.gepa_enabled {
+            self.inner.emit_evolution_event(event);
+        }
+    }
+}
+
 /// Why the loop terminated. Surfaced in `EvolveOutcome` so callers can decide
 /// whether to retry, promote, or report.
 #[derive(Debug, Clone)]
@@ -433,4 +466,69 @@ pub async fn evolve(params: EvolveParams) -> Result<EvolveOutcome, EvolveError> 
         termination,
         all_scored,
     })
+}
+
+#[cfg(test)]
+mod gated_trace_sink_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Records how many events it received. Counter-based so the test stays
+    /// clear of `unwrap`/`expect` (crate-wide denied, including tests).
+    struct RecordingSink {
+        count: AtomicUsize,
+    }
+
+    impl RecordingSink {
+        fn new() -> Self {
+            Self {
+                count: AtomicUsize::new(0),
+            }
+        }
+        fn count(&self) -> usize {
+            self.count.load(Ordering::Relaxed)
+        }
+    }
+
+    impl TraceSink for RecordingSink {
+        fn emit_evolution_event(&self, _event: &EvolutionEventTrace) {
+            self.count.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn sample_event() -> EvolutionEventTrace {
+        EvolutionEventTrace::new(
+            "run-1".to_string(),
+            0,
+            "parent".to_string(),
+            "child".to_string(),
+            "Reorder".to_string(),
+            0.5,
+            true,
+        )
+    }
+
+    #[test]
+    fn enabled_forwards_to_inner() {
+        let inner = Arc::new(RecordingSink::new());
+        let gated = GatedTraceSink::new(Arc::clone(&inner) as Arc<dyn TraceSink>, true);
+        let event = sample_event();
+        gated.emit_evolution_event(&event);
+        gated.emit_evolution_event(&event);
+        assert_eq!(inner.count(), 2, "enabled sink must forward every event");
+    }
+
+    #[test]
+    fn disabled_drops_events() {
+        let inner = Arc::new(RecordingSink::new());
+        let gated = GatedTraceSink::new(Arc::clone(&inner) as Arc<dyn TraceSink>, false);
+        let event = sample_event();
+        gated.emit_evolution_event(&event);
+        gated.emit_evolution_event(&event);
+        assert_eq!(
+            inner.count(),
+            0,
+            "disabled sink must drop events (no-op like NullTraceSink)"
+        );
+    }
 }

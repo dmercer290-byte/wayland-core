@@ -19,13 +19,13 @@ use wcore_config::debug::DebugConfig;
 use wcore_eval::DefaultScorer;
 use wcore_evolve::curator_handoff::{CuratorPort, Decision, Handoff, Lineage};
 use wcore_evolve::evolve::TerminationReason;
-use wcore_evolve::generation::BudgetStub;
+use wcore_evolve::generation::ExecutionBudget;
 use wcore_evolve::mutator::{
     LlmParaphraseProvider, Mutator, Paraphrase, ParaphraseProvider, PassthroughParaphraseProvider,
     Precondition, Reorder, SwapSynonym,
 };
 use wcore_evolve::prompt_store::PromptStore;
-use wcore_evolve::{EvolveParams, NullTraceSink, evolve};
+use wcore_evolve::{EvolveParams, GatedTraceSink, NullTraceSink, TraceSink, evolve};
 use wcore_memory::db::Db;
 use wcore_providers::LlmProvider;
 use wcore_providers::anthropic::AnthropicProvider;
@@ -90,6 +90,20 @@ struct EvolveArgs {
     /// `--llm-paraphrase-model` is set. Defaults to the public endpoint.
     #[arg(long, default_value = "https://api.anthropic.com")]
     llm_paraphrase_base_url: String,
+
+    /// Hard ceiling on units of work (one per scored child) the loop may
+    /// spend before terminating with `budget_exhausted`. When unset, defaults
+    /// to `generations * fan_out` so the run is bounded by the configured
+    /// generation/fan-out grid rather than running open-ended.
+    #[arg(long)]
+    budget_ceiling: Option<u32>,
+
+    /// Disable GEPA evolution-event telemetry. When set, the loop's
+    /// `evolution_event` traces are dropped at the host boundary
+    /// (`GatedTraceSink` with `gepa_enabled=false`). Mirrors a host
+    /// `capabilities.gepa_enabled=false`.
+    #[arg(long, default_value_t = false)]
+    no_gepa_telemetry: bool,
 }
 
 fn resolve_graveyard_root(explicit: Option<PathBuf>) -> PathBuf {
@@ -232,20 +246,35 @@ async fn main() -> ExitCode {
         Arc::new(Precondition),
     ];
 
+    // Bound the run with a real cost ceiling. Default to the
+    // generations * fan_out grid so the loop terminates deterministically
+    // instead of running open-ended (the old BudgetStub::unbounded()).
+    let budget_ceiling = args
+        .budget_ceiling
+        .unwrap_or_else(|| args.generations.saturating_mul(args.fan_out));
+
+    // GEPA telemetry gating lives at the host boundary: emit unconditionally
+    // inside the loop, gate here on the capability flag. There is no protocol
+    // sink to forward to in the CLI, so we wrap a NullTraceSink — a host
+    // embedding the loop injects its real sink in place of NullTraceSink.
+    let gepa_enabled = !args.no_gepa_telemetry;
+    let trace_sink: Arc<dyn TraceSink> =
+        Arc::new(GatedTraceSink::new(Arc::new(NullTraceSink), gepa_enabled));
+
     let params = EvolveParams {
         seed_skill,
         max_generations: args.generations,
         fan_out: args.fan_out,
         plateau_window: args.plateau_window,
         plateau_min_delta: args.plateau_min_delta,
-        budget: Arc::new(BudgetStub::unbounded()),
+        budget: Arc::new(ExecutionBudget::with_ceiling(budget_ceiling)),
         graveyard_root: graveyard_root.clone(),
         run_id: run_id.clone(),
         run_seed: run_id.clone(),
         child_timeout: Duration::from_secs(args.child_timeout_secs),
         scorer: Arc::new(DefaultScorer::default()),
         mutators,
-        trace_sink: Arc::new(NullTraceSink),
+        trace_sink,
     };
 
     let outcome = match evolve(params).await {

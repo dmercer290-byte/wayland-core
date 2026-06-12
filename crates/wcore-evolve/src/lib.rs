@@ -23,8 +23,8 @@ pub mod schema_reward;
 
 pub use error::EvolveError;
 pub use evolve::{
-    EvolveOutcome, EvolveParams, NullTraceSink, PlateauDetector, PlateauError, TerminationReason,
-    TraceSink, evolve,
+    EvolveOutcome, EvolveParams, GatedTraceSink, NullTraceSink, PlateauDetector, PlateauError,
+    TerminationReason, TraceSink, evolve,
 };
 pub use prompt_store::{EvolvedPrompt, PromptStore};
 pub use schema_reward::{

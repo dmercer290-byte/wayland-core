@@ -79,6 +79,47 @@ impl Budget for BudgetStub {
     }
 }
 
+/// Production budget adapter: a hard ceiling on units of work the loop may
+/// spend. Each completed child `tick()`s; once `spent >= ceiling` the budget
+/// reports exhausted and the loop terminates with
+/// `TerminationReason::BudgetExhausted`. Unlike `BudgetStub::unbounded()`
+/// this enforces a real cost ceiling, so the binaries can bound a run from a
+/// configured generation/fan-out budget instead of running open-ended.
+///
+/// `is_exhausted()` is the typed "exhausted" signal queried between children.
+/// `remaining()` exposes the headroom for callers that want to report it.
+pub struct ExecutionBudget {
+    ceiling: u32,
+    spent: AtomicU32,
+}
+
+impl ExecutionBudget {
+    /// Build a budget that permits exactly `ceiling` units of work before
+    /// reporting exhausted. A `ceiling` of `0` is exhausted immediately.
+    pub fn with_ceiling(ceiling: u32) -> Self {
+        Self {
+            ceiling,
+            spent: AtomicU32::new(0),
+        }
+    }
+
+    /// Units of work still permitted before exhaustion (saturating at 0).
+    pub fn remaining(&self) -> u32 {
+        self.ceiling
+            .saturating_sub(self.spent.load(Ordering::Relaxed))
+    }
+}
+
+impl Budget for ExecutionBudget {
+    fn is_exhausted(&self) -> bool {
+        self.spent.load(Ordering::Relaxed) >= self.ceiling
+    }
+
+    fn tick(&self) {
+        self.spent.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminationCause {
     Completed,
@@ -240,5 +281,41 @@ impl Generation {
             terminated_by,
             timed_out_children,
         })
+    }
+}
+
+#[cfg(test)]
+mod execution_budget_tests {
+    use super::*;
+
+    #[test]
+    fn fine_under_ceiling_then_exhausted_when_exceeded() {
+        let budget = ExecutionBudget::with_ceiling(2);
+        // Fresh budget: not exhausted, full headroom.
+        assert!(!budget.is_exhausted());
+        assert_eq!(budget.remaining(), 2);
+
+        budget.tick();
+        assert!(!budget.is_exhausted(), "1 < ceiling 2 — still fine");
+        assert_eq!(budget.remaining(), 1);
+
+        budget.tick();
+        assert!(
+            budget.is_exhausted(),
+            "spend reached the ceiling — must report exhausted"
+        );
+        assert_eq!(budget.remaining(), 0);
+
+        // Over-spend stays exhausted and remaining saturates at 0.
+        budget.tick();
+        assert!(budget.is_exhausted());
+        assert_eq!(budget.remaining(), 0);
+    }
+
+    #[test]
+    fn zero_ceiling_is_immediately_exhausted() {
+        let budget = ExecutionBudget::with_ceiling(0);
+        assert!(budget.is_exhausted());
+        assert_eq!(budget.remaining(), 0);
     }
 }
