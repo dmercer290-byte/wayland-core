@@ -71,11 +71,11 @@ pub trait MediaByteSource: Send + Sync {
 /// each connector fetches its own media with its own token. Credentials
 /// never leave the connector boundary.
 pub struct ManagerMediaSource {
-    manager: Arc<tokio::sync::Mutex<ChannelManager>>,
+    manager: Arc<tokio::sync::RwLock<ChannelManager>>,
 }
 
 impl ManagerMediaSource {
-    pub fn new(manager: Arc<tokio::sync::Mutex<ChannelManager>>) -> Self {
+    pub fn new(manager: Arc<tokio::sync::RwLock<ChannelManager>>) -> Self {
         Self { manager }
     }
 }
@@ -83,7 +83,7 @@ impl ManagerMediaSource {
 #[async_trait]
 impl MediaByteSource for ManagerMediaSource {
     async fn fetch(&self, channel: &str, attachment: &Attachment) -> Result<Vec<u8>, String> {
-        let guard = self.manager.lock().await;
+        let guard = self.manager.read().await;
         guard
             .fetch_media_on(channel, attachment)
             .await

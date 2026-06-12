@@ -290,7 +290,7 @@ async fn bootstrap_wires_real_message_transport_not_null() {
             .contains("No message transport configured"),
         "send_message must NOT be wired to NullMessageTransport. \
          Wiring contract: a `MessageTransport` impl over \
-         `Arc<Mutex<ChannelManager>>` must be installed at bootstrap. \
+         `Arc<RwLock<ChannelManager>>` must be installed at bootstrap. \
          Got error content: {}",
         tool_result.content
     );

@@ -5,7 +5,7 @@
 //! registered at bootstrap with `NullMessageTransport`, so every LLM-
 //! initiated `send_message` call returned the Null transport's loud
 //! "No message transport configured for platform …" error. The host
-//! already lifted `channel_manager` to `Arc<Mutex<ChannelManager>>` for
+//! already lifted `channel_manager` to `Arc<RwLock<ChannelManager>>` for
 //! cron's `channel_sink`; this adapter exposes that same manager to the
 //! send-message tool so the LLM can drive Telegram/Discord/Slack/etc.
 //! through the same channel instances the user configured at
@@ -23,17 +23,17 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use wcore_channels::ChannelManager;
 use wcore_channels::outgoing::OutgoingMessage;
 use wcore_tools::send_message::{MessageTransport, ParsedTarget, SendOutcome};
 
 pub struct ChannelManagerTransport {
-    mgr: Arc<Mutex<ChannelManager>>,
+    mgr: Arc<RwLock<ChannelManager>>,
 }
 
 impl ChannelManagerTransport {
-    pub fn new(mgr: Arc<Mutex<ChannelManager>>) -> Self {
+    pub fn new(mgr: Arc<RwLock<ChannelManager>>) -> Self {
         Self { mgr }
     }
 }
@@ -49,7 +49,7 @@ impl MessageTransport for ChannelManagerTransport {
             reply_to: target.thread_id.clone(),
             attachments: Vec::new(),
         };
-        let guard = self.mgr.lock().await;
+        let guard = self.mgr.read().await;
         match guard.send_to(channel_name, outgoing).await {
             Ok(receipt) => SendOutcome::Ok {
                 message_id: Some(receipt.id),

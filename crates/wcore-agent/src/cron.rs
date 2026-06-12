@@ -23,7 +23,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use wcore_channels::{ChannelManager, OutgoingMessage};
 use wcore_cron::{CronError, JobHandler, Target};
@@ -56,14 +56,14 @@ pub type SkillSink = Arc<
 /// target type — a missing surface logs the fire and returns Ok, so
 /// the runner keeps ticking and the job's `last_fired` advances.
 pub struct EngineJobHandler {
-    channels: Option<Arc<Mutex<ChannelManager>>>,
+    channels: Option<Arc<RwLock<ChannelManager>>>,
     slash: Option<SlashSink>,
     skill: Option<SkillSink>,
 }
 
 impl EngineJobHandler {
     pub fn new(
-        channels: Option<Arc<Mutex<ChannelManager>>>,
+        channels: Option<Arc<RwLock<ChannelManager>>>,
         slash: Option<SlashSink>,
         skill: Option<SkillSink>,
     ) -> Self {
@@ -129,7 +129,7 @@ impl JobHandler for EngineJobHandler {
                 // on the cron job's text or as a future `conversation_id`
                 // field; v0.8.1 uses one-room semantics.
                 let msg = OutgoingMessage::text(channel_name.clone(), text.clone());
-                let guard = mgr.lock().await;
+                let guard = mgr.read().await;
                 guard
                     .send_to(channel_name, msg)
                     .await
@@ -313,8 +313,8 @@ pub async fn build_headless_cron_handler(cwd: &str) -> EngineJobHandler {
             "headless cron handler: credentials store open failed; channels unavailable"
         ),
     }
-    let channels = Arc::new(tokio::sync::Mutex::new(channel_manager_inner));
-    if let Err(e) = channels.lock().await.start_all().await {
+    let channels = Arc::new(tokio::sync::RwLock::new(channel_manager_inner));
+    if let Err(e) = channels.write().await.start_all().await {
         warn!(
             target: "wcore_agent::cron",
             error = %e,
@@ -330,6 +330,7 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tokio::sync::Mutex as AsyncMutex;
+    use tokio::sync::RwLock as AsyncRwLock;
     use wcore_channels::ChannelManager;
     use wcore_channels::MockChannel;
     use wcore_cron::JobHandler;
@@ -388,7 +389,7 @@ mod tests {
         let mut mgr = ChannelManager::new().with_poll_interval(Duration::from_millis(50));
         mgr.register(Box::new(MockChannel::new("alpha"))).await;
         mgr.start_all().await.unwrap();
-        let mgr_arc = Arc::new(AsyncMutex::new(mgr));
+        let mgr_arc = Arc::new(AsyncRwLock::new(mgr));
 
         let h = EngineJobHandler::new(Some(mgr_arc.clone()), None, None);
         h.dispatch(&Target::Channel {
@@ -399,7 +400,7 @@ mod tests {
         .unwrap();
 
         // Stop cleanly.
-        mgr_arc.lock().await.stop_all().await.unwrap();
+        mgr_arc.write().await.stop_all().await.unwrap();
     }
 
     #[tokio::test]

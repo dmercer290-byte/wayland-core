@@ -1004,6 +1004,11 @@ mod tests {
             &mut self,
             msg: OutgoingMessage,
         ) -> Result<MessageReceipt, ChannelError> {
+            // Rendezvous on the shared barrier exactly like `ingest_webhook`, so
+            // a test can cross a *send* on one channel with an *ingest* on
+            // another and prove the outer manager lock did not serialize them
+            // (rank 14). Only unblocks if both halves run concurrently.
+            self.barrier.wait().await;
             Ok(MessageReceipt {
                 id: "barrier-out".into(),
                 conversation_id: msg.conversation_id,
@@ -1064,6 +1069,66 @@ mod tests {
         // channel name the request was addressed to.
         assert_eq!(r1.expect("alpha ok").body.as_deref(), Some("alpha"));
         assert_eq!(r2.expect("beta ok").body.as_deref(), Some("beta"));
+    }
+
+    /// rank 14: the manager is shared through the engine as
+    /// `Arc<tokio::sync::RwLock<ChannelManager>>`. The read-path router methods
+    /// (`ingest_webhook`, `send_to`, …) take `&self`, so concurrent callers
+    /// acquire a *shared read guard* and run in parallel — the outer lock no
+    /// longer serializes cross-channel traffic. This test crosses an
+    /// `ingest_webhook` on one channel with a `send_to` on another, both under
+    /// `.read().await`, on the same barrier: it only completes if the two read
+    /// guards coexist. If the outer lock were a `Mutex` (or these were write
+    /// guards) the second call would block until the first released, neither
+    /// barrier half would meet its partner, and the test would time out.
+    #[tokio::test]
+    async fn concurrent_ingest_and_send_across_channels_share_read_guard() {
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let mut mgr = ChannelManager::new();
+        mgr.register(Box::new(BarrierChannel {
+            name: "alpha".into(),
+            barrier: Arc::clone(&barrier),
+        }))
+        .await;
+        mgr.register(Box::new(BarrierChannel {
+            name: "beta".into(),
+            barrier: Arc::clone(&barrier),
+        }))
+        .await;
+
+        // Outer lock matches the engine wiring (rank 14): Arc<RwLock<_>>.
+        let mgr = Arc::new(tokio::sync::RwLock::new(mgr));
+
+        // Half 1: webhook ingest on `alpha`, under a read guard.
+        let m1 = Arc::clone(&mgr);
+        let h1 = tokio::spawn(async move {
+            let guard = m1.read().await;
+            guard
+                .ingest_webhook("alpha", &crate::webhook::WebhookRequest::default())
+                .await
+                .map(|resp| resp.body)
+        });
+
+        // Half 2: outbound send on `beta`, under a *second* concurrent read
+        // guard. Both must be live at once for the shared barrier to release.
+        let m2 = Arc::clone(&mgr);
+        let h2 = tokio::spawn(async move {
+            let guard = m2.read().await;
+            guard
+                .send_to("beta", OutgoingMessage::text("room", "ping"))
+                .await
+                .map(|receipt| receipt.id)
+        });
+
+        let (r1, r2) = tokio::time::timeout(Duration::from_secs(5), async {
+            (h1.await.unwrap(), h2.await.unwrap())
+        })
+        .await
+        .expect("a concurrent ingest + send across channels must not serialize on the outer lock");
+
+        // Each landed on its own connector.
+        assert_eq!(r1.expect("ingest ok").as_deref(), Some("alpha"));
+        assert_eq!(r2.expect("send ok"), "barrier-out");
     }
 
     #[tokio::test]

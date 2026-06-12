@@ -37,7 +37,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{RwLock, broadcast};
 use wcore_channels::{
     ChannelEvent, ChannelManager, DedupeCache, InboundPolicy, IncomingMessage, OutgoingMessage,
     TurnAdmission, evaluate,
@@ -83,7 +83,7 @@ pub trait TurnDispatcher: Send + Sync {
 /// event, and on admit drives an agent turn through a [`TurnDispatcher`],
 /// then sends the reply back through the originating channel.
 pub struct InboundSubscriber {
-    manager: Arc<Mutex<ChannelManager>>,
+    manager: Arc<RwLock<ChannelManager>>,
     dispatcher: Arc<dyn TurnDispatcher>,
     /// Per-channel access policy, keyed by `channel_name`. A channel ABSENT
     /// from this map uses [`InboundPolicy::default`] — which is fail-closed,
@@ -103,7 +103,7 @@ impl InboundSubscriber {
     /// shared [`DedupeCache`] (see its docs for the `== 0` "disabled"
     /// semantics).
     pub fn new(
-        manager: Arc<Mutex<ChannelManager>>,
+        manager: Arc<RwLock<ChannelManager>>,
         dispatcher: Arc<dyn TurnDispatcher>,
         policies: HashMap<String, InboundPolicy>,
         dedupe_ttl_ms: u64,
@@ -136,7 +136,7 @@ impl InboundSubscriber {
     pub async fn spawn(self) -> tokio::task::JoinHandle<()> {
         // Acquire the broadcast receiver once, then drop the manager lock.
         let mut rx = {
-            let guard = self.manager.lock().await;
+            let guard = self.manager.read().await;
             guard.subscribe()
         };
 
@@ -201,7 +201,7 @@ impl InboundSubscriber {
                                 // completion — gated by the channel's ack mode.
                                 let ack = policy.ack;
                                 if ack.reactions() {
-                                    let g = manager.lock().await;
+                                    let g = manager.read().await;
                                     if let Err(e) = g
                                         .react_on(
                                             &tagged.channel_name,
@@ -242,7 +242,7 @@ impl InboundSubscriber {
                                     } else {
                                         "❌"
                                     };
-                                    let g = manager.lock().await;
+                                    let g = manager.read().await;
                                     let _ = g
                                         .react_on(
                                             &tagged.channel_name,
@@ -261,7 +261,7 @@ impl InboundSubscriber {
                                             reply_to: outbound_reply_target(&msg),
                                             attachments: Vec::new(),
                                         };
-                                        let guard = manager.lock().await;
+                                        let guard = manager.read().await;
                                         if let Err(e) =
                                             guard.send_to(&tagged.channel_name, outgoing).await
                                         {
@@ -344,14 +344,14 @@ impl Drop for AbortOnDrop {
 /// subscriber cancellation). Each send locks the manager only briefly;
 /// failures (platform has no typing API, transient error) are ignored.
 fn spawn_typing_keepalive(
-    manager: Arc<Mutex<ChannelManager>>,
+    manager: Arc<RwLock<ChannelManager>>,
     channel: String,
     conversation_id: String,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             {
-                let guard = manager.lock().await;
+                let guard = manager.read().await;
                 let _ = guard.send_typing_to(&channel, &conversation_id).await;
             }
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -362,6 +362,7 @@ fn spawn_typing_keepalive(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::Mutex;
 
     use std::collections::VecDeque;
     use std::sync::atomic::AtomicUsize;
@@ -534,7 +535,7 @@ mod tests {
         policies: HashMap<String, InboundPolicy>,
         pre_spawn: impl FnOnce(&InboundSubscriber),
     ) -> (
-        Arc<Mutex<ChannelManager>>,
+        Arc<RwLock<ChannelManager>>,
         OutboundLog,
         Arc<Mutex<Vec<(String, String)>>>,
         Arc<AtomicUsize>,
@@ -544,7 +545,7 @@ mod tests {
 
         // Fast poll so the queued inbound surfaces quickly under test.
         let mgr = ChannelManager::new().with_poll_interval(Duration::from_millis(10));
-        let manager = Arc::new(Mutex::new(mgr));
+        let manager = Arc::new(RwLock::new(mgr));
 
         let (dispatcher, calls, count) = MockDispatcher::new();
         let subscriber = InboundSubscriber::new(
@@ -560,7 +561,7 @@ mod tests {
         let handle = subscriber.spawn().await;
 
         {
-            let mut guard = manager.lock().await;
+            let mut guard = manager.write().await;
             guard.register(Box::new(ch)).await;
             guard.start_all().await.unwrap();
         }
@@ -616,7 +617,7 @@ mod tests {
         assert_eq!(out[0].text, "pong");
         assert_eq!(out[0].conversation_id, "c1");
 
-        manager.lock().await.stop_all().await.unwrap();
+        manager.write().await.stop_all().await.unwrap();
         handle.abort();
     }
 
@@ -637,7 +638,7 @@ mod tests {
         assert_eq!(dispatched, 0);
         assert_eq!(outbound.lock().await.len(), 0, "no reply sent");
 
-        manager.lock().await.stop_all().await.unwrap();
+        manager.write().await.stop_all().await.unwrap();
         handle.abort();
     }
 
@@ -665,7 +666,7 @@ mod tests {
             "duplicate id deduped to a single dispatch"
         );
 
-        manager.lock().await.stop_all().await.unwrap();
+        manager.write().await.stop_all().await.unwrap();
         handle.abort();
     }
 
@@ -687,7 +688,7 @@ mod tests {
         assert_eq!(dispatched, 0);
         assert_eq!(outbound.lock().await.len(), 0);
 
-        manager.lock().await.stop_all().await.unwrap();
+        manager.write().await.stop_all().await.unwrap();
         handle.abort();
     }
 
@@ -715,7 +716,7 @@ mod tests {
         assert_eq!(dispatched, 0);
         assert_eq!(outbound.lock().await.len(), 0);
 
-        manager.lock().await.stop_all().await.unwrap();
+        manager.write().await.stop_all().await.unwrap();
         handle.abort();
     }
 }

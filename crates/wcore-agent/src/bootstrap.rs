@@ -61,14 +61,18 @@ pub struct BootstrapResult {
     /// which scans `~/.wayland/channels/*.toml` and registers every
     /// adapter whose `platform` field maps to a known factory.
     ///
-    /// F-014 + F-050 (CRIT + MED): lifted to `Arc<tokio::sync::Mutex<ChannelManager>>`
+    /// F-014 + F-050 (CRIT + MED): lifted to `Arc<tokio::sync::RwLock<ChannelManager>>`
     /// so the cron `channel_sink` and any CLI inbound-subscription path can
     /// hold a clone. `start_all` is called inside `AgentBootstrap::build`
     /// before this result is returned, so polling is already active by the
-    /// time the caller receives the handle. Uses tokio Mutex because the
+    /// time the caller receives the handle. Uses a tokio `RwLock` because the
     /// cron handler's `send_to` path is async (the guard must be held across
-    /// an await point in `ChannelManager::send_to`).
-    pub channel_manager: std::sync::Arc<tokio::sync::Mutex<wcore_channels::ChannelManager>>,
+    /// an await point in `ChannelManager::send_to`). `RwLock` (rank 14): the
+    /// read-path router methods take `&self`, so concurrent webhook ingests /
+    /// sends to *different* channels share a read guard and run in parallel —
+    /// only `register`/`start_all`/`stop_all` take a write guard. Same-channel
+    /// ordering is still serialized by the inner per-slot `Mutex`.
+    pub channel_manager: std::sync::Arc<tokio::sync::RwLock<wcore_channels::ChannelManager>>,
     /// v0.8.1 U5 — count of channels successfully auto-registered
     /// during boot.
     pub channels_auto_registered: usize,
@@ -2119,7 +2123,7 @@ impl AgentBootstrap {
             });
 
         // F-014 (CRIT, Aud-4/Aud-11): construct ChannelManager, auto-register
-        // adapters, lift the manager to Arc<Mutex<ChannelManager>>, (optionally)
+        // adapters, lift the manager to Arc<RwLock<ChannelManager>>, (optionally)
         // subscribe the inbound dispatcher, then call start_all to spawn
         // per-channel inbound poll tasks.
         //
@@ -2134,7 +2138,7 @@ impl AgentBootstrap {
         // start_all. Subscribing BEFORE start_all closes the broadcast-ordering
         // gap: tokio broadcast drops events emitted before a receiver exists,
         // so the subscriber must acquire its receiver before polling begins.
-        let channel_manager: std::sync::Arc<tokio::sync::Mutex<wcore_channels::ChannelManager>>;
+        let channel_manager: std::sync::Arc<tokio::sync::RwLock<wcore_channels::ChannelManager>>;
         let channels_auto_registered: usize;
         let inbound_subscriber: Option<tokio::task::JoinHandle<()>>;
         // Inbound webhook host handle + shutdown sender. The sender MUST be
@@ -2187,13 +2191,14 @@ impl AgentBootstrap {
                 0
             };
 
-            // Lift to Arc<tokio::sync::Mutex<>> so the cron handler, the
+            // Lift to Arc<tokio::sync::RwLock<>> so the cron handler, the
             // inbound subscriber, and the send-message transport can each hold
-            // a clone across async boundaries. tokio Mutex is required because
-            // ChannelManager::send_to is async and the guard must survive an
-            // await point.
-            let lifted: std::sync::Arc<tokio::sync::Mutex<wcore_channels::ChannelManager>> =
-                std::sync::Arc::new(tokio::sync::Mutex::new(channel_manager_inner));
+            // a clone across async boundaries. A tokio RwLock is required
+            // because ChannelManager::send_to is async and the guard must
+            // survive an await point; RwLock (not Mutex) so cross-channel
+            // read-path ops (ingest_webhook/send_to/…) run concurrently.
+            let lifted: std::sync::Arc<tokio::sync::RwLock<wcore_channels::ChannelManager>> =
+                std::sync::Arc::new(tokio::sync::RwLock::new(channel_manager_inner));
 
             // Phase 1B-2 — spawn the inbound subscriber BEFORE start_all so no
             // early inbound event is dropped by the broadcast. Only when the
@@ -2297,7 +2302,7 @@ impl AgentBootstrap {
             // is listening). Best-effort: if start_all returns an error we warn
             // and continue (session still works, channels just won't deliver
             // inbound messages).
-            if let Err(e) = lifted.lock().await.start_all().await {
+            if let Err(e) = lifted.write().await.start_all().await {
                 tracing::warn!(
                     target: "wcore_agent::bootstrap",
                     error = %e,
@@ -2328,7 +2333,7 @@ impl AgentBootstrap {
             // FleetDispatcher-class fix (audit 2026-05-24): SendMessageTool was
             // registered above with the boot-default `NullMessageTransport` so
             // its schema reaches the LLM from the start of the session. Now that
-            // `channel_manager` is lifted to `Arc<Mutex<>>`, replace the tool's
+            // `channel_manager` is lifted to `Arc<RwLock<>>`, replace the tool's
             // transport with the real `ChannelManagerTransport` adapter so the
             // LLM's `send_message` calls route through user-configured channels
             // (Telegram/Discord/Slack/Email/etc.) instead of returning the Null
@@ -2360,7 +2365,7 @@ impl AgentBootstrap {
             let _ = channel_credentials;
             let _ = config_for_dispatch;
             let _ = inbound_webhook_cfg;
-            channel_manager = std::sync::Arc::new(tokio::sync::Mutex::new(
+            channel_manager = std::sync::Arc::new(tokio::sync::RwLock::new(
                 wcore_channels::ChannelManager::new(),
             ));
             channels_auto_registered = 0;
@@ -2380,8 +2385,8 @@ impl AgentBootstrap {
         //
         // F-014 follow-up (W2-K comment seam): replace the None channel_sink
         // placeholder with a real sink now that channel_manager is lifted to
-        // Arc<Mutex<ChannelManager>>. The sink acquires the lock, looks up the
-        // channel by name, and calls send() on it.
+        // Arc<RwLock<ChannelManager>>. The sink acquires a read guard, looks up
+        // the channel by name, and calls send() on it.
         //
         // slash_sink: deferred to a follow-up (TRIAGE.md F-013 slash arm).
         // Cross-session dispatcher problem — slash commands need an active
@@ -2461,10 +2466,10 @@ impl AgentBootstrap {
                 let handler: std::sync::Arc<dyn wcore_cron::JobHandler> =
                     std::sync::Arc::new(crate::cron::EngineJobHandler::new(
                         // channel_sink: F-014 follow-up (W2-K seam) — now that
-                        // channel_manager is Arc<tokio::sync::Mutex<ChannelManager>>
+                        // channel_manager is Arc<tokio::sync::RwLock<ChannelManager>>
                         // (same type as EngineJobHandler::channels), we can pass
                         // the clone directly. The handler's Channel arm calls
-                        // send_to() on the locked manager.
+                        // send_to() on the read-locked manager.
                         Some(std::sync::Arc::clone(&channel_manager)),
                         // slash_sink: deferred — cross-session dispatcher (F-013 slash arm)
                         None,

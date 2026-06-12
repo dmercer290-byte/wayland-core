@@ -30,12 +30,18 @@ use axum::extract::{OriginalUri, Path, State};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{RwLock, watch};
 use wcore_channels::{ChannelError, ChannelManager, WebhookRequest, WebhookResponse};
 use wcore_config::config::InboundWebhookConfig;
 
 /// Shared handle to the engine's channel registry.
-type SharedManager = Arc<Mutex<ChannelManager>>;
+///
+/// `RwLock` (not `Mutex`): the read-path router methods (`ingest_webhook`,
+/// `send_to`, …) take `&self`, so concurrent webhooks for *different* channels
+/// acquire a shared read guard and run in parallel — only the mutating
+/// lifecycle ops (`register`/`start_all`/`stop_all`) take a write guard.
+/// Same-channel ordering is still serialized by the inner per-slot `Mutex`.
+type SharedManager = Arc<RwLock<ChannelManager>>;
 
 /// Host state threaded through every request.
 #[derive(Clone)]
@@ -172,7 +178,7 @@ async fn handle_webhook(
 
     let result = state
         .manager
-        .lock()
+        .read()
         .await
         .ingest_webhook(&channel, &req)
         .await;
@@ -201,7 +207,7 @@ fn router(state: HostState) -> Router {
 /// channel's `ingest_webhook`, and shuts down gracefully when the watch
 /// channel reports `true`.
 pub async fn serve(
-    manager: Arc<Mutex<ChannelManager>>,
+    manager: SharedManager,
     bind: SocketAddr,
     public_base_url: Option<String>,
     shutdown: watch::Receiver<bool>,
@@ -227,7 +233,7 @@ pub async fn serve(
 /// Returns `None` when the host is disabled or `config.bind` does not parse
 /// as a socket address (logged, non-fatal — the engine runs without it).
 pub fn spawn(
-    manager: Arc<Mutex<ChannelManager>>,
+    manager: SharedManager,
     config: &InboundWebhookConfig,
 ) -> Option<(tokio::task::JoinHandle<()>, watch::Sender<bool>)> {
     if !config.enabled {
@@ -404,14 +410,14 @@ mod tests {
 
     #[test]
     fn spawn_returns_none_when_disabled() {
-        let mgr = Arc::new(Mutex::new(ChannelManager::new()));
+        let mgr = Arc::new(RwLock::new(ChannelManager::new()));
         let cfg = InboundWebhookConfig::default(); // enabled = false
         assert!(spawn(mgr, &cfg).is_none());
     }
 
     #[test]
     fn spawn_returns_none_on_bad_bind() {
-        let mgr = Arc::new(Mutex::new(ChannelManager::new()));
+        let mgr = Arc::new(RwLock::new(ChannelManager::new()));
         let cfg = InboundWebhookConfig {
             enabled: true,
             bind: "not-an-address".to_string(),
