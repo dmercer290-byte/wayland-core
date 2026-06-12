@@ -215,6 +215,10 @@ async fn classify(
                     };
                     format!("unreachable: {kind} — {}", e.without_url())
                 }
+                // No URL/secret in this variant; format from the cap directly.
+                wcore_egress::EgressError::BodyTooLarge { limit } => {
+                    format!("unreachable: response body exceeds {limit} byte cap")
+                }
             };
             ProviderHealth::new(name, HealthStatus::Red, detail)
         }

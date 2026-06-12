@@ -20,6 +20,17 @@ pub enum EgressError {
     /// `source()` chain.
     #[error(transparent)]
     Transport(#[from] reqwest::Error),
+
+    /// A response body exceeded the caller's byte cap during a bounded read
+    /// ([`crate::read_body_capped`]). Carries the cap that was hit. Raised
+    /// either from a declared `Content-Length` over the cap or from streamed
+    /// chunks accumulating past it — so a server that lies about (or omits)
+    /// `Content-Length` cannot OOM the process.
+    #[error("response body exceeds {limit} byte cap")]
+    BodyTooLarge {
+        /// The byte cap that was exceeded.
+        limit: usize,
+    },
 }
 
 impl EgressError {
@@ -64,6 +75,8 @@ impl EgressError {
                     None => full,
                 }
             }
+            // No URL or secret in this variant — its Display is already safe.
+            EgressError::BodyTooLarge { .. } => self.to_string(),
         }
     }
 }

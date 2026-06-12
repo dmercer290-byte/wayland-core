@@ -62,6 +62,35 @@ pub use url_allow::host_in_allowlist;
 // for these types.
 pub use reqwest::{self, Body, Method, Response, Url, header, multipart, redirect};
 
+/// Read a response body into memory with a hard byte cap, streaming chunk by
+/// chunk so a server that lies about (or omits) `Content-Length` cannot OOM
+/// the process. Rejects early when the declared `Content-Length` already
+/// exceeds `max_bytes`, and aborts mid-stream the moment the accumulated
+/// bytes would exceed it.
+///
+/// Use this for any fetch of attacker-influenced or unbounded-size media
+/// (channel attachment downloads, etc.) instead of [`Response::bytes`], whose
+/// unbounded buffering is an OOM-DoS vector on a chunked response with no
+/// `Content-Length`.
+pub async fn read_body_capped(
+    mut resp: Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, EgressError> {
+    if let Some(declared) = resp.content_length()
+        && declared > max_bytes as u64
+    {
+        return Err(EgressError::BodyTooLarge { limit: max_bytes });
+    }
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        if buf.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(EgressError::BodyTooLarge { limit: max_bytes });
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,6 +161,50 @@ mod tests {
             302,
             "the client must surface the 302, not follow it"
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn read_body_capped_rejects_oversize_and_accepts_within_cap() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        // Serve a 100-byte body (declared Content-Length) to each connection.
+        let server = tokio::spawn(async move {
+            loop {
+                if let Ok((mut sock, _)) = listener.accept().await {
+                    let mut buf = [0u8; 1024];
+                    let _ = sock.read(&mut buf).await;
+                    let body = "x".repeat(100);
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                    let _ = sock.flush().await;
+                }
+            }
+        });
+
+        let client = EgressClient::tool();
+
+        // Declared length (100) over the cap (50) → early reject, body never buffered.
+        let resp = client.get(format!("http://{addr}/")).send().await.unwrap();
+        let err = read_body_capped(resp, 50)
+            .await
+            .expect_err("an oversize body must be rejected");
+        assert!(
+            matches!(err, EgressError::BodyTooLarge { limit: 50 }),
+            "expected BodyTooLarge, got {err}"
+        );
+
+        // Within the cap → full body streamed back through the chunk loop.
+        let resp = client.get(format!("http://{addr}/")).send().await.unwrap();
+        let bytes = read_body_capped(resp, 200).await.expect("body within cap");
+        assert_eq!(bytes.len(), 100);
+
         server.abort();
     }
 

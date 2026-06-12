@@ -120,6 +120,10 @@ pub fn provider_error_from_egress(e: EgressError) -> ProviderError {
     match e {
         EgressError::Transport(inner) => provider_error_from_reqwest(inner),
         EgressError::Denied(reason) => ProviderError::Egress(EgressError::Denied(reason)),
+        // Terminal — surfaced like Denied, never retried.
+        EgressError::BodyTooLarge { limit } => {
+            ProviderError::Egress(EgressError::BodyTooLarge { limit })
+        }
     }
 }
 

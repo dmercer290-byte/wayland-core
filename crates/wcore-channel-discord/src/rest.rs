@@ -329,11 +329,14 @@ pub(crate) async fn download_bytes(
             resp.status().as_u16()
         )));
     }
-    let bytes = resp
-        .bytes()
+    // Stream the body with a hard cap so a CDN response that omits/lies about
+    // Content-Length can't buffer unbounded into an OOM (defense-in-depth on
+    // top of the CDN host allowlist above).
+    const MAX_MEDIA_BYTES: usize = 100 * 1024 * 1024;
+    let bytes = wcore_egress::read_body_capped(resp, MAX_MEDIA_BYTES)
         .await
         .map_err(|e| DiscordError::Http(format!("media body read: {e}")))?;
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 /// Classify a bodyless Discord response: 2xx → Ok, 401/403 → Auth,

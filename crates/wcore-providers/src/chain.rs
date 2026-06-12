@@ -43,6 +43,8 @@ fn is_chain_retryable(e: &ProviderError) -> bool {
         ProviderError::Egress(e) => match e {
             wcore_egress::EgressError::Transport(inner) => inner.is_timeout() || inner.is_connect(),
             wcore_egress::EgressError::Denied(_) => false,
+            // Terminal: an over-cap body won't shrink on a retry/failover.
+            wcore_egress::EgressError::BodyTooLarge { .. } => false,
         },
         // Rate-limit — another provider might not be rate-limited
         ProviderError::RateLimited { .. } => true,

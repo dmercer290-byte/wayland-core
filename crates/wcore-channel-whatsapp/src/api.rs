@@ -614,11 +614,13 @@ pub async fn download_media(
             resp2.status().as_u16()
         )));
     }
-    let bytes = resp2
-        .bytes()
+    // Bounded streamed read so a media response with no/forged Content-Length
+    // can't OOM the process (defense-in-depth atop the Meta media-host check).
+    const MAX_MEDIA_BYTES: usize = 100 * 1024 * 1024;
+    let bytes = wcore_egress::read_body_capped(resp2, MAX_MEDIA_BYTES)
         .await
         .map_err(|e| WhatsappError::Api(format!("media body read: {e}")))?;
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 #[cfg(test)]

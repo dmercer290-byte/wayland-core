@@ -699,11 +699,13 @@ pub(crate) async fn download_bytes(
             resp.status().as_u16()
         )));
     }
-    let bytes = resp
-        .bytes()
+    // Bounded streamed read — a media endpoint with no/forged Content-Length
+    // can't OOM the process (defense-in-depth atop the file-host allowlist).
+    const MAX_MEDIA_BYTES: usize = 100 * 1024 * 1024;
+    let bytes = wcore_egress::read_body_capped(resp, MAX_MEDIA_BYTES)
         .await
         .map_err(|e| TelegramError::Http(format!("media body read: {e}")))?;
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 fn exp_backoff_ms(attempt: u32) -> u64 {
