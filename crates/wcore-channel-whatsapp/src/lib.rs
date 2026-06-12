@@ -230,28 +230,62 @@ impl Channel for WhatsappChannel {
             msg.conversation_id.clone()
         };
 
-        // Quote the message being replied to (if this turn is a reply) so the
-        // bot threads in-context. `reply_to` carries the inbound wamid via the
-        // shared inbound subscriber; None for a fresh message.
-        let req = api::SendMessageRequest::new_text(recipient.clone(), msg.text.clone())
-            .with_reply_context(msg.reply_to.clone());
+        // When the outbound carries attachments, send each as a media message
+        // (link variant) so a non-text reply isn't silently dropped. The first
+        // attachment carries `msg.text` as its caption (Cloud API media messages
+        // support a caption for image/video/document), so a single text+media
+        // reply lands as one message; remaining attachments follow caption-less.
+        // The wamid recorded is the last media message's id.
+        let wamid = if !msg.attachments.is_empty() {
+            let mut last_wamid: Option<String> = None;
+            for (idx, url) in msg.attachments.iter().enumerate() {
+                let caption = if idx == 0 && !msg.text.is_empty() {
+                    Some(msg.text.clone())
+                } else {
+                    None
+                };
+                let media_req = api::SendMediaRequest::new_link(recipient.clone(), url, caption)
+                    // Only the first message quotes the reply context.
+                    .with_reply_context(if idx == 0 { msg.reply_to.clone() } else { None });
+                let resp = api::send_media(
+                    &self.http,
+                    &self.config.api_base_url,
+                    &self.config.graph_version,
+                    &self.config.phone_number_id,
+                    access_token,
+                    &media_req,
+                    self.config.max_retry_attempts,
+                )
+                .await
+                .map_err(ChannelError::from)?;
+                last_wamid = Some(resp.messages[0].id.clone());
+            }
+            // attachments is non-empty, so the loop ran at least once.
+            last_wamid.unwrap_or_default()
+        } else {
+            // Quote the message being replied to (if this turn is a reply) so the
+            // bot threads in-context. `reply_to` carries the inbound wamid via the
+            // shared inbound subscriber; None for a fresh message.
+            let req = api::SendMessageRequest::new_text(recipient.clone(), msg.text.clone())
+                .with_reply_context(msg.reply_to.clone());
 
-        let resp = api::send_message(
-            &self.http,
-            &self.config.api_base_url,
-            &self.config.graph_version,
-            &self.config.phone_number_id,
-            access_token,
-            &req,
-            self.config.max_retry_attempts,
-        )
-        .await
-        .map_err(ChannelError::from)?;
+            let resp = api::send_message(
+                &self.http,
+                &self.config.api_base_url,
+                &self.config.graph_version,
+                &self.config.phone_number_id,
+                access_token,
+                &req,
+                self.config.max_retry_attempts,
+            )
+            .await
+            .map_err(ChannelError::from)?;
 
-        // Per Meta docs the first messages[0].id is the wamid we should
-        // record as the platform_id. Earlier api::send_message already
-        // validated messages[] is non-empty.
-        let wamid = resp.messages[0].id.clone();
+            // Per Meta docs the first messages[0].id is the wamid we should
+            // record as the platform_id. Earlier api::send_message already
+            // validated messages[] is non-empty.
+            resp.messages[0].id.clone()
+        };
 
         Ok(MessageReceipt {
             id: wamid,
@@ -318,6 +352,7 @@ impl Channel for WhatsappChannel {
             &self.config.graph_version,
             access_token,
             &attachment.url,
+            api::MEDIA_DOWNLOAD_HOSTS,
         )
         .await
         .map_err(ChannelError::from)
@@ -446,6 +481,45 @@ mod tests {
             .unwrap();
         assert_eq!(receipt.id, "wamid.HBgLMTUwMDA=");
         assert_eq!(receipt.conversation_id, "+15555550100");
+
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn send_message_with_attachment_sends_media_body() {
+        // An outbound carrying an attachment must POST a media message (link
+        // variant) with the text as caption — not silently drop it.
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v18.0/10000000000/messages")
+            .match_header("authorization", "Bearer EAAtest-token")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "messaging_product": "whatsapp",
+                "to": "+15555550100",
+                "type": "image",
+                "image": {
+                    "link": "https://cdn.example/pic.jpg",
+                    "caption": "see attached"
+                }
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"messaging_product":"whatsapp","messages":[{"id":"wamid.MEDIA"}]}"#)
+            .create_async()
+            .await;
+
+        let mut ch = WhatsappChannel::new("test", cfg_for(&server.url()), store_for_test());
+        ch.start().await.unwrap();
+        let _ = ch.poll_events().await.unwrap();
+
+        let msg = OutgoingMessage {
+            conversation_id: "+15555550100".to_string(),
+            text: "see attached".to_string(),
+            reply_to: None,
+            attachments: vec!["https://cdn.example/pic.jpg".to_string()],
+        };
+        let receipt = ch.send_message(msg).await.unwrap();
+        assert_eq!(receipt.id, "wamid.MEDIA");
 
         mock.assert_async().await;
     }

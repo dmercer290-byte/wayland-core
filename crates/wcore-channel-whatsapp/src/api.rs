@@ -78,6 +78,114 @@ pub struct TextBody {
     pub preview_url: bool,
 }
 
+/// Outbound WhatsApp media-message request body (link variant).
+///
+/// The Cloud API media message carries the media object under a key that
+/// matches `type` (`image`/`audio`/`video`/`document`), e.g.
+/// `{ "type":"image", "image": { "link":"https://…", "caption":"…" } }`.
+/// We send by `link` (Meta fetches the URL) rather than uploading bytes, so a
+/// non-text reply isn't silently dropped. Audio messages don't accept a
+/// caption per the Cloud API, so it's omitted there.
+#[derive(Debug, Clone, Serialize)]
+pub struct SendMediaRequest {
+    pub messaging_product: &'static str,
+    pub to: String,
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    /// The media object, serialized under a key equal to `kind`
+    /// (`image`/`audio`/`video`/`document`).
+    #[serde(flatten)]
+    pub media: MediaEnvelope,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<MessageContext>,
+}
+
+/// Wraps the media object so it serializes under the `kind`-named key.
+#[derive(Debug, Clone)]
+pub struct MediaEnvelope {
+    pub kind: &'static str,
+    pub body: MediaBody,
+}
+
+impl Serialize for MediaEnvelope {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry(self.kind, &self.body)?;
+        map.end()
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MediaBody {
+    pub link: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+}
+
+impl SendMediaRequest {
+    /// Build a media message for `url`, inferring the media kind from the
+    /// URL's file extension and defaulting to `document` (the most permissive
+    /// kind — accepts any file and a caption). `caption` is attached for all
+    /// kinds except `audio`, which the Cloud API rejects with a caption.
+    pub fn new_link(
+        recipient: impl Into<String>,
+        url: impl Into<String>,
+        caption: Option<String>,
+    ) -> Self {
+        let url = url.into();
+        let kind = media_kind_for_url(&url);
+        // Audio messages cannot carry a caption; drop it (the text is still
+        // sent as a separate message by the caller when present).
+        let caption = if kind == "audio" {
+            None
+        } else {
+            caption.filter(|c| !c.is_empty())
+        };
+        Self {
+            messaging_product: "whatsapp",
+            to: recipient.into(),
+            kind,
+            media: MediaEnvelope {
+                kind,
+                body: MediaBody { link: url, caption },
+            },
+            context: None,
+        }
+    }
+
+    /// Quote `wamid` as the reply context (see [`SendMessageRequest::with_reply_context`]).
+    pub fn with_reply_context(mut self, wamid: Option<String>) -> Self {
+        self.context = wamid
+            .filter(|id| !id.is_empty())
+            .map(|message_id| MessageContext { message_id });
+        self
+    }
+}
+
+/// Map a media URL to its Cloud API message type by file extension.
+/// Unknown/extension-less URLs fall back to `document`, which accepts any
+/// file and supports a caption.
+fn media_kind_for_url(url: &str) -> &'static str {
+    // Strip any query/fragment before reading the extension.
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    let ext = path
+        .rsplit('/')
+        .next()
+        .and_then(|seg| seg.rsplit_once('.').map(|(_, e)| e))
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "jpg" | "jpeg" | "png" | "webp" => "image",
+        "mp4" | "3gp" => "video",
+        "aac" | "mp3" | "m4a" | "amr" | "ogg" | "opus" => "audio",
+        _ => "document",
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendMessageResponse {
     #[serde(default)]
@@ -131,6 +239,54 @@ pub async fn send_message(
     phone_number_id: &str,
     access_token: &str,
     req: &SendMessageRequest,
+    max_attempts: u32,
+) -> Result<SendMessageResponse, WhatsappError> {
+    send_to_messages(
+        http,
+        api_base,
+        graph_version,
+        phone_number_id,
+        access_token,
+        req,
+        max_attempts,
+    )
+    .await
+}
+
+/// Send a media message (image/audio/video/document by `link`) with the same
+/// retry + error-mapping discipline as [`send_message`]. Used when an
+/// outbound carries attachments so a non-text reply isn't dropped.
+pub async fn send_media(
+    http: &wcore_egress::EgressClient,
+    api_base: &str,
+    graph_version: &str,
+    phone_number_id: &str,
+    access_token: &str,
+    req: &SendMediaRequest,
+    max_attempts: u32,
+) -> Result<SendMessageResponse, WhatsappError> {
+    send_to_messages(
+        http,
+        api_base,
+        graph_version,
+        phone_number_id,
+        access_token,
+        req,
+        max_attempts,
+    )
+    .await
+}
+
+/// Shared `POST /{phone_number_id}/messages` retry loop. Generic over the
+/// request body so text, media, and any future message kind share identical
+/// retry, `Retry-After`, and error-mapping behavior.
+async fn send_to_messages(
+    http: &wcore_egress::EgressClient,
+    api_base: &str,
+    graph_version: &str,
+    phone_number_id: &str,
+    access_token: &str,
+    req: &impl Serialize,
     max_attempts: u32,
 ) -> Result<SendMessageResponse, WhatsappError> {
     let url = format!(
@@ -382,6 +538,14 @@ pub struct MediaMetaResponse {
     pub mime_type: Option<String>,
 }
 
+/// Host allowlist for the step-2 media download. The step-1 metadata response
+/// is server-controlled but still untrusted: a compromised/forged response
+/// could point `url` at an attacker host to capture the Graph bearer token.
+/// Meta serves media bytes from `lookaside.fbsbx.com` and the `*.whatsapp.net`
+/// CDN, so we fail closed on anything else *before* attaching bearer auth
+/// (mirrors the Discord/Slack/SMS media path).
+pub(crate) const MEDIA_DOWNLOAD_HOSTS: &[&str] = &["lookaside.fbsbx.com", ".whatsapp.net"];
+
 /// Download inbound WhatsApp media by id: resolve the id to a temporary URL
 /// (Bearer), then download that URL (Bearer). Single attempt per hop; the
 /// media enricher bounds the whole thing with its own timeout.
@@ -391,6 +555,7 @@ pub async fn download_media(
     graph_version: &str,
     access_token: &str,
     media_id: &str,
+    allowed_hosts: &[&str],
 ) -> Result<Vec<u8>, WhatsappError> {
     // Step 1: id -> temporary URL.
     let meta_url = format!(
@@ -428,6 +593,15 @@ pub async fn download_media(
         .map_err(|e| WhatsappError::MalformedPayload(format!("decode media meta: {e}")))?;
 
     // Step 2: download the temporary URL (still Bearer-authenticated).
+    // The URL came from the (untrusted) step-1 body, so fail closed on the
+    // host allowlist BEFORE attaching the bearer token — otherwise a forged
+    // metadata response could exfiltrate the Graph token to an attacker host.
+    if !wcore_egress::host_in_allowlist(&meta.url, allowed_hosts) {
+        return Err(WhatsappError::Api(format!(
+            "refusing to fetch media from non-allowlisted host: {}",
+            meta.url
+        )));
+    }
     let resp2 = http
         .get(&meta.url)
         .bearer_auth(access_token)
@@ -479,6 +653,63 @@ mod reaction_tests {
             .with_reply_context(Some(String::new()));
         let json = serde_json::to_value(&req).unwrap();
         assert!(json.get("context").is_none());
+    }
+
+    #[test]
+    fn media_request_image_shape_carries_link_and_caption() {
+        let req = SendMediaRequest::new_link(
+            "15551234567",
+            "https://cdn.example/pic.jpg",
+            Some("look at this".to_string()),
+        );
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["messaging_product"], "whatsapp");
+        assert_eq!(json["to"], "15551234567");
+        // Extension inferred -> image; the media object nests under `image`.
+        assert_eq!(json["type"], "image");
+        assert_eq!(json["image"]["link"], "https://cdn.example/pic.jpg");
+        assert_eq!(json["image"]["caption"], "look at this");
+        // No text/audio keys leaked.
+        assert!(json.get("text").is_none());
+    }
+
+    #[test]
+    fn media_request_unknown_extension_defaults_to_document() {
+        let req = SendMediaRequest::new_link("15551234567", "https://cdn.example/file", None);
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["type"], "document");
+        assert_eq!(json["document"]["link"], "https://cdn.example/file");
+        // Caption omitted when None.
+        assert!(json["document"].get("caption").is_none());
+    }
+
+    #[test]
+    fn media_request_audio_drops_caption() {
+        // The Cloud API rejects a caption on audio; it must be omitted.
+        let req = SendMediaRequest::new_link(
+            "15551234567",
+            "https://cdn.example/voice.ogg",
+            Some("ignored".to_string()),
+        );
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["type"], "audio");
+        assert_eq!(json["audio"]["link"], "https://cdn.example/voice.ogg");
+        assert!(json["audio"].get("caption").is_none());
+    }
+
+    #[test]
+    fn media_request_infers_kind_from_extension_ignoring_query() {
+        let req = SendMediaRequest::new_link(
+            "15551234567",
+            "https://cdn.example/clip.mp4?sig=abc#frag",
+            None,
+        );
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["type"], "video");
+        assert_eq!(
+            json["video"]["link"],
+            "https://cdn.example/clip.mp4?sig=abc#frag"
+        );
     }
 
     #[test]
@@ -552,9 +783,24 @@ mod reaction_tests {
             .create_async()
             .await;
         let http = wcore_egress::EgressClient::new();
-        let bytes = download_media(&http, &server.url(), "v20.0", "tok", "MID")
-            .await
-            .unwrap();
+        // The mock CDN host (127.0.0.1:<port>) is not a real Meta host, so the
+        // allowlist must be widened to it for the positive-path test. Step-2
+        // host validation itself is exercised by the negative test below.
+        let host = reqwest::Url::parse(&server.url())
+            .unwrap()
+            .host_str()
+            .unwrap()
+            .to_string();
+        let bytes = download_media(
+            &http,
+            &server.url(),
+            "v20.0",
+            "tok",
+            "MID",
+            &[host.as_str()],
+        )
+        .await
+        .unwrap();
         assert_eq!(&bytes[..3], b"\xff\xd8\xff");
         meta.assert_async().await;
         dl.assert_async().await;
@@ -569,9 +815,42 @@ mod reaction_tests {
             .create_async()
             .await;
         let http = wcore_egress::EgressClient::new();
-        let err = download_media(&http, &server.url(), "v20.0", "tok", "MID")
+        let err = download_media(&http, &server.url(), "v20.0", "tok", "MID", &[])
             .await
             .unwrap_err();
         assert!(matches!(err, WhatsappError::Auth(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn download_media_rejects_non_meta_step2_host() {
+        // Step-1 metadata resolves to a non-Meta host; step-2 must fail closed
+        // on the allowlist BEFORE the bearer token is attached, so a forged
+        // metadata response can't exfiltrate the Graph token. The download host
+        // mock has NO expectation — it must never be hit.
+        let mut server = mockito::Server::new_async().await;
+        let meta_body = r#"{"url":"https://attacker.example/steal","mime_type":"image/jpeg"}"#;
+        let meta = server
+            .mock("GET", "/v20.0/MID")
+            .match_header("authorization", "Bearer tok")
+            .with_status(200)
+            .with_body(meta_body)
+            .create_async()
+            .await;
+        let http = wcore_egress::EgressClient::new();
+        let err = download_media(
+            &http,
+            &server.url(),
+            "v20.0",
+            "tok",
+            "MID",
+            MEDIA_DOWNLOAD_HOSTS,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, WhatsappError::Api(ref m) if m.contains("non-allowlisted host")),
+            "got {err:?}"
+        );
+        meta.assert_async().await;
     }
 }
