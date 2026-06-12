@@ -109,6 +109,60 @@ impl EmailChannel {
     pub fn last_seen_uid(&self) -> u32 {
         *self.last_seen_uid.lock().unwrap()
     }
+
+    /// Resolve IMAP creds and spawn the blocking poll task, storing its handle
+    /// and shutdown sender. No-op when IMAP is not configured. Called from
+    /// `start()` for the cold-start path and from the reconnect path when the
+    /// previous poll task died (its finished handle + stale shutdown sender are
+    /// overwritten here). Sync: cred lookups and `spawn_blocking` don't await.
+    fn respawn_imap_poll(&mut self) -> Result<(), ChannelError> {
+        let Some(imap_cfg) = self.config.imap.clone() else {
+            return Ok(());
+        };
+        // Only resolve IMAP creds when imap is configured.
+        let imap_user = self
+            .creds
+            .get(&imap_cfg.user_credential_handle)
+            .map_err(|e| ChannelError::Auth(format!("imap user lookup: {e}")))?
+            .ok_or_else(|| {
+                ChannelError::Auth(format!(
+                    "imap user not found at credential_handle {:?}",
+                    imap_cfg.user_credential_handle
+                ))
+            })?;
+        let imap_pass = self
+            .creds
+            .get(&imap_cfg.password_credential_handle)
+            .map_err(|e| ChannelError::Auth(format!("imap password lookup: {e}")))?
+            .ok_or_else(|| {
+                ChannelError::Auth(format!(
+                    "imap password not found at credential_handle {:?}",
+                    imap_cfg.password_credential_handle
+                ))
+            })?;
+
+        let (tx, rx) = watch::channel(false);
+        let args = crate::imap::ImapPollArgs {
+            host: imap_cfg.host,
+            port: imap_cfg.port,
+            user: imap_user,
+            pass: imap_pass,
+            mailbox: imap_cfg.mailbox,
+            allowed_senders: imap_cfg.allowed_senders,
+            poll_interval_secs: imap_cfg.poll_interval_secs,
+            inbox: Arc::clone(&self.inbox),
+            last_seen_uid: Arc::clone(&self.last_seen_uid),
+            reply_index: Arc::clone(&self.reply_index),
+            shutdown: rx,
+            runtime_handle: tokio::runtime::Handle::current(),
+        };
+        // `spawn_blocking` returns JoinHandle<()> directly when the
+        // closure returns ().
+        let handle = tokio::task::spawn_blocking(move || crate::imap::imap_poll_blocking(args));
+        self.poll_handle = Some(handle);
+        self.shutdown = Some(tx);
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -121,11 +175,37 @@ impl Channel for EmailChannel {
         "email"
     }
 
+    fn task_handle(&self) -> Option<&tokio::task::JoinHandle<()>> {
+        self.poll_handle.as_ref()
+    }
+
     async fn start(&mut self) -> Result<(), ChannelError> {
-        if self.sender.is_some() {
-            // Idempotent.
+        // Idempotent only when fully healthy: the SMTP sender is built AND, if
+        // IMAP is configured, its background poll task is still running. If the
+        // IMAP task died while `sender` stayed `Some`, fall through to respawn
+        // JUST the poll task (the sender is left intact) so supervised reconnect
+        // heals the channel instead of treating a dead poll task as alive.
+        let imap_configured = self.config.imap.is_some();
+        let poll_alive = self.poll_handle.as_ref().is_some_and(|h| !h.is_finished());
+        if self.sender.is_some() && (!imap_configured || poll_alive) {
             return Ok(());
         }
+
+        // Sender already built (a dead IMAP task brought us here): respawn only
+        // the poll task without re-resolving SMTP creds or rebuilding the
+        // transport. The sender stays as-is.
+        if self.sender.is_some() {
+            self.respawn_imap_poll()?;
+            self.inbox
+                .lock()
+                .await
+                .push_back(ChannelEvent::ConnectionStateChanged {
+                    state: ConnectionState::Connected,
+                });
+            self.state = ConnectionState::Connected;
+            return Ok(());
+        }
+
         self.state = ConnectionState::Connecting;
 
         // Resolve SMTP creds.
@@ -175,50 +255,7 @@ impl Channel for EmailChannel {
             });
 
         // If imap config is set, spawn the blocking poll loop.
-        if let Some(imap_cfg) = self.config.imap.clone() {
-            // Only resolve IMAP creds when imap is configured.
-            let imap_user = self
-                .creds
-                .get(&imap_cfg.user_credential_handle)
-                .map_err(|e| ChannelError::Auth(format!("imap user lookup: {e}")))?
-                .ok_or_else(|| {
-                    ChannelError::Auth(format!(
-                        "imap user not found at credential_handle {:?}",
-                        imap_cfg.user_credential_handle
-                    ))
-                })?;
-            let imap_pass = self
-                .creds
-                .get(&imap_cfg.password_credential_handle)
-                .map_err(|e| ChannelError::Auth(format!("imap password lookup: {e}")))?
-                .ok_or_else(|| {
-                    ChannelError::Auth(format!(
-                        "imap password not found at credential_handle {:?}",
-                        imap_cfg.password_credential_handle
-                    ))
-                })?;
-
-            let (tx, rx) = watch::channel(false);
-            let args = crate::imap::ImapPollArgs {
-                host: imap_cfg.host,
-                port: imap_cfg.port,
-                user: imap_user,
-                pass: imap_pass,
-                mailbox: imap_cfg.mailbox,
-                allowed_senders: imap_cfg.allowed_senders,
-                poll_interval_secs: imap_cfg.poll_interval_secs,
-                inbox: Arc::clone(&self.inbox),
-                last_seen_uid: Arc::clone(&self.last_seen_uid),
-                reply_index: Arc::clone(&self.reply_index),
-                shutdown: rx,
-                runtime_handle: tokio::runtime::Handle::current(),
-            };
-            // `spawn_blocking` returns JoinHandle<()> directly when the
-            // closure returns ().
-            let handle = tokio::task::spawn_blocking(move || crate::imap::imap_poll_blocking(args));
-            self.poll_handle = Some(handle);
-            self.shutdown = Some(tx);
-        }
+        self.respawn_imap_poll()?;
 
         self.state = ConnectionState::Connected;
         Ok(())

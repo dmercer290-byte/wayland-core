@@ -133,21 +133,52 @@ impl ChannelManager {
                     ticker.tick().await;
                     let evs = {
                         let mut guard = task_slot.lock().await;
-                        match guard.poll_events().await {
+                        // Detect a dead internal background task (longpoll/gateway/
+                        // sync loop panicked or exited) BEFORE polling. The
+                        // inbox-drain connectors return Ok(vec![]) forever once
+                        // their task is gone, so without this check a silent task
+                        // death looks alive. Read is_finished() into a bool here:
+                        // task_handle() borrows &self while poll_events() needs
+                        // &mut self, so the copy breaks the borrow. A dead task
+                        // routes straight into the same supervised-reconnect
+                        // machinery the error-threshold path uses (we skip the
+                        // poll, since a dead-task connector just returns
+                        // Ok(vec![]) and would otherwise reset the error count).
+                        let task_dead = guard.task_handle().is_some_and(|h| h.is_finished());
+                        let poll_outcome = if task_dead {
+                            tracing::warn!(
+                                target: "wcore_channels::manager",
+                                channel = %task_name,
+                                "connector internal task finished unexpectedly; forcing supervised reconnect"
+                            );
+                            Err(ChannelError::Transport(
+                                "connector internal task finished unexpectedly".into(),
+                            ))
+                        } else {
+                            guard.poll_events().await
+                        };
+                        match poll_outcome {
                             Ok(v) => {
                                 consecutive_errors = 0;
                                 v
                             }
                             Err(ChannelError::NotStarted) => break,
                             Err(e) => {
-                                consecutive_errors += 1;
-                                tracing::warn!(
-                                    target: "wcore_channels::manager",
-                                    channel = %task_name,
-                                    error = %e,
-                                    consecutive_errors,
-                                    "poll_events errored; backing off one tick"
-                                );
+                                // A dead task jumps straight to the reconnect
+                                // threshold; a normal poll error backs off one
+                                // tick until it accumulates to the threshold.
+                                if task_dead {
+                                    consecutive_errors = RECONNECT_ERROR_THRESHOLD;
+                                } else {
+                                    consecutive_errors += 1;
+                                    tracing::warn!(
+                                        target: "wcore_channels::manager",
+                                        channel = %task_name,
+                                        error = %e,
+                                        consecutive_errors,
+                                        "poll_events errored; backing off one tick"
+                                    );
+                                }
                                 if consecutive_errors < RECONNECT_ERROR_THRESHOLD {
                                     continue;
                                 }
@@ -694,6 +725,146 @@ mod tests {
         assert!(
             saw_reconnecting,
             "expected a Reconnecting ConnectionStateChanged broadcast"
+        );
+        assert!(
+            saw_recovery_msg,
+            "expected the channel to resume delivering messages after reconnect"
+        );
+        mgr.stop_all().await.unwrap();
+    }
+
+    /// Test-only channel modelling an inbox-drain connector (Telegram/Discord/
+    /// Email/iMessage/Matrix style) whose internal background task dies silently.
+    /// `poll_events` always returns `Ok(vec![])` — so error-count supervision
+    /// alone would never fire. The first `start()` spawns a task that exits
+    /// immediately, so `task_handle().is_finished()` trips the manager's
+    /// dead-task detection and forces supervised reconnect. The reconnect
+    /// `start()` spawns a long-lived task (so it does NOT re-trip) and queues a
+    /// recovery message, proving the channel heals.
+    struct DeadTaskChannel {
+        name: String,
+        started_once: bool,
+        recovered: bool,
+        delivered: bool,
+        inbox: std::collections::VecDeque<ChannelEvent>,
+        handle: Option<JoinHandle<()>>,
+    }
+
+    impl DeadTaskChannel {
+        fn new(name: impl Into<String>) -> Self {
+            Self {
+                name: name.into(),
+                started_once: false,
+                recovered: false,
+                delivered: false,
+                inbox: std::collections::VecDeque::new(),
+                handle: None,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Channel for DeadTaskChannel {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn platform(&self) -> &str {
+            "deadtask"
+        }
+
+        fn task_handle(&self) -> Option<&JoinHandle<()>> {
+            self.handle.as_ref()
+        }
+
+        async fn start(&mut self) -> Result<(), ChannelError> {
+            if self.started_once {
+                // The manager's reconnect: heal and spawn a long-lived task so
+                // we don't immediately look dead again.
+                self.recovered = true;
+                self.handle = Some(tokio::spawn(async {
+                    tokio::time::sleep(Duration::from_secs(3600)).await;
+                }));
+            } else {
+                // Initial connect: spawn a task that exits immediately, modelling
+                // a background loop that died right after start().
+                self.handle = Some(tokio::spawn(async {}));
+            }
+            self.started_once = true;
+            Ok(())
+        }
+
+        async fn stop(&mut self) -> Result<(), ChannelError> {
+            if let Some(h) = self.handle.take() {
+                h.abort();
+            }
+            Ok(())
+        }
+
+        async fn poll_events(&mut self) -> Result<Vec<ChannelEvent>, ChannelError> {
+            if self.recovered && !self.delivered {
+                self.delivered = true;
+                self.inbox.push_back(ChannelEvent::MessageReceived {
+                    msg: IncomingMessage::new("dead-1", "c1", "alice", "back online", 0),
+                });
+            }
+            // Always an Ok drain — the silent-death signature. With an empty
+            // inbox this is the perpetual `Ok(vec![])` that hides a dead task.
+            Ok(self.inbox.drain(..).collect())
+        }
+
+        async fn send_message(
+            &mut self,
+            msg: OutgoingMessage,
+        ) -> Result<MessageReceipt, ChannelError> {
+            Ok(MessageReceipt {
+                id: "dead-out".into(),
+                conversation_id: msg.conversation_id,
+                ts_secs: 0,
+            })
+        }
+
+        fn config_schema(&self) -> &str {
+            r#"{"name":"string","platform":"deadtask"}"#
+        }
+    }
+
+    #[tokio::test]
+    async fn dead_internal_task_triggers_supervised_reconnect() {
+        // The connector's `poll_events` returns Ok(vec![]) forever, but its
+        // internal task finishes right after start(). The manager must detect the
+        // finished task_handle and drive supervised reconnect even though no poll
+        // ever errored. Mirrors `persistent_poll_failure_triggers_supervised_reconnect`.
+        let mut mgr = ChannelManager::new().with_poll_interval(Duration::from_millis(5));
+        let mut rx = mgr.subscribe();
+        mgr.register(Box::new(DeadTaskChannel::new("dead"))).await;
+        mgr.start_all().await.unwrap();
+
+        // Reconnect backoff base is 1s; allow margin for the spawned task to
+        // finish, the dead-task tick, the backoff, and recovery delivery.
+        let deadline = std::time::Instant::now() + Duration::from_secs(4);
+        let mut saw_reconnecting = false;
+        let mut saw_recovery_msg = false;
+        while std::time::Instant::now() < deadline && !(saw_reconnecting && saw_recovery_msg) {
+            match tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+                Ok(Ok(tagged)) => {
+                    assert_eq!(tagged.channel_name, "dead");
+                    match tagged.event {
+                        ChannelEvent::ConnectionStateChanged {
+                            state: ConnectionState::Reconnecting,
+                        } => saw_reconnecting = true,
+                        ChannelEvent::MessageReceived { ref msg } if msg.text == "back online" => {
+                            saw_recovery_msg = true;
+                        }
+                        _ => {}
+                    }
+                }
+                _ => continue,
+            }
+        }
+        assert!(
+            saw_reconnecting,
+            "expected a Reconnecting broadcast from the dead-task detection"
         );
         assert!(
             saw_recovery_msg,

@@ -85,6 +85,15 @@ pub trait Channel: Send + Sync {
     /// it to validate config files.
     fn config_schema(&self) -> &str;
 
+    /// Handle of the connector's internal background task, if any. The manager
+    /// uses this to detect a dead task and trigger supervised reconnect even when
+    /// `poll_events` returns `Ok(vec![])` (the inbox-drain connectors whose
+    /// background task can die silently). Default `None`: webhook-only connectors
+    /// have no task.
+    fn task_handle(&self) -> Option<&tokio::task::JoinHandle<()>> {
+        None
+    }
+
     /// Maximum length (in Unicode scalar values) of a single outbound
     /// message this platform accepts, or `None` when effectively
     /// unbounded / unknown. [`ChannelManager::send_to`] splits longer

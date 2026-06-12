@@ -103,6 +103,10 @@ impl Channel for MatrixChannel {
         "matrix"
     }
 
+    fn task_handle(&self) -> Option<&tokio::task::JoinHandle<()>> {
+        self.poll_handle.as_ref()
+    }
+
     /// Conservative per-message body cap. A Matrix event must serialize under
     /// the spec's 65536-byte hard limit (including all envelope fields), so a
     /// homeserver rejects an over-long `body`. Declaring the cap makes the
@@ -112,8 +116,10 @@ impl Channel for MatrixChannel {
     }
 
     async fn start(&mut self) -> Result<(), ChannelError> {
-        if self.poll_handle.is_some() {
-            // Already running — idempotent.
+        if self.poll_handle.as_ref().is_some_and(|h| !h.is_finished()) {
+            // Already running — idempotent. A finished handle (the /sync task
+            // died) falls through to respawn so supervised reconnect heals the
+            // channel instead of treating a dead task as alive.
             return Ok(());
         }
         self.state = ConnectionState::Connecting;

@@ -140,8 +140,15 @@ impl Channel for IMessageChannel {
         "imessage"
     }
 
+    fn task_handle(&self) -> Option<&tokio::task::JoinHandle<()>> {
+        self.poll_handle.as_ref()
+    }
+
     async fn start(&mut self) -> Result<(), ChannelError> {
-        if self.poll_handle.is_some() {
+        if self.poll_handle.as_ref().is_some_and(|h| !h.is_finished()) {
+            // Already running — idempotent. A finished handle (the chat.db poll
+            // task died) falls through to respawn so supervised reconnect heals
+            // the channel instead of treating a dead task as alive.
             return Ok(());
         }
         self.state = ConnectionState::Connecting;
