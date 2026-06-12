@@ -19,15 +19,20 @@
 // on demand because `CREATE VIRTUAL TABLE` cannot run inside a
 // transaction and pre-creating empty backend-specific tables on
 // every fresh db is wasteful.
+//
+// v5: adds the `last_latency_ms` column to `procedures` so `record_use`
+// can persist the latency measured by `ProceduralSkillTelemetrySink`
+// (previously underscore-ignored, leaving regression detection blind).
 
 use crate::error::{MemoryError, Result};
 
-pub const CURRENT_VERSION: u32 = 4;
+pub const CURRENT_VERSION: u32 = 5;
 
 const V1_SQL: &str = include_str!("v1.sql");
 const V2_SQL: &str = include_str!("v2_evolved_prompts.sql");
 const V3_SQL: &str = include_str!("v3_vec_episodes.sql");
 const V4_SQL: &str = include_str!("v4_vec_episodes_dim.sql");
+const V5_SQL: &str = include_str!("v5_procedure_latency.sql");
 
 /// Apply all pending migrations on the given connection.
 pub fn apply_migrations(conn: &mut rusqlite::Connection) -> Result<()> {
@@ -47,6 +52,9 @@ pub fn apply_migrations(conn: &mut rusqlite::Connection) -> Result<()> {
     }
     if installed < 4 {
         apply_v4(conn)?;
+    }
+    if installed < 5 {
+        apply_v5(conn)?;
     }
     Ok(())
 }
@@ -152,6 +160,27 @@ fn apply_v4(conn: &mut rusqlite::Connection) -> Result<()> {
     Ok(())
 }
 
+fn apply_v5(conn: &mut rusqlite::Connection) -> Result<()> {
+    // v5 is a single ALTER TABLE ADD COLUMN — runs in a transaction so the
+    // version bump is atomic with the column add across crashes.
+    let tx = conn.transaction().map_err(MemoryError::Db)?;
+    tx.execute_batch(V5_SQL)
+        .map_err(|e| MemoryError::Migration {
+            version: 5,
+            source: e,
+        })?;
+    tx.execute(
+        "INSERT OR IGNORE INTO schema_version (version) VALUES (5)",
+        [],
+    )
+    .map_err(|e| MemoryError::Migration {
+        version: 5,
+        source: e,
+    })?;
+    tx.commit().map_err(MemoryError::Db)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +247,22 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1, "vec_episodes virtual table must exist");
+    }
+
+    #[test]
+    fn v5_adds_last_latency_ms_column_to_procedures() {
+        let mut conn = open_conn_with_vec();
+        apply_migrations(&mut conn).unwrap();
+        // Column must exist with a 0 default so legacy rows and call sites
+        // without a timing remain insertable.
+        let has_col: bool = conn
+            .prepare("SELECT 1 FROM pragma_table_info('procedures') WHERE name = 'last_latency_ms'")
+            .unwrap()
+            .query_map([], |_| Ok(()))
+            .unwrap()
+            .next()
+            .is_some();
+        assert!(has_col, "procedures.last_latency_ms must exist after v5");
     }
 
     #[test]

@@ -259,6 +259,7 @@ async fn procedural_state_machine_via_dispatcher() {
         thompson_beta: 1.0,
         use_count: 0,
         success_count: 0,
+        last_latency_ms: 0,
     };
     let id = d
         .upsert_procedure(p.clone(), AccessToken::MainAgent)

@@ -93,6 +93,7 @@ async fn worker_writes_procedural_parent_receives_on_merge() {
         thompson_beta: 1.0,
         use_count: 0,
         success_count: 0,
+        last_latency_ms: 0,
     };
     mem.dispatcher.procedural.upsert(child_proc).await.unwrap();
 

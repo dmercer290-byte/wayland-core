@@ -33,6 +33,45 @@ async fn record_skill_use_creates_procedure_on_first_use() {
 }
 
 #[tokio::test]
+async fn record_skill_use_persists_latency_ms() {
+    // Regression: the measured latency was underscore-ignored in the
+    // dispatcher, so `last_latency_ms` only ever read back as 0 and
+    // per-skill latency-regression detection was blind. Record a use with
+    // a non-zero latency and assert it round-trips through persistence.
+    let mem = Memory::open_in_memory().await.unwrap();
+    mem.record_skill_use("timed-skill", true, 137)
+        .await
+        .unwrap();
+
+    let procs = mem
+        .list_procedures(Tier::Project, AccessToken::System)
+        .await
+        .unwrap();
+    let row = procs
+        .iter()
+        .find(|p| p.name == "skill:timed-skill")
+        .expect("record_skill_use must upsert the row");
+    assert_eq!(
+        row.last_latency_ms, 137,
+        "the measured latency must persist, not collapse to 0"
+    );
+
+    // A subsequent timed use overwrites with the latest measurement.
+    mem.record_skill_use("timed-skill", false, 512)
+        .await
+        .unwrap();
+    let procs = mem
+        .list_procedures(Tier::Project, AccessToken::System)
+        .await
+        .unwrap();
+    let row = procs
+        .iter()
+        .find(|p| p.name == "skill:timed-skill")
+        .unwrap();
+    assert_eq!(row.last_latency_ms, 512, "latest use's latency wins");
+}
+
+#[tokio::test]
 async fn record_skill_use_increments_existing_row() {
     let mem = Memory::open_in_memory().await.unwrap();
     mem.record_skill_use("multi-skill", true, 10).await.unwrap();

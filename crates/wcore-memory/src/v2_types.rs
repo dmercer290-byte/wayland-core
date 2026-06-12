@@ -348,6 +348,10 @@ pub struct Procedure {
     pub thompson_beta: f64,
     pub use_count: u64,
     pub success_count: u64,
+    /// Latency (ms) of the most recent recorded use. `record_use` stores the
+    /// measured value here so per-skill latency-regression detection sees real
+    /// data; rows that have never recorded a timed use carry 0.
+    pub last_latency_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -618,6 +622,7 @@ mod tests {
             thompson_beta: 1.0,
             use_count: 0,
             success_count: 0,
+            last_latency_ms: 0,
         };
         let j = serde_json::to_string(&p).unwrap();
         let back: Procedure = serde_json::from_str(&j).unwrap();

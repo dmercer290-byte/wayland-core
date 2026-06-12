@@ -372,7 +372,7 @@ impl MemoryApi for PartitionDispatcher {
         &self,
         skill_name: &str,
         succeeded: bool,
-        _latency_ms: u64,
+        latency_ms: u64,
     ) -> Result<()> {
         let row_name = format!("skill:{skill_name}");
         let tier = Tier::Project;
@@ -397,14 +397,17 @@ impl MemoryApi for PartitionDispatcher {
                 thompson_beta: 1.0,
                 use_count: 0,
                 success_count: 0,
+                last_latency_ms: 0,
             };
             let id = p.id;
             self.procedural.upsert(p).await?;
             id
         };
 
-        // 2. Record the use (updates Thompson stats + counts).
-        self.procedural.record_use(&id, tier, succeeded).await
+        // 2. Record the use (updates Thompson stats + counts + latency).
+        self.procedural
+            .record_use(&id, tier, succeeded, latency_ms)
+            .await
     }
 
     async fn top_procedures(
@@ -550,6 +553,7 @@ mod tests {
             thompson_beta: beta,
             use_count: ((alpha + beta) as u64).saturating_sub(2),
             success_count: (alpha as u64).saturating_sub(1),
+            last_latency_ms: 0,
         }
     }
 

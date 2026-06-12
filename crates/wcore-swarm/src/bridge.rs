@@ -254,6 +254,7 @@ impl SwarmMemoryBridge {
                 thompson_beta: child_proc.thompson_beta,
                 use_count: child_proc.use_count,
                 success_count: child_proc.success_count,
+                last_latency_ms: child_proc.last_latency_ms,
             };
             self.dispatcher
                 .procedural
@@ -412,6 +413,7 @@ mod tests {
             thompson_beta: 1.0,
             use_count: 0,
             success_count: 0,
+            last_latency_ms: 0,
         };
         mem.dispatcher.procedural.upsert(child_proc).await.unwrap();
 

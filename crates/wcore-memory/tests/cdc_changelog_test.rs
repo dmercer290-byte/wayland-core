@@ -76,6 +76,7 @@ async fn insert_paths_each_produce_one_entry() {
         thompson_beta: 1.0,
         use_count: 0,
         success_count: 0,
+        last_latency_ms: 0,
     };
     d.upsert_procedure(p, AccessToken::MainAgent).await.unwrap();
 
@@ -134,6 +135,7 @@ async fn procedure_status_use_user_model_delta_decay_emit_entries() {
         thompson_beta: 1.0,
         use_count: 0,
         success_count: 0,
+        last_latency_ms: 0,
     };
     let id = d.upsert_procedure(p, AccessToken::MainAgent).await.unwrap();
     d.procedural
@@ -141,7 +143,7 @@ async fn procedure_status_use_user_model_delta_decay_emit_entries() {
         .await
         .unwrap();
     d.procedural
-        .record_use(&id, Tier::Project, true)
+        .record_use(&id, Tier::Project, true, 0)
         .await
         .unwrap();
     d.update_user_model("k", json!("v"), AccessToken::System)

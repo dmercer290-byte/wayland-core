@@ -180,6 +180,7 @@ async fn upsert_and_list_procedures_emit_traces() {
         thompson_beta: 1.0,
         use_count: 0,
         success_count: 0,
+        last_latency_ms: 0,
     };
     mem.upsert_procedure(p, AccessToken::System).await.unwrap();
     mem.list_procedures(Tier::Project, AccessToken::System)

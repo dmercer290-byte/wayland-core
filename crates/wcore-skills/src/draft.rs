@@ -166,6 +166,7 @@ impl DraftWriter {
             thompson_beta: 1.0,
             use_count: 0,
             success_count: 0,
+            last_latency_ms: 0,
         };
         self.mem.upsert_procedure(proc, token).await
     }

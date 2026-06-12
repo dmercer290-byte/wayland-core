@@ -26,8 +26,8 @@ impl ProceduralPartition {
         {
             let conn = tc.conn.lock();
             conn.execute(
-                "INSERT OR REPLACE INTO procedures (id, tier, ts, name, description, artifact, status, created_by, thompson_alpha, thompson_beta, use_count, success_count)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT OR REPLACE INTO procedures (id, tier, ts, name, description, artifact, status, created_by, thompson_alpha, thompson_beta, use_count, success_count, last_latency_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 rusqlite::params![
                     p.id.0.to_string(),
                     p.tier.as_str(),
@@ -41,6 +41,7 @@ impl ProceduralPartition {
                     p.thompson_beta,
                     p.use_count as i64,
                     p.success_count as i64,
+                    p.last_latency_ms as i64,
                 ],
             )?;
         }
@@ -89,18 +90,32 @@ impl ProceduralPartition {
         Ok(())
     }
 
-    /// Record a Thompson-stat update.
-    pub async fn record_use(&self, id: &ProcedureId, tier: Tier, succeeded: bool) -> Result<()> {
+    /// Record a Thompson-stat update plus the latency of this use.
+    ///
+    /// `latency_ms` is the measured duration of the recorded invocation
+    /// (0 when the caller has no timing). It is persisted to
+    /// `last_latency_ms` so per-skill latency-regression detection reads
+    /// real values rather than the zeros it saw while this value was
+    /// underscore-ignored at the dispatcher.
+    pub async fn record_use(
+        &self,
+        id: &ProcedureId,
+        tier: Tier,
+        succeeded: bool,
+        latency_ms: u64,
+    ) -> Result<()> {
         let tc = self.db.tier_or_global(tier);
         let (alpha, beta) = {
             let conn = tc.conn.lock();
             conn.execute(
                 "UPDATE procedures SET use_count = use_count + 1, success_count = success_count + ?1,
-                 thompson_alpha = thompson_alpha + ?2, thompson_beta = thompson_beta + ?3 WHERE id = ?4",
+                 thompson_alpha = thompson_alpha + ?2, thompson_beta = thompson_beta + ?3,
+                 last_latency_ms = ?4 WHERE id = ?5",
                 rusqlite::params![
                     if succeeded { 1i64 } else { 0i64 },
                     if succeeded { 1.0f64 } else { 0.0f64 },
                     if succeeded { 0.0f64 } else { 1.0f64 },
+                    latency_ms as i64,
                     id.0.to_string(),
                 ],
             )?;
@@ -121,7 +136,7 @@ impl ProceduralPartition {
         let tc = self.db.tier_or_global(tier);
         let conn = tc.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, tier, ts, name, description, artifact, status, created_by, thompson_alpha, thompson_beta, use_count, success_count FROM procedures WHERE tier = ?1 ORDER BY ts DESC"
+            "SELECT id, tier, ts, name, description, artifact, status, created_by, thompson_alpha, thompson_beta, use_count, success_count, last_latency_ms FROM procedures WHERE tier = ?1 ORDER BY ts DESC"
         )?;
         let rows = stmt.query_map([tier.as_str()], |row| {
             let id_s: String = row.get(0)?;
@@ -145,6 +160,7 @@ impl ProceduralPartition {
                 thompson_beta: row.get(9)?,
                 use_count: row.get::<_, i64>(10)? as u64,
                 success_count: row.get::<_, i64>(11)? as u64,
+                last_latency_ms: row.get::<_, i64>(12)? as u64,
             })
         })?;
         let mut out = Vec::new();
@@ -158,7 +174,7 @@ impl ProceduralPartition {
         let tc = self.db.tier_or_global(tier);
         let conn = tc.conn.lock();
         let r = conn.query_row(
-            "SELECT id, tier, ts, name, description, artifact, status, created_by, thompson_alpha, thompson_beta, use_count, success_count FROM procedures WHERE id = ?1",
+            "SELECT id, tier, ts, name, description, artifact, status, created_by, thompson_alpha, thompson_beta, use_count, success_count, last_latency_ms FROM procedures WHERE id = ?1",
             [id.0.to_string()],
             |row| {
                 let id_s: String = row.get(0)?;
@@ -181,6 +197,7 @@ impl ProceduralPartition {
                     thompson_beta: row.get(9)?,
                     use_count: row.get::<_, i64>(10)? as u64,
                     success_count: row.get::<_, i64>(11)? as u64,
+                    last_latency_ms: row.get::<_, i64>(12)? as u64,
                 })
             },
         );
