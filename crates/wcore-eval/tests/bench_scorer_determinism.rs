@@ -39,6 +39,8 @@ fn baseline_skill() -> SkillMetadata {
         content: "Bench fixture body. $ARGUMENTS".into(),
         content_length: 32,
         skill_root: None,
+        max_turns: None,
+        max_tokens: None,
     }
 }
 

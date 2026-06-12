@@ -72,6 +72,8 @@ fn make_skill(name: &str, content: &str) -> SkillMetadata {
         content: content.to_string(),
         content_length: content.len(),
         skill_root: None,
+        max_turns: None,
+        max_tokens: None,
     }
 }
 
@@ -114,6 +116,28 @@ async fn tc_e2e_1_full_lifecycle_load_skill() {
         "body should contain expected content, got: {}",
         skill.metadata.content
     );
+}
+
+// ---------------------------------------------------------------------------
+// TC-E2E-1b: max-turns / max-tokens frontmatter round-trips into SkillMetadata
+// (rank 49 — per-skill fork-budget override)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn tc_e2e_1b_fork_budget_frontmatter_round_trips() {
+    let tmp = TempDir::new().unwrap();
+    let skill_content = "---\nname: budget-skill\ndescription: A skill with custom fork budgets\ncontext: fork\nmax-turns: 30\nmax-tokens: 8192\n---\nBody.";
+    write_skill_dir(tmp.path(), "budget-skill", skill_content);
+
+    let loaded = load_skills_from_dir(tmp.path(), SkillSource::Project, LoadedFrom::Skills).await;
+
+    let skill = loaded
+        .iter()
+        .find(|s| s.metadata.name == "budget-skill")
+        .expect("skill should be loaded");
+
+    assert_eq!(skill.metadata.max_turns, Some(30));
+    assert_eq!(skill.metadata.max_tokens, Some(8192));
 }
 
 // ---------------------------------------------------------------------------

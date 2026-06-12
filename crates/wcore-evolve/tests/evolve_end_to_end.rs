@@ -93,6 +93,8 @@ fn build_fixture_params() -> wcore_evolve::EvolveParams {
         content_length: PARENT_BODY.len(),
         content: PARENT_BODY.to_string(),
         skill_root: None,
+        max_turns: None,
+        max_tokens: None,
     };
 
     let provider: Arc<dyn ParaphraseProvider> = Arc::new(FixtureProvider {

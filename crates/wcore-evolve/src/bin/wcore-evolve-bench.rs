@@ -272,6 +272,8 @@ fn parse_seed_skill(path: &std::path::Path, name: &str) -> Result<SkillMetadata,
         content_length,
         content: body_trimmed,
         skill_root: None,
+        max_turns: None,
+        max_tokens: None,
     })
 }
 

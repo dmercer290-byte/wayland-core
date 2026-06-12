@@ -114,8 +114,8 @@ pub async fn execute_fork(
     let sub_config = SubAgentConfig {
         name: skill.name.clone(),
         prompt,
-        max_turns: 10,
-        max_tokens: 16384,
+        max_turns: skill.max_turns.unwrap_or(10),
+        max_tokens: skill.max_tokens.unwrap_or(16384),
         system_prompt: None,
     };
 
@@ -168,6 +168,8 @@ mod tests {
             content: content.to_string(),
             content_length: content.len(),
             skill_root: skill_root.map(str::to_owned),
+            max_turns: None,
+            max_tokens: None,
         }
     }
 
@@ -277,6 +279,8 @@ mod supplemental_tests {
             content: content.to_string(),
             content_length: content.len(),
             skill_root: skill_root.map(str::to_owned),
+            max_turns: None,
+            max_tokens: None,
         }
     }
 
@@ -614,6 +618,8 @@ mod phase7_tests {
             content: content.to_string(),
             content_length: content.len(),
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         }
     }
 
@@ -795,6 +801,32 @@ mod phase7_tests {
             .unwrap();
         let config = spawner.take_config();
         assert_eq!(config.max_tokens, 16384);
+    }
+
+    // TC-7.45b: per-skill max_turns override flows into SubAgentConfig
+    #[tokio::test]
+    async fn tc_7_45b_max_turns_override_applied() {
+        let mut skill = make_fork_skill("turns-override-fork", "content");
+        skill.max_turns = Some(30);
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner)
+            .await
+            .unwrap();
+        let config = spawner.take_config();
+        assert_eq!(config.max_turns, 30);
+    }
+
+    // TC-7.46b: per-skill max_tokens override flows into SubAgentConfig
+    #[tokio::test]
+    async fn tc_7_46b_max_tokens_override_applied() {
+        let mut skill = make_fork_skill("tokens-override-fork", "content");
+        skill.max_tokens = Some(8192);
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner)
+            .await
+            .unwrap();
+        let config = spawner.take_config();
+        assert_eq!(config.max_tokens, 8192);
     }
 
     // TC-7.47: SubAgentConfig.system_prompt defaults to None

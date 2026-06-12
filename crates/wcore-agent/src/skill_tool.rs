@@ -469,6 +469,8 @@ mod tests {
             content: content.to_string(),
             content_length: content.len(),
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         }
     }
 
@@ -601,6 +603,8 @@ mod supplemental_tests {
             content: content.to_string(),
             content_length: content.len(),
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         }
     }
 
@@ -841,6 +845,8 @@ mod supplemental_tests_p6 {
             content: "body".to_string(),
             content_length: 4,
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         }
     }
 
@@ -1024,6 +1030,8 @@ mod permission_tests {
             content: content.to_string(),
             content_length: content.len(),
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         }
     }
 
@@ -1191,6 +1199,8 @@ mod phase7_tests {
             content: content.to_string(),
             content_length: content.len(),
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         }
     }
 
@@ -1220,6 +1230,8 @@ mod phase7_tests {
             content: content.to_string(),
             content_length: content.len(),
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         }
     }
 
@@ -1593,6 +1605,8 @@ mod phase11_tests {
             content: "body".to_string(),
             content_length: 4,
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         }
     }
 

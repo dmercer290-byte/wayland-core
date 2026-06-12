@@ -43,6 +43,8 @@ fn skill_with_body(content: &str) -> SkillMetadata {
         content: content.to_string(),
         content_length: content.len(),
         skill_root: None,
+        max_turns: None,
+        max_tokens: None,
     }
 }
 

@@ -37,6 +37,10 @@ pub struct FrontmatterData {
     /// W4 X4: list of artifacts to materialise on activation.
     /// Parsed in frontmatter.rs::parse_artifacts_spec.
     pub artifacts: Option<serde_yaml::Value>,
+    #[serde(rename = "max-turns", default)]
+    pub max_turns: Option<usize>,
+    #[serde(rename = "max-tokens", default)]
+    pub max_tokens: Option<u32>,
     // No serde(flatten) + HashMap — known serde_yaml bug with that combination
 }
 
@@ -149,4 +153,8 @@ pub struct SkillMetadata {
     pub content_length: usize,
     /// Directory containing the skill file
     pub skill_root: Option<String>,
+    /// Per-skill max turns override for fork context; None = default (10).
+    pub max_turns: Option<usize>,
+    /// Per-skill max tokens override for fork context; None = default (16384).
+    pub max_tokens: Option<u32>,
 }

@@ -220,6 +220,8 @@ impl Harness {
             content: body_trimmed,
             content_length,
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         })
     }
 

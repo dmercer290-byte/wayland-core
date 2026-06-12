@@ -31,6 +31,8 @@ fn baseline_skill() -> SkillMetadata {
         content: "Hello! I am a friendly bundled greeting skill. $ARGUMENTS".into(),
         content_length: 57,
         skill_root: None,
+        max_turns: None,
+        max_tokens: None,
     }
 }
 

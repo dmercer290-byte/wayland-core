@@ -147,5 +147,7 @@ fn seed_skill() -> SkillMetadata {
         content_length: PARENT_BODY.len(),
         content: PARENT_BODY.to_string(),
         skill_root: None,
+        max_turns: None,
+        max_tokens: None,
     }
 }

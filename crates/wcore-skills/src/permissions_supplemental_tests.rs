@@ -36,6 +36,8 @@ mod permissions_supplemental_tests {
             content: String::new(),
             content_length: 0,
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         }
     }
 

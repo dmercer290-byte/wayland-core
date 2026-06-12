@@ -204,6 +204,8 @@ impl Generation {
             content_length: body.len(),
             content: body.to_string(),
             skill_root: None,
+            max_turns: None,
+            max_tokens: None,
         }
     }
 

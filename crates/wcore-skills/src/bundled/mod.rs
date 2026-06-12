@@ -213,6 +213,8 @@ fn definition_to_metadata(def: &BundledSkillDefinition) -> SkillMetadata {
         content_length,
         // skill_root is set later by extract_bundled_skill_files in load_all_skills
         skill_root: None,
+        max_turns: None,
+        max_tokens: None,
     }
 }
 

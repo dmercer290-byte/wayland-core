@@ -101,6 +101,8 @@ pub fn parse_skill_fields(
         content: content.to_owned(),
         content_length,
         skill_root: skill_root.map(str::to_owned),
+        max_turns: frontmatter.max_turns,
+        max_tokens: frontmatter.max_tokens,
     }
 }
 
