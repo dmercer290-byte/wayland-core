@@ -64,6 +64,8 @@ use super::limits::{self, DispatchBudget};
 use super::meta::WorkflowMeta;
 use super::pipeline;
 use super::schema::{self, WorkflowSchema};
+use crate::agents::channel_sink::{ChannelSink, SubAgentRelay};
+use crate::output::OutputSink;
 use crate::spawner::{AgentSpawner, SpawnExtras, SubAgentConfig, SubAgentResult};
 
 /// Default per-stage turn budget. Workflow stages are single-shot
@@ -505,6 +507,13 @@ pub struct WorkflowRunner<'a> {
     /// the relay/heartbeat tasks (PLAN A5 / gemini's starvation flag). A
     /// single semaphore is reused across every pipeline step in a run.
     pipeline_sem: Arc<Semaphore>,
+    /// ForgeFlows-Live Phase 1: parent `OutputSink` for sub-agent event relay.
+    /// When `Some`, every dispatched workflow sub-agent runs with a per-task
+    /// [`ChannelSink`] whose events are wrapped as `SubAgentEvent` and emitted
+    /// up to the parent — exactly like `SpawnTool::spawn_with_relay`. When
+    /// `None`, sub-agents run with a `NullSink` (legacy behaviour) so nothing
+    /// regresses for callers that never wire a parent.
+    parent_output: Option<Arc<dyn OutputSink>>,
 }
 
 impl<'a> WorkflowRunner<'a> {
@@ -519,7 +528,17 @@ impl<'a> WorkflowRunner<'a> {
         Self {
             spawner,
             pipeline_sem: Arc::new(Semaphore::new(cap.max(1))),
+            parent_output: None,
         }
+    }
+
+    /// ForgeFlows-Live Phase 1 builder: attach the parent's `OutputSink` so each
+    /// dispatched sub-agent's events relay back via `emit_sub_agent_event`,
+    /// mirroring [`crate::spawn_tool::SpawnTool::with_parent_output`]. Without
+    /// it the runner dispatches with a `NullSink` (sub-agent events dropped).
+    pub fn with_parent_output(mut self, output: Arc<dyn OutputSink>) -> Self {
+        self.parent_output = Some(output);
+        self
     }
 
     /// Execute `plan` against an `initial` state object, returning the final
@@ -1085,6 +1104,13 @@ impl<'a> WorkflowRunner<'a> {
         }
 
         if configs.len() == 1 {
+            // ForgeFlows-Live Phase 1: when a parent sink is wired, route even
+            // the single-node path through the relay so its sub-agent events
+            // reach the parent. `dispatch_via_relay` handles N==1 as a fan-out
+            // of one. When `None`, keep the legacy `spawn_one` (NullSink) path.
+            if self.parent_output.is_some() {
+                return self.dispatch_via_relay(configs).await;
+            }
             let (id, cfg) = configs.into_iter().next().expect("len checked == 1");
             let result = self.spawner.spawn_one(cfg).await;
             return vec![(id, result)];
@@ -1112,6 +1138,13 @@ impl<'a> WorkflowRunner<'a> {
         &self,
         configs: Vec<(String, SubAgentConfig)>,
     ) -> Vec<(String, SubAgentResult)> {
+        // ForgeFlows-Live Phase 1: when a parent sink is wired, each task gets a
+        // real `ChannelSink` so its events relay up as `SubAgentEvent`. Without
+        // a parent, fall through to `SpawnExtras::default()` (NullSink) so the
+        // legacy unmonitored path is byte-for-byte unchanged.
+        if self.parent_output.is_some() {
+            return self.dispatch_via_relay(configs).await;
+        }
         let ids: Vec<String> = configs.iter().map(|(id, _)| id.clone()).collect();
         let tasks: Vec<(SubAgentConfig, SpawnExtras)> = configs
             .into_iter()
@@ -1121,6 +1154,107 @@ impl<'a> WorkflowRunner<'a> {
             .spawner
             .spawn_parallel_with_per_task_extras(tasks)
             .await;
+        ids.into_iter().zip(results).collect()
+    }
+
+    /// ForgeFlows-Live Phase 1 — relay fan-out that mirrors
+    /// [`crate::spawn_tool::SpawnTool::spawn_with_relay`]: build one shared
+    /// stream-drain channel, a dedicated lifecycle channel per task, per-task
+    /// [`SpawnExtras`] carrying a `ChannelSink` keyed by `workflow:<node_id>`,
+    /// dispatch via `spawn_parallel_with_per_task_extras`, then flush the
+    /// lifecycle receivers AFTER the stream drain (W5.5 H-1: terminal
+    /// Done/Failed events survive a full stream channel). Results return in
+    /// input order, so a positional zip back to the node ids is correct.
+    ///
+    /// PRECONDITION: only called when `self.parent_output.is_some()`.
+    async fn dispatch_via_relay(
+        &self,
+        configs: Vec<(String, SubAgentConfig)>,
+    ) -> Vec<(String, SubAgentResult)> {
+        // SAFETY: guarded by every caller — only invoked when the parent sink
+        // is wired (mirrors `SpawnTool::spawn_with_relay`'s precondition).
+        let parent_output = Arc::clone(
+            self.parent_output
+                .as_ref()
+                .expect("dispatch_via_relay precondition: parent_output is Some"),
+        );
+
+        let ids: Vec<String> = configs.iter().map(|(id, _)| id.clone()).collect();
+
+        // One shared stream drain channel; each task's ChannelSink gets a
+        // clone of tx for best-effort stream events.
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<SubAgentRelay>(
+            crate::agents::channel_sink::CHANNEL_CAPACITY,
+        );
+
+        // W5.5 H-1: one dedicated lifecycle channel per task. Collected as a Vec
+        // of receivers so we can flush them after the stream drain.
+        let mut lifecycle_rxs: Vec<tokio::sync::mpsc::Receiver<SubAgentRelay>> =
+            Vec::with_capacity(configs.len());
+
+        // Build per-task SpawnExtras with a distinct parent_call_id + ChannelSink.
+        let tasks: Vec<(SubAgentConfig, SpawnExtras)> = configs
+            .into_iter()
+            .map(|(id, cfg)| {
+                // Unique id per node — the bridge keys SubAgentView on this.
+                let parent_call_id = format!("workflow:{id}");
+                // W5.5 H-1: dedicated lifecycle channel (capacity 2, never shared).
+                let (ltx, lrx) = tokio::sync::mpsc::channel::<SubAgentRelay>(
+                    crate::agents::channel_sink::LIFECYCLE_CAPACITY,
+                );
+                lifecycle_rxs.push(lrx);
+                let sink = Arc::new(ChannelSink::new_with_lifecycle(
+                    parent_call_id.clone(),
+                    cfg.name.clone(),
+                    tx.clone(),
+                    ltx,
+                ));
+                let extras = SpawnExtras {
+                    channel_sink: Some(sink),
+                    agent_name: Some(cfg.name.clone()),
+                    parent_call_id: Some(parent_call_id),
+                };
+                (cfg, extras)
+            })
+            .collect();
+
+        // Drop the original tx so the drain exits when all per-task senders drop.
+        drop(tx);
+
+        // Drain task: wrap each SubAgentRelay in a SubAgentEvent via the parent.
+        let drain_output = Arc::clone(&parent_output);
+        let drain = tokio::spawn(async move {
+            while let Some(relay) = rx.recv().await {
+                drain_output.emit_sub_agent_event(
+                    &relay.parent_call_id,
+                    &relay.agent_name,
+                    &relay.inner,
+                );
+            }
+        });
+
+        let results = self
+            .spawner
+            .spawn_parallel_with_per_task_extras(tasks)
+            .await;
+
+        // Wait for the stream drain to flush all pending stream relays. Every
+        // per-task ChannelSink has been dropped by now (all tasks completed), so
+        // rx.recv() returns None and the drain task exits promptly.
+        let _ = drain.await;
+
+        // W5.5 H-1: flush lifecycle events AFTER the stream drain. The terminal
+        // Done/Failed event for each task sits in its dedicated lifecycle channel.
+        for mut lrx in lifecycle_rxs {
+            while let Some(relay) = lrx.recv().await {
+                parent_output.emit_sub_agent_event(
+                    &relay.parent_call_id,
+                    &relay.agent_name,
+                    &relay.inner,
+                );
+            }
+        }
+
         ids.into_iter().zip(results).collect()
     }
 

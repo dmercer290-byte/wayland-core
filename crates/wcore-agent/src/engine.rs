@@ -258,10 +258,15 @@ fn run_workflow_owned(
     spawner: crate::spawner::AgentSpawner,
     plan: crate::orchestration::workflow::runner::WorkflowPlan,
     initial: serde_json::Value,
+    parent_output: std::sync::Arc<dyn crate::output::OutputSink>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = RunOwnedOutput> + Send>> {
     // Concrete boxed `Send` return type (see `synthesize_workflow_owned`).
     Box::pin(async move {
+        // ForgeFlows-Live Phase 1: wire the parent sink so the live (B6) path's
+        // sub-agent events relay back as `SubAgentEvent`, matching the LLM-facing
+        // `WorkflowTool` surface.
         let run = crate::orchestration::workflow::runner::WorkflowRunner::new(&spawner)
+            .with_parent_output(parent_output)
             .run(&plan, initial)
             .await;
         (plan, run)
@@ -4378,7 +4383,14 @@ impl AgentEngine {
                 // recursion-cut reason as synthesis above. The task takes
                 // ownership of the plan + spawner and returns them with the
                 // run result so the caller can render the per-stage summary.
-                match tokio::spawn(run_workflow_owned(spawner, plan, initial_state)).await {
+                match tokio::spawn(run_workflow_owned(
+                    spawner,
+                    plan,
+                    initial_state,
+                    std::sync::Arc::clone(&self.output),
+                ))
+                .await
+                {
                     Ok((plan, run)) => {
                         // A hard `Err` OR an `Ok` run that still carries a failed
                         // stage (silent partial success — e.g. a no-barrier

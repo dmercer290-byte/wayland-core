@@ -1611,9 +1611,13 @@ impl AgentBootstrap {
         // SpawnTool; shares the same `AgentSpawner` (the runner borrows it per
         // call). Registered before `spawner` is moved into DelegateTool below,
         // so clone the Arc here.
-        registry.register(Box::new(crate::workflow_tool::WorkflowTool::new(
-            Arc::clone(&spawner),
-        )));
+        // ForgeFlows-Live Phase 1: wire the same parent `OutputSink` SpawnTool
+        // uses so each workflow stage's sub-agent events relay back as
+        // `SubAgentEvent`. Arc::clone before `self.output` moves into the engine.
+        registry.register(Box::new(
+            crate::workflow_tool::WorkflowTool::new(Arc::clone(&spawner))
+                .with_parent_output(Arc::clone(&self.output)),
+        ));
         // T3-3.1.3: DelegateTool — focused single-task / batch delegation
         // surface ported from wayland-hermes. Sibling to SpawnTool (the
         // existing registry-aware multi-agent fan-out): Delegate provides

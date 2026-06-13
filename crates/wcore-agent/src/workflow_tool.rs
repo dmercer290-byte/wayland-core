@@ -23,6 +23,7 @@ use serde_json::{Value, json};
 use crate::orchestration::workflow::runner::{
     WorkflowPlan, WorkflowRunError, WorkflowRunResult, WorkflowRunner,
 };
+use crate::output::OutputSink;
 use crate::spawner::AgentSpawner;
 use wcore_protocol::events::ToolCategory;
 use wcore_tools::Tool;
@@ -32,11 +33,28 @@ use wcore_types::tool::{JsonSchema, ToolResult};
 /// dynamic-workflow engine.
 pub struct WorkflowTool {
     spawner: Arc<AgentSpawner>,
+    /// ForgeFlows-Live Phase 1: optional parent `OutputSink`. When `Some`, the
+    /// per-call `WorkflowRunner` is built with `with_parent_output` so each
+    /// stage's sub-agent events relay back via `emit_sub_agent_event` — exactly
+    /// like [`crate::spawn_tool::SpawnTool`]. When `None`, the runner dispatches
+    /// with a `NullSink` (legacy behaviour).
+    parent_output: Option<Arc<dyn OutputSink>>,
 }
 
 impl WorkflowTool {
     pub fn new(spawner: Arc<AgentSpawner>) -> Self {
-        Self { spawner }
+        Self {
+            spawner,
+            parent_output: None,
+        }
+    }
+
+    /// ForgeFlows-Live Phase 1 builder: attach the parent's `OutputSink` so each
+    /// workflow stage's sub-agent events relay back to the parent. Mirrors
+    /// [`crate::spawn_tool::SpawnTool::with_parent_output`].
+    pub fn with_parent_output(mut self, output: Arc<dyn OutputSink>) -> Self {
+        self.parent_output = Some(output);
+        self
     }
 }
 
@@ -129,7 +147,12 @@ impl Tool for WorkflowTool {
 
         // Execute through the runner. The runner borrows the spawner, so build
         // a fresh runner per call over the shared `Arc<AgentSpawner>`.
-        let runner = WorkflowRunner::new(&self.spawner);
+        // ForgeFlows-Live Phase 1: thread the parent sink so each stage's
+        // sub-agent events relay back as `SubAgentEvent`.
+        let mut runner = WorkflowRunner::new(&self.spawner);
+        if let Some(output) = &self.parent_output {
+            runner = runner.with_parent_output(Arc::clone(output));
+        }
         match runner.run(&plan, initial).await {
             Ok(result) => ToolResult {
                 content: render_run_result(&result),
