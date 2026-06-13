@@ -8,7 +8,7 @@
 //! 2. `wcore_memory::partition::UserModelInferencer` (PUM) — infers user-model
 //!    deltas from per-turn traces and writes them to P5.
 //!
-//! Both implement the `Hook` trait so a host (AionUI) can register them via
+//! Both implement the `Hook` trait so a host (the Wayland desktop app) can register them via
 //! `register_rust_hook`. CLI-only flows have no host, so without explicit
 //! engine-side invocation the pipelines silently never fire.
 //!

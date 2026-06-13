@@ -2254,7 +2254,8 @@ async fn run_json_stream_mode(
     let provider_name = config.provider_label.clone();
 
     // Bootstrap engine with full feature initialization. Phase 1B-2 —
-    // json-stream is a primary long-running host session (e.g. AionUI), so
+    // json-stream is a primary long-running host session (e.g. the Wayland
+    // desktop app), so
     // opt into inbound channel dispatch.
     let mut bootstrap = AgentBootstrap::new(config, cwd, output.clone())
         .plugin_provider_router(make_plugin_provider_router())

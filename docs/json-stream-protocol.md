@@ -1,6 +1,6 @@
 # wayland-core JSON Stream Protocol Spec
 
-> This protocol defines the communication between wayland-core (Rust CLI) and a host client (e.g., AionUi Electron app) via stdin/stdout JSON Lines.
+> This protocol defines the communication between wayland-core (Rust CLI) and a host client (e.g., the Wayland desktop Electron app) via stdin/stdout JSON Lines.
 
 ## Overview
 
@@ -8,7 +8,7 @@
 ┌──────────────┐   stdin (JSON Lines)    ┌──────────────────┐
 │              │ ◄─────────────────────── │                  │
 │ wayland-core│                          │   Host Client    │
-│  (Rust CLI)  │ ──────────────────────► │   (AionUi etc.)  │
+│  (Rust CLI)  │ ──────────────────────► │  (Wayland app)   │
 │              │   stdout (JSON Lines)    │                  │
 └──────────────┘                          └──────────────────┘
      stderr → diagnostic logs (not part of protocol)

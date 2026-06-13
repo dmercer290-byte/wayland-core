@@ -1,6 +1,6 @@
 //! W7 (closes debt B.8): high-level fixture-builder DSL for end-to-end tests.
 //!
-//! Inherited from an upstream AionUI todo. The engine's existing test
+//! Inherited from an upstream todo. The engine's existing test
 //! primitives (`ScriptedProvider`, `TestSink`, `AgentBootstrap::build_for_test`,
 //! `AgentEngine::run_synthetic_turn`) compose a working end-to-end harness,
 //! but each test still pays a ~30–50 line setup tax (config boilerplate,

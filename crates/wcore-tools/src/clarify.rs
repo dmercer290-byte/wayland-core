@@ -3,7 +3,7 @@
 //! The `clarify` tool lets the agent surface a structured question (with up
 //! to 4 multiple-choice options, plus an implicit "Other" the UI appends)
 //! or a free-form open-ended prompt, to the user. The actual user-facing
-//! interaction lives in the host/platform layer (CLI / AionUI / gateway).
+//! interaction lives in the host/platform layer (CLI / Wayland desktop app / gateway).
 //! This tool's job is to validate the agent's intent and emit a structured
 //! payload describing the question. The host intercepts tool calls named
 //! `clarify` to perform the real prompt and inject the response back into

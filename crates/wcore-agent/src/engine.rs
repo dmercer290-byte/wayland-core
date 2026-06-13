@@ -5270,8 +5270,9 @@ impl AgentEngine {
         // Wave W3 (closes B.1): direct invocation of W9 Curator + PUM
         // (UserModelInferencer) for CLI-only flows.
         //
-        // The host-side `HookEngine` route above is the GUI path: AionUI
-        // registers a Curator/PUM hook through `register_rust_hook` and
+        // The host-side `HookEngine` route above is the GUI path: the
+        // Wayland desktop app registers a Curator/PUM hook through
+        // `register_rust_hook` and
         // observes the same `on_session_end` callback. CLI-only flows
         // (no host) never register those hooks, so without this block the
         // Curator and PUM never fire — silently — and the skills_lifecycle

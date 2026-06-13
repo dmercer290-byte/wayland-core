@@ -2,7 +2,7 @@
 //!
 //! Hosts the **server side** of the Model Context Protocol — accepting
 //! JSON-RPC `initialize`, `tools/list`, and `tools/call` from upstream
-//! clients (other agents, IDEs, the AionUI host). Transports live in
+//! clients (other agents, IDEs, the Wayland desktop host). Transports live in
 //! `crate::transports` (stdio + SSE).
 //!
 //! ## Why server-side types live here

@@ -231,6 +231,6 @@ is the most common source of subsequent refactors.
 - [docs/skills.md](skills.md) — writing skills, front matter, shell expansion, conditional activation
 - [docs/mcp.md](mcp.md) — MCP server integration, transport types, deferred loading
 - [docs/advanced.md](advanced.md) — sub-agents, hooks, memory, plan mode, context compression
-- [docs/json-stream-protocol.md](json-stream-protocol.md) — JSON Lines protocol for host integration (e.g. AionUI)
+- [docs/json-stream-protocol.md](json-stream-protocol.md) — JSON Lines protocol for host integration (e.g. the Wayland desktop app)
 - [docs/wcore-evolve.md](wcore-evolve.md) — GEPA evolution loop deep dive
 - [docs/troubleshooting.md](troubleshooting.md) — common errors and solutions
