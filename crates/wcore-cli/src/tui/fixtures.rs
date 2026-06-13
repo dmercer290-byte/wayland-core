@@ -159,6 +159,73 @@ pub fn sub_agent_spawn() -> Vec<ProtocolEvent> {
     ]
 }
 
+/// ForgeFlows-Live Phase 2 — a workflow run: `SubAgentEvent`s carrying the
+/// `"workflow:<node_id>"` `parent_call_id` prefix for two nodes
+/// (`stage-1`, `stage-2`), each a streaming line, a `stream_end` with
+/// usage, and a terminal `info`. Feeding this through the bridge populates
+/// `session.sub_agents` (unchanged SubAgents tab) AND `app.workflows` with
+/// one workflow group holding two `Done` nodes with non-empty feeds.
+pub fn workflow_run() -> Vec<ProtocolEvent> {
+    vec![
+        ProtocolEvent::SubAgentEvent {
+            parent_call_id: "workflow:stage-1".into(),
+            agent_name: "planner".into(),
+            inner: json!({
+                "type": "text_delta",
+                "text": "Planning the change...",
+                "msg_id": "wf-1",
+            }),
+        },
+        ProtocolEvent::SubAgentEvent {
+            parent_call_id: "workflow:stage-1".into(),
+            agent_name: "planner".into(),
+            inner: json!({
+                "type": "stream_end",
+                "msg_id": "wf-1",
+                "finish_reason": "stop",
+                "usage": {"input_tokens": 300, "output_tokens": 180},
+            }),
+        },
+        ProtocolEvent::SubAgentEvent {
+            parent_call_id: "workflow:stage-1".into(),
+            agent_name: "planner".into(),
+            inner: json!({
+                "type": "info",
+                "msg_id": "wf-1",
+                "message": "Stage 1 finished: plan ready.",
+            }),
+        },
+        ProtocolEvent::SubAgentEvent {
+            parent_call_id: "workflow:stage-2".into(),
+            agent_name: "builder".into(),
+            inner: json!({
+                "type": "text_delta",
+                "text": "Building from the plan...",
+                "msg_id": "wf-2",
+            }),
+        },
+        ProtocolEvent::SubAgentEvent {
+            parent_call_id: "workflow:stage-2".into(),
+            agent_name: "builder".into(),
+            inner: json!({
+                "type": "stream_end",
+                "msg_id": "wf-2",
+                "finish_reason": "stop",
+                "usage": {"input_tokens": 250, "output_tokens": 140},
+            }),
+        },
+        ProtocolEvent::SubAgentEvent {
+            parent_call_id: "workflow:stage-2".into(),
+            agent_name: "builder".into(),
+            inner: json!({
+                "type": "info",
+                "msg_id": "wf-2",
+                "message": "Stage 2 finished: build complete.",
+            }),
+        },
+    ]
+}
+
 /// A diagnostics burst: an `Error` and an `Info`. Each becomes a
 /// `System` turn — handy for testing the transcript's system-notice
 /// rendering.

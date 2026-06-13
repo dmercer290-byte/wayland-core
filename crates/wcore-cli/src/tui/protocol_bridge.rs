@@ -26,7 +26,7 @@ use wcore_types::message::{ContentBlock, Message, Role};
 use crate::tui::anim::AnimId;
 use crate::tui::app::{
     App, DiffModel, StreamingPhase, SubAgentStatus, SubAgentView, ToolCardModel, ToolCardStatus,
-    TurnRole, TurnView,
+    TurnRole, TurnView, WorkflowNodeView, WorkflowView,
 };
 use crate::tui::render::markdown::render_markdown;
 use crate::tui::theme::Theme;
@@ -1487,7 +1487,9 @@ fn apply_sub_agent_event(
         None => {
             app.session.sub_agents.push(SubAgentView {
                 id: parent_call_id.clone(),
-                name: agent_name,
+                // Clone: `agent_name` is still needed below for the Phase 2
+                // workflow-grouping call (this create path fires once per node).
+                name: agent_name.clone(),
                 status: SubAgentStatus::Running,
                 turns: 0,
                 tokens: 0,
@@ -1564,6 +1566,15 @@ fn apply_sub_agent_event(
         }
     }
 
+    // ForgeFlows-Live Phase 2 — ALSO group `"workflow:<node_id>"`-prefixed
+    // events under the Workflows tab. This is ADDITIONAL: the
+    // `session.sub_agents` population above is unchanged, so the SubAgents
+    // tab keeps every workflow node too. The `view` borrow has dropped by
+    // here (the `match` ended), so this runs against `&mut app` directly.
+    if let Some(node_id) = parent_call_id.strip_prefix("workflow:") {
+        apply_workflow_node_event(app, node_id, &agent_name, kind, &inner);
+    }
+
     // v0.9.3 S0.9 — terminal-status branches feed the glow fader so the
     // 30s done-glow can fade out on the strip + sub-agent row. The `view`
     // borrow above has dropped by the end of the `match`, so this runs
@@ -1593,6 +1604,113 @@ fn push_feed_line(view: &mut SubAgentView, text: &str) {
         let line = line.trim_end();
         if !line.is_empty() {
             view.feed.push(line.to_string());
+        }
+    }
+}
+
+/// ForgeFlows-Live Phase 2 — fold a `"workflow:<node_id>"`-prefixed inner
+/// event into the Workflows-tab view. Find-or-create the single workflow
+/// group (MVP key `"workflow"`), then find-or-create the node by
+/// `node_id`, and apply the SAME fold the SubAgentView path uses so the
+/// two stay consistent: `text_delta` → feed line, `tool_request` /
+/// `tool_result` → marker line, `stream_end` → tokens, `info` → Done,
+/// `error` → Failed.
+///
+/// `kind` and `inner` are the already-parsed event tag + payload from
+/// `apply_sub_agent_event`, so this never re-reads `parent_call_id`.
+fn apply_workflow_node_event(
+    app: &mut App,
+    node_id: &str,
+    agent_name: &str,
+    kind: &str,
+    inner: &serde_json::Value,
+) {
+    // MVP grouping key: a single workflow group. A natural per-run key can
+    // split concurrent workflows later without changing this shape.
+    const GROUP_KEY: &str = "workflow";
+
+    let wf_idx = match app.workflows.iter().position(|w| w.key == GROUP_KEY) {
+        Some(i) => i,
+        None => {
+            app.workflows.push(WorkflowView {
+                key: GROUP_KEY.to_string(),
+                name: "Workflow".to_string(),
+                nodes: Vec::new(),
+            });
+            app.workflows.len() - 1
+        }
+    };
+    let workflow = &mut app.workflows[wf_idx];
+
+    let node_idx = match workflow.nodes.iter().position(|n| n.node_id == node_id) {
+        Some(i) => i,
+        None => {
+            workflow.nodes.push(WorkflowNodeView {
+                node_id: node_id.to_string(),
+                agent_name: agent_name.to_string(),
+                status: SubAgentStatus::Running,
+                feed: Vec::new(),
+                tokens: 0,
+            });
+            workflow.nodes.len() - 1
+        }
+    };
+    let node = &mut workflow.nodes[node_idx];
+
+    match kind {
+        "text_delta" => {
+            if let Some(text) = inner.get("text").and_then(|v| v.as_str()) {
+                push_node_feed_line(node, text);
+            }
+        }
+        "tool_request" => {
+            if let Some(name) = inner
+                .get("tool")
+                .and_then(|t| t.get("name"))
+                .and_then(|v| v.as_str())
+            {
+                node.feed.push(format!("→ {name}"));
+            }
+        }
+        "tool_result" => {
+            if let Some(name) = inner.get("tool_name").and_then(|v| v.as_str()) {
+                node.feed.push(format!("✓ {name}"));
+            }
+        }
+        "stream_end" => {
+            if let Some(usage) = inner.get("usage") {
+                let input = usage.get("input_tokens").and_then(|v| v.as_u64());
+                let output = usage.get("output_tokens").and_then(|v| v.as_u64());
+                node.tokens += input.unwrap_or(0) + output.unwrap_or(0);
+            }
+        }
+        "error" => {
+            node.status = SubAgentStatus::Failed;
+            if let Some(msg) = inner
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|v| v.as_str())
+            {
+                node.feed.push(format!("error: {msg}"));
+            }
+        }
+        "info" => {
+            if let Some(msg) = inner.get("message").and_then(|v| v.as_str()) {
+                push_node_feed_line(node, msg);
+            }
+            node.status = SubAgentStatus::Done;
+        }
+        _ => {}
+    }
+}
+
+/// Append `text` to a workflow node's feed as whole lines, skipping
+/// blanks. Mirrors [`push_feed_line`] for the workflow path.
+fn push_node_feed_line(node: &mut WorkflowNodeView, text: &str) {
+    for line in text.lines() {
+        let line = line.trim_end();
+        if !line.is_empty() {
+            node.feed.push(line.to_string());
         }
     }
 }

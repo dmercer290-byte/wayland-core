@@ -66,7 +66,7 @@ impl Keymap {
     pub fn default_map() -> Self {
         use SurfaceId::{
             AgentNav, AgentTranscript, Config, Diagnostics, Onboarding, Palette, PlanReview,
-            Plugins, SubAgents, Workspace,
+            Plugins, SubAgents, Workflows, Workspace,
         };
 
         let bindings = vec![
@@ -224,6 +224,21 @@ impl Keymap {
                     "spawn.interrupt",
                     "interrupt the spawn",
                 ),
+            ),
+            // ForgeFlows-Live Phase 2 — the Workflows tab: `Enter` drills
+            // into a workflow's nodes, `Esc` steps back out (to the list,
+            // then closes the tab — restated here for the `?` overlay).
+            (
+                KeyContext::Surface(Workflows),
+                binding(
+                    plain(KeyCode::Enter),
+                    "workflow.expand",
+                    "drill into a workflow's nodes",
+                ),
+            ),
+            (
+                KeyContext::Surface(Workflows),
+                binding(plain(KeyCode::Esc), "workflow.back", "back to the list"),
             ),
             // --- Command palette overlay -----------------------------
             // Arrow keys move the selection, `Enter` runs, `Tab` toggles

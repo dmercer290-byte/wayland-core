@@ -254,6 +254,12 @@ pub struct App {
     /// requested file at request time — only the on-disk checkpoint record is
     /// gated on approval.
     pending_touch: HashMap<String, PathBuf>,
+    /// ForgeFlows-Live Phase 2 — workflows inferred from the
+    /// `"workflow:<node_id>"` `parent_call_id` prefix on relayed sub-agent
+    /// events. Populated by the protocol bridge ALONGSIDE
+    /// `session.sub_agents` (the SubAgents tab is unchanged); read only by
+    /// the Workflows surface. Empty until a workflow runs.
+    pub workflows: Vec<WorkflowView>,
 }
 
 impl App {
@@ -344,6 +350,8 @@ impl App {
             touched_files_watermark: 0,
             // B1b: no tool requests in flight at boot.
             pending_touch: HashMap::new(),
+            // ForgeFlows-Live Phase 2: no workflows running at boot.
+            workflows: Vec::new(),
         }
     }
 
@@ -538,6 +546,9 @@ impl App {
         self.active_agent_transcript_id = None;
         self.reasoning_expanded.clear();
         self.focused_reasoning_turn_idx = None;
+        // ForgeFlows-Live Phase 2: drop inferred workflows on /new alongside
+        // the sub-agent state they are grouped from.
+        self.workflows.clear();
         // onboarding_state: intentionally NOT reset (once-per-session first-spawn hint).
     }
 
@@ -897,14 +908,51 @@ pub struct SubAgentView {
 }
 
 /// Lifecycle state of a sub-agent. FROZEN Wave-0 contract.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SubAgentStatus {
     /// The sub-agent is actively working.
+    #[default]
     Running,
     /// The sub-agent finished successfully.
     Done,
     /// The sub-agent terminated with an error.
     Failed,
+}
+
+/// ForgeFlows-Live Phase 2 — a running workflow grouped from the
+/// `"workflow:<node_id>"` `parent_call_id` prefix the child agents relay
+/// (shipped in Phase 1). This is the drill-in unit of the Workflows tab:
+/// one `WorkflowView` lists the nodes a workflow ran. MVP groups every
+/// `"workflow:"`-prefixed sub-agent event under a single workflow (`key`
+/// is always `"workflow"`); a richer per-run key can split concurrent
+/// workflows later without changing this shape.
+#[derive(Debug, Clone, Default)]
+pub struct WorkflowView {
+    /// Grouping key — the `"workflow"` prefix group the nodes share.
+    pub key: String,
+    /// Display name; derived from node names, defaults to `"Workflow"`.
+    pub name: String,
+    /// The workflow's nodes, in first-seen order.
+    pub nodes: Vec<WorkflowNodeView>,
+}
+
+/// One node within a [`WorkflowView`] — a single child agent the workflow
+/// ran, identified by the suffix after `"workflow:"`.
+#[derive(Debug, Clone, Default)]
+pub struct WorkflowNodeView {
+    /// The node id — the suffix after the `"workflow:"` prefix.
+    pub node_id: String,
+    /// The child agent's name (the relayed `agent_name`).
+    pub agent_name: String,
+    /// Whether the node is still running, done, or failed. Reuses the
+    /// sub-agent lifecycle enum so the bridge fold stays identical.
+    pub status: SubAgentStatus,
+    /// Recent live-feed lines from the node (most recent last). Unbounded,
+    /// matching [`SubAgentView::feed`] — neither the bridge nor the surface
+    /// caps it today.
+    pub feed: Vec<String>,
+    /// Tokens consumed by the node so far.
+    pub tokens: u64,
 }
 
 // ─────────────────────────────────────────────────────────────────────────

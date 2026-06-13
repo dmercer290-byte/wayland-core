@@ -27,6 +27,7 @@ use self::palette::PaletteSurface;
 use self::plan_review::PlanReviewSurface;
 use self::plugins::PluginsSurface;
 use self::subagents::SubAgentsSurface;
+use self::workflows::WorkflowsSurface;
 use self::workspace::WorkspaceSurface;
 
 // Wave-1 surface modules — each implements `Surface` for one screen.
@@ -42,6 +43,7 @@ mod palette;
 mod plan_review;
 mod plugins;
 mod subagents;
+mod workflows; // ForgeFlows-Live Phase 2 — Workflows drill-in tab
 mod workspace;
 
 /// Identity of a TUI surface. FROZEN Wave-0 contract.
@@ -72,20 +74,28 @@ pub enum SurfaceId {
     /// kept on `App::active_agent_transcript_id` (set by AgentNav handler
     /// before returning Switch; cleared on Pop).
     AgentTranscript,
+    /// ForgeFlows-Live Phase 2 — the live Workflows drill-in monitor. Lists
+    /// workflows inferred from the `"workflow:"` `parent_call_id` prefix,
+    /// drilling into each workflow's nodes/sub-agents.
+    Workflows,
 }
 
 impl SurfaceId {
-    /// The six surfaces shown in the top tab chrome, in display order.
+    /// The surfaces shown in the top tab chrome, in display order.
     /// `Onboarding` is excluded — it is a first-run gate, not a peer
     /// surface (re-enter it with `/setup`). `Palette` is excluded — it is
-    /// an overlay, never a primary tab.
-    pub const TABS: [SurfaceId; 6] = [
+    /// an overlay, never a primary tab. ForgeFlows-Live Phase 2 appended
+    /// `Workflows` LAST so the existing tab indices (and the `1`-`6`
+    /// digit-jump that only spans indices 0-5) are undisturbed; the new
+    /// tab is reachable by Tab-cycling.
+    pub const TABS: [SurfaceId; 7] = [
         SurfaceId::Workspace,
         SurfaceId::SubAgents,
         SurfaceId::PlanReview,
         SurfaceId::Config,
         SurfaceId::Plugins,
         SurfaceId::Diagnostics,
+        SurfaceId::Workflows,
     ];
 
     /// A short human-readable label for tab chrome.
@@ -101,6 +111,7 @@ impl SurfaceId {
             SurfaceId::Diagnostics => "Diagnostics",
             SurfaceId::AgentNav => "Agents",
             SurfaceId::AgentTranscript => "Agent",
+            SurfaceId::Workflows => "Workflows",
         }
     }
 
@@ -2667,6 +2678,7 @@ fn make_surface(id: SurfaceId) -> Box<dyn Surface> {
         SurfaceId::Diagnostics => Box::new(DiagnosticsSurface::new()),
         SurfaceId::AgentNav => Box::new(agent_nav::AgentNavSurface::default()),
         SurfaceId::AgentTranscript => Box::new(agent_transcript::AgentTranscriptSurface::default()),
+        SurfaceId::Workflows => Box::new(WorkflowsSurface::new()),
     }
 }
 
@@ -3711,7 +3723,8 @@ mod tests {
         // Onboarding is a first-run gate, not a peer surface — it must not
         // appear in the tab chrome.
         assert!(!SurfaceId::TABS.contains(&SurfaceId::Onboarding));
-        assert_eq!(SurfaceId::TABS.len(), 6);
+        // ForgeFlows-Live Phase 2 appended `Workflows`, taking the tab count to 7.
+        assert_eq!(SurfaceId::TABS.len(), 7);
         // ...and it carries no tab index.
         assert!(SurfaceId::Onboarding.tab_index().is_none());
     }
@@ -4776,21 +4789,24 @@ mod tests {
         // Pressing Tab from each tab must reach the next tab, and from
         // the last tab must wrap around to the first. The hunt found
         // Tab no-opping after Sub-Agents in live use; this test
-        // codifies that all six surfaces are reachable via Tab and that
-        // the cycle is unbroken end-to-end.
+        // codifies that all tabs are reachable via Tab and that
+        // the cycle is unbroken end-to-end. ForgeFlows-Live Phase 2
+        // appended `Workflows` as the last tab, so the cycle now runs
+        // seven presses before wrapping back to Workspace.
         let mut app = App::new();
         let mut router = Router::new(&app);
         router.apply(SurfaceAction::Switch(SurfaceId::Workspace), &mut app);
 
-        // Six Tab presses from Workspace must land us back on Workspace
+        // Seven Tab presses from Workspace must land us back on Workspace
         // (Workspace → SubAgents → PlanReview → Config → Plugins →
-        // Diagnostics → Workspace).
+        // Diagnostics → Workflows → Workspace).
         let expected = [
             SurfaceId::SubAgents,
             SurfaceId::PlanReview,
             SurfaceId::Config,
             SurfaceId::Plugins,
             SurfaceId::Diagnostics,
+            SurfaceId::Workflows,
             SurfaceId::Workspace,
         ];
         for (i, want) in expected.iter().enumerate() {
