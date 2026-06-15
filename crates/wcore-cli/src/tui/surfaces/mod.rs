@@ -3844,6 +3844,26 @@ mod tests {
     }
 
     #[test]
+    fn bare_slash_plugins_opens_the_marketplace_overlay() {
+        // Lane F2: `/plugins` summons the marketplace overlay (not a tab
+        // switch). The overlay's on_enter reads the plugins dir from disk, but
+        // reload tolerates a missing/empty dir, so this is safe in a test.
+        let mut app = App::new();
+        let mut router = Router::new(&app);
+        router.apply(SurfaceAction::Switch(SurfaceId::Workspace), &mut app);
+        router.apply(SurfaceAction::Command("/plugins".to_string()), &mut app);
+        assert_eq!(
+            app.overlay,
+            Some(SurfaceId::Marketplace),
+            "/plugins should open the Marketplace overlay"
+        );
+        // The active surface stays put underneath; Esc on the overlay closes it.
+        assert_eq!(app.surface, SurfaceId::Workspace);
+        router.handle_key(key(KeyCode::Esc), &mut app);
+        assert_eq!(app.overlay, None, "Esc should close the overlay");
+    }
+
+    #[test]
     fn number_keys_jump_directly_to_a_tab() {
         // `1`-`6` jump straight to a tab on surfaces without a text field
         // or an internal digit binding.
