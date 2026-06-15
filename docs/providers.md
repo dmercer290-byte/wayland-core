@@ -35,6 +35,25 @@ Rules:
 
 This fits scenarios like DeepSeek gateways and internal OpenAI-compatible services.
 
+### Generic / self-hosted OpenAI-compatible endpoints (vLLM, llama.cpp, LM Studio)
+
+Point `base_url` at the server's API root **without** a trailing `/v1` — the engine
+appends `/v1/chat/completions` itself (so `http://127.0.0.1:8003`, not
+`http://127.0.0.1:8003/v1`).
+
+Some self-hosted servers reject the `stream_options: {include_usage: true}` field the
+engine sends by default (to collect token-usage accounting) with an HTTP 400, or simply
+stream nothing — which can present as a chat that produces **no response and no error**.
+If a local endpoint returns nothing, drop that field via compat:
+
+```toml
+[providers.my-local.compat]
+include_usage_in_stream = false   # omit stream_options for picky OpenAI-compatible servers
+```
+
+The trade-off is no in-stream token counts for that provider. An empty stream now also
+surfaces a visible error instead of a silent no-op.
+
 ---
 
 ## Profile Inheritance

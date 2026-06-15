@@ -257,8 +257,16 @@ impl OpenAIProvider {
             dedup_tool_results(&mut result);
         }
 
-        // Clean orphan tool calls: remove tool_call entries with no matching tool result
+        // Clean orphans in BOTH directions. OpenAI-format APIs 400 on either a
+        // `tool` result with no parent `tool_calls` entry OR an assistant
+        // `tool_calls` entry with no answering result. Strip results-without-a-
+        // call first (e.g. left behind when history trimming drops the parent
+        // assistant message — FerroxLabs/wayland#85), then calls-without-a-
+        // result. Order is independent (an orphan result has no parent call, so
+        // removing it never orphans a call), but results-first keeps the two
+        // passes from re-scanning each other's removals.
         if compat.clean_orphan_tool_calls() {
+            clean_orphaned_tool_results(&mut result);
             clean_orphaned_tool_calls(&mut result);
         }
 
@@ -368,9 +376,14 @@ impl OpenAIProvider {
         let mut body = json!({
             "model": request.model,
             "messages": Self::build_messages(&request.messages, &request.system, &self.compat),
-            "stream": true,
-            "stream_options": { "include_usage": true }
+            "stream": true
         });
+        // `stream_options: {include_usage: true}` asks for token accounting in
+        // the final chunk. Default on, but suppressible for generic self-hosted
+        // OpenAI-compatible endpoints that 400 on the unknown field (#86).
+        if self.compat.include_usage_in_stream() {
+            body["stream_options"] = json!({ "include_usage": true });
+        }
         body[max_tokens_field] = json!(request.max_tokens);
 
         if !request.tools.is_empty() {
@@ -497,6 +510,41 @@ fn dedup_tool_results(messages: &mut Vec<Value>) {
     for i in to_remove.into_iter().rev() {
         messages.remove(i);
     }
+}
+
+/// Remove `tool` result messages whose `tool_call_id` matches no assistant
+/// `tool_calls` entry — the symmetric counterpart to
+/// [`clean_orphaned_tool_calls`].
+///
+/// OpenAI-format APIs reject (HTTP 400) any `tool` message that does not answer
+/// a preceding assistant `tool_calls` entry. Such an orphan arises when the
+/// parent assistant message is dropped from the request while its tool result
+/// is kept — e.g. a context-window trim that splits the pair. An orphaned tool
+/// result is unconditionally invalid to send, so stripping it is strictly
+/// correct. See FerroxLabs/wayland#85.
+fn clean_orphaned_tool_results(messages: &mut Vec<Value>) {
+    use std::collections::HashSet;
+
+    let called_ids: HashSet<String> = messages
+        .iter()
+        .filter(|m| m["role"].as_str() == Some("assistant"))
+        .filter_map(|m| m["tool_calls"].as_array())
+        .flatten()
+        .filter_map(|tc| tc["id"].as_str().map(String::from))
+        .collect();
+
+    messages.retain(|m| {
+        if m["role"].as_str() == Some("tool")
+            && let Some(id) = m["tool_call_id"].as_str()
+        {
+            // Keep only results whose call survives in the array.
+            called_ids.contains(id)
+        } else {
+            // Non-tool messages, and any malformed tool message without a
+            // tool_call_id, are out of scope for this pass.
+            true
+        }
+    });
 }
 
 /// Remove tool_call entries from assistant messages that have no corresponding tool result
@@ -1575,6 +1623,30 @@ mod tests {
         );
     }
 
+    // --- #86: stream_options gate for generic OpenAI-compatible endpoints ---
+
+    #[test]
+    fn build_request_body_emits_stream_options_by_default() {
+        // Default keeps stream_options:{include_usage:true} for token accounting.
+        let body = stop_provider().build_request_body(&stop_req());
+        assert_eq!(body["stream_options"]["include_usage"], json!(true));
+    }
+
+    #[test]
+    fn build_request_body_omits_stream_options_when_disabled() {
+        // A generic self-hosted endpoint that 400s on the unknown
+        // `stream_options` field can suppress it via compat.
+        let mut compat = openai_compat();
+        compat.include_usage_in_stream = Some(false);
+        let provider =
+            OpenAIProvider::new("key", "http://localhost", compat, DebugConfig::default());
+        let body = provider.build_request_body(&stop_req());
+        assert!(
+            body.get("stream_options").is_none(),
+            "stream_options must be omitted when include_usage_in_stream = false"
+        );
+    }
+
     #[test]
     fn build_request_body_emits_stop_when_present() {
         let mut req = stop_req();
@@ -1851,6 +1923,94 @@ mod tests {
         let assistant = result.iter().find(|m| m["role"] == "assistant").unwrap();
         let tcs = assistant["tool_calls"].as_array().unwrap();
         assert_eq!(tcs.len(), 2);
+    }
+
+    // --- clean_orphan_tool_results (FerroxLabs/wayland#85) ---
+
+    #[test]
+    fn test_clean_orphan_tool_results_enabled() {
+        // A `tool` result whose tool_call_id has no parent assistant
+        // `tool_calls` entry (e.g. the parent message was trimmed from the
+        // history) must be stripped — OpenAI-format APIs 400 otherwise.
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "tc1".into(),
+                    name: "bash".into(),
+                    input: json!({}),
+                    extra: None,
+                }],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "tc1".into(),
+                    content: "ok".into(),
+                    is_error: false,
+                }],
+            ),
+            // Orphan: its parent assistant tool_calls entry is absent.
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "tc_ghost".into(),
+                    content: "orphaned".into(),
+                    is_error: false,
+                }],
+            ),
+        ];
+        let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
+        let tool_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "tool").collect();
+        assert_eq!(tool_msgs.len(), 1);
+        assert_eq!(tool_msgs[0]["tool_call_id"], "tc1");
+
+        // Invariant the provider 400 was caused by: every surviving tool
+        // result resolves to an assistant tool_calls id.
+        let called: std::collections::HashSet<String> = result
+            .iter()
+            .filter(|m| m["role"] == "assistant")
+            .filter_map(|m| m["tool_calls"].as_array())
+            .flatten()
+            .filter_map(|tc| tc["id"].as_str().map(String::from))
+            .collect();
+        for tm in &tool_msgs {
+            assert!(called.contains(tm["tool_call_id"].as_str().unwrap()));
+        }
+    }
+
+    #[test]
+    fn test_clean_orphan_tool_results_disabled() {
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "tc1".into(),
+                    name: "bash".into(),
+                    input: json!({}),
+                    extra: None,
+                }],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "tc1".into(),
+                    content: "ok".into(),
+                    is_error: false,
+                }],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "tc_ghost".into(),
+                    content: "orphaned".into(),
+                    is_error: false,
+                }],
+            ),
+        ];
+        let result = OpenAIProvider::build_messages(&messages, "", &no_compat());
+        let tool_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "tool").collect();
+        assert_eq!(tool_msgs.len(), 2);
     }
 
     // --- dedup_tool_results ---

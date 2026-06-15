@@ -331,6 +331,11 @@ impl Tool for ReadTool {
         let is_full_read = offset.is_none() && limit.is_none();
         let single_agent = ctx.source_agent.is_none();
         let mut diff_base: Option<String> = None;
+        // Token-burn fix: the still-in-transcript cached content (ANY window) for
+        // a post-read content-equality dedup. Distinct from `diff_base` (which is
+        // exact-window + full-read only): this also catches a narrower/overlapping
+        // re-range and mtime churn.
+        let mut dedup_base: Option<String> = None;
         let mut current_gen: u64 = 0;
 
         if symbol.is_none()
@@ -371,6 +376,19 @@ impl Tool for ReadTool {
                     && cached.gen_at_read == current_gen
                 {
                     diff_base = Some(cached.content.clone());
+                }
+                // Token-burn fix: capture the cached content under the SAME
+                // soundness guards as the stub (referenced Read still in this
+                // transcript: single agent, same compaction generation) but WITHOUT
+                // requiring an exact window or matching mtime. A post-read
+                // content-equality check then stubs any re-read whose exact numbered
+                // lines the model already holds — defeating the mtime churn and
+                // varied-range re-reads that the window-exact fast path above misses.
+                if cached.provenance == Provenance::ReadResult
+                    && single_agent
+                    && cached.gen_at_read == current_gen
+                {
+                    dedup_base = Some(cached.content.clone());
                 }
             }
         }
@@ -414,6 +432,24 @@ impl Tool for ReadTool {
             .collect();
 
         let result_content = numbered.join("\n");
+
+        // Token-burn fix: if the exact numbered lines we would return are already
+        // present verbatim in a still-current cached Read of this file, the model
+        // already holds them — return the unchanged stub instead of re-injecting,
+        // and fall through WITHOUT overwriting the (possibly broader) cached window
+        // below, so a narrow re-read never evicts the full-file entry. Every line
+        // carries a unique `%6d\t` number prefix, so a substring match is
+        // line-aligned and unambiguous; a real edit changes the numbered text and
+        // correctly misses, falling through to diff-resend / full content.
+        if let Some(base) = &dedup_base
+            && !result_content.is_empty()
+            && base.contains(&result_content)
+        {
+            return ToolResult {
+                content: FILE_UNCHANGED_STUB.to_string(),
+                is_error: false,
+            };
+        }
 
         // Token-opt (diff-resend): if we captured a sound base and the content
         // actually changed, try to answer with a line diff. The diff is byte-exact
@@ -1005,6 +1041,103 @@ mod tests {
         let r2 = tool.execute_with_ctx(input, &sub).await;
         assert_ne!(r2.content, FILE_UNCHANGED_STUB);
         assert!(r2.content.contains('X'));
+    }
+
+    // -- content-equality dedup tests (token-burn fix) --
+    // `make_cache()` leaves optimize_reads OFF, so these isolate the content
+    // dedup from the diff-resend path (which only fires for full reads).
+
+    #[tokio::test]
+    async fn subrange_reread_of_unchanged_file_returns_stub() {
+        // Read the whole file, then re-read a sub-range of the UNCHANGED file.
+        // The window differs (so the exact-window fast path misses), but the
+        // model already holds those lines from the full read -> stub, not re-inject.
+        let dir = tempdir().unwrap();
+        let file = write_lines(dir.path(), "big.txt", 60, "ORIGINAL");
+        let tool = ReadTool::new(Some(make_cache()));
+        let ctx = ctx_main();
+
+        let full = json!({ "file_path": file.to_str().unwrap() });
+        let r1 = tool.execute_with_ctx(full, &ctx).await;
+        assert!(r1.content.contains("line 59"));
+
+        let sub = json!({ "file_path": file.to_str().unwrap(), "offset": 0, "limit": 10 });
+        let r2 = tool.execute_with_ctx(sub, &ctx).await;
+        assert_eq!(
+            r2.content, FILE_UNCHANGED_STUB,
+            "a sub-range already covered by the full read must stub, got: {}",
+            r2.content
+        );
+    }
+
+    #[tokio::test]
+    async fn full_reread_after_mtime_churn_with_identical_content_stubs() {
+        // Rewrite identical bytes: mtime bumps so the exact-window+mtime fast path
+        // misses, but the content is unchanged -> content dedup stubs it (this is
+        // the case the ticket calls "mtime churn defeats dedup").
+        let dir = tempdir().unwrap();
+        let file = write_lines(dir.path(), "big.txt", 60, "ORIGINAL");
+        let tool = ReadTool::new(Some(make_cache()));
+        let ctx = ctx_main();
+        let input = json!({ "file_path": file.to_str().unwrap() });
+
+        tool.execute_with_ctx(input.clone(), &ctx).await;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let _ = write_lines(dir.path(), "big.txt", 60, "ORIGINAL"); // identical bytes, new mtime
+
+        let r2 = tool.execute_with_ctx(input, &ctx).await;
+        assert_eq!(
+            r2.content, FILE_UNCHANGED_STUB,
+            "mtime churn with identical content must stub, got: {}",
+            r2.content
+        );
+    }
+
+    #[tokio::test]
+    async fn changed_content_is_never_stubbed() {
+        // Correctness guard: when the bytes actually change, the numbered lines
+        // differ, the substring match fails, and the model MUST receive the new
+        // content — never a stub pointing at stale data.
+        let dir = tempdir().unwrap();
+        let file = write_lines(dir.path(), "big.txt", 60, "ORIGINAL");
+        let tool = ReadTool::new(Some(make_cache()));
+        let ctx = ctx_main();
+        let input = json!({ "file_path": file.to_str().unwrap() });
+
+        tool.execute_with_ctx(input.clone(), &ctx).await;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let _ = write_lines(dir.path(), "big.txt", 60, "PATCHED");
+
+        let r2 = tool.execute_with_ctx(input, &ctx).await;
+        assert_ne!(
+            r2.content, FILE_UNCHANGED_STUB,
+            "changed content must NOT be stubbed"
+        );
+        assert!(r2.content.contains("PATCHED"));
+    }
+
+    #[tokio::test]
+    async fn subrange_reread_does_not_evict_full_entry() {
+        // A sub-range re-read stubs WITHOUT overwriting the cache, so the broader
+        // full-file entry survives (no window thrash). Proven by a subsequent full
+        // re-read still stubbing against the surviving full entry.
+        let dir = tempdir().unwrap();
+        let file = write_lines(dir.path(), "big.txt", 60, "ORIGINAL");
+        let tool = ReadTool::new(Some(make_cache()));
+        let ctx = ctx_main();
+        let full = json!({ "file_path": file.to_str().unwrap() });
+        let sub = json!({ "file_path": file.to_str().unwrap(), "offset": 0, "limit": 10 });
+
+        tool.execute_with_ctx(full.clone(), &ctx).await;
+        let r_sub = tool.execute_with_ctx(sub, &ctx).await;
+        assert_eq!(r_sub.content, FILE_UNCHANGED_STUB);
+
+        let r3 = tool.execute_with_ctx(full, &ctx).await;
+        assert_eq!(
+            r3.content, FILE_UNCHANGED_STUB,
+            "the full entry must survive a sub-range read (no thrash), got: {}",
+            r3.content
+        );
     }
 
     // -- semantic slicing (symbol=) tests --

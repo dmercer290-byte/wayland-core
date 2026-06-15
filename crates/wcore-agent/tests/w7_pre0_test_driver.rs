@@ -119,6 +119,38 @@ async fn scripted_provider_handle_re_observes_via_sink_handle() {
     );
 }
 
+#[tokio::test]
+async fn empty_provider_stream_emits_visible_error() {
+    // FerroxLabs/wayland#86: a stream that completes (Done) with no text, no
+    // thinking, and no tool calls is a silent dead-end. The engine must surface
+    // a visible error event instead of returning an empty turn with no signal.
+    let empty_script = vec![LlmEvent::Done {
+        stop_reason: StopReason::EndTurn,
+        finish_reason: FinishReason::Stop,
+        usage: TokenUsage::default(),
+    }];
+    let (mut engine, _handle) = AgentBootstrap::build_for_test(minimal_config(), empty_script);
+    let out = engine
+        .run_synthetic_turn("anything")
+        .await
+        .expect("synthetic turn should complete (empty, not error-out)");
+
+    let kinds: Vec<&str> = out
+        .events
+        .iter()
+        .filter_map(|e| e["type"].as_str())
+        .collect();
+    assert!(
+        kinds.contains(&"error"),
+        "an empty provider stream must emit a visible error event; got {kinds:?}"
+    );
+    assert!(
+        out.final_text.is_empty(),
+        "no assistant text should be produced for an empty stream; got {:?}",
+        out.final_text
+    );
+}
+
 // Suppress "unused import" if ScriptedProvider only appears in docs.
 #[allow(dead_code)]
 fn _silence_unused(_p: ScriptedProvider) {}

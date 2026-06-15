@@ -114,6 +114,16 @@ pub struct ProviderCompat {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_bash: Option<bool>,
 
+    /// Whether to send `stream_options: {include_usage: true}` on OpenAI-format
+    /// streaming requests. `None`/`Some(true)` (default) sends it so the engine
+    /// receives token-usage accounting in the final stream chunk. Some generic
+    /// self-hosted OpenAI-compatible servers (older vLLM, llama.cpp, some Qwen
+    /// deployments) reject the unknown `stream_options` field with HTTP 400 —
+    /// set `Some(false)` (`[compat] include_usage_in_stream = false`) for those
+    /// endpoints to drop the field at the cost of in-stream usage stats.
+    /// See FerroxLabs/wayland#86.
+    pub include_usage_in_stream: Option<bool>,
+
     /// Force the OpenAI chat-vs-responses API surface for this provider,
     /// overriding the per-model family default
     /// (`openai_compat::model_uses_responses_api`).
@@ -498,6 +508,9 @@ impl ProviderCompat {
                 .or(defaults.cost_per_cache_write_token),
             input_optimization: user.input_optimization.or(defaults.input_optimization),
             compact_bash: user.compact_bash.or(defaults.compact_bash),
+            include_usage_in_stream: user
+                .include_usage_in_stream
+                .or(defaults.include_usage_in_stream),
             uses_responses_api: user.uses_responses_api.or(defaults.uses_responses_api),
             azure_auth_mode: user.azure_auth_mode.or(defaults.azure_auth_mode),
         }
@@ -573,6 +586,13 @@ impl ProviderCompat {
     /// transcript unless a provider/profile sets `compact_bash = false`.
     pub fn compact_bash(&self) -> bool {
         self.compact_bash.unwrap_or(true)
+    }
+
+    /// Resolved gate for `stream_options: {include_usage: true}`. Defaults ON;
+    /// set `include_usage_in_stream = false` for generic OpenAI-compatible
+    /// endpoints that 400 on the field (FerroxLabs/wayland#86).
+    pub fn include_usage_in_stream(&self) -> bool {
+        self.include_usage_in_stream.unwrap_or(true)
     }
 
     /// Optional override for the OpenAI chat-vs-responses API surface.
