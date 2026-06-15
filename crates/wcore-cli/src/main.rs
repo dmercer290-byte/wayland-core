@@ -1658,11 +1658,16 @@ async fn run_tui_mode(
                 .collect()
         })
         .unwrap_or_default();
+    // Snapshot EVERY attempted server (from `health()`), not just the live ones
+    // (`server_names()`): a server that failed or timed out at connect has no
+    // live entry but the user still needs to see why in `/mcp` and `/doctor`.
     let mut mcp_snapshot: Vec<tui::McpServerInfo> = Vec::new();
     for mgr in &result.mcp_managers {
-        for name in mgr.server_names() {
-            let alive = mgr.server_is_alive(&name);
-            mcp_snapshot.push(tui::McpServerInfo { name, alive });
+        for (name, health) in mgr.health() {
+            mcp_snapshot.push(tui::McpServerInfo {
+                name: name.clone(),
+                health: health.clone(),
+            });
         }
     }
 

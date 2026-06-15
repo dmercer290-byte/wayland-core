@@ -540,12 +540,24 @@ pub struct SkillInfo {
     pub user_invocable: bool,
 }
 
-/// One configured MCP server in the [`EngineInventory`] snapshot.
+/// One *attempted* MCP server in the [`EngineInventory`] snapshot — including
+/// servers that failed or timed out at connect (they never become live but the
+/// user still needs to see *why* in `/mcp` and `/doctor`).
 #[derive(Debug, Clone)]
 pub struct McpServerInfo {
     pub name: String,
-    /// Live transport state captured at snapshot time.
-    pub alive: bool,
+    /// Connect outcome captured at snapshot time (Ready / Failed / TimedOut).
+    pub health: wcore_mcp::manager::McpServerHealth,
+}
+
+impl McpServerInfo {
+    /// Whether the server is connected and serving tools.
+    pub fn is_connected(&self) -> bool {
+        matches!(
+            self.health,
+            wcore_mcp::manager::McpServerHealth::Ready { .. }
+        )
+    }
 }
 
 /// One registered hook in the [`EngineInventory`] snapshot.

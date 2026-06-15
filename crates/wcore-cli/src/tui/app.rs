@@ -1168,6 +1168,14 @@ pub enum McpServerStatus {
         /// Number of tools the server advertised in its `McpReady` event.
         tool_count: usize,
     },
+    /// The server's connect attempt failed cleanly (transport / handshake);
+    /// `reason` is the preserved cause, surfaced in `/doctor`.
+    Failed {
+        /// Human-readable failure cause from the connect attempt.
+        reason: String,
+    },
+    /// The server's connect attempt exceeded its per-server budget.
+    TimedOut,
 }
 
 // ─────────────────────────────────────────────────────────────────────────

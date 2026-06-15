@@ -2296,12 +2296,19 @@ fn render_mcp_list(inv: Option<&EngineInventory>) -> String {
     }
     let mut out = format!("MCP servers ({}):\n", servers.len());
     for s in servers {
-        let (mark, state) = if s.alive {
-            ("●", "connected")
-        } else {
-            ("○", "down")
+        use wcore_mcp::manager::McpServerHealth;
+        let line = match &s.health {
+            McpServerHealth::Ready { tool_count } => {
+                format!("  ● {}  (connected, {tool_count} tools)\n", s.name)
+            }
+            McpServerHealth::Failed { reason } => {
+                format!("  ✗ {}  (failed: {reason})\n", s.name)
+            }
+            McpServerHealth::TimedOut { after } => {
+                format!("  ⏱ {}  (timed out after {after:?})\n", s.name)
+            }
         };
-        out.push_str(&format!("  {mark} {}  ({state})\n", s.name));
+        out.push_str(&line);
     }
     out.push_str(
         "\nAdd one live with: /mcp add <name> <url-or-command>. \
@@ -3426,11 +3433,13 @@ mod tests {
             mcp_servers: vec![
                 McpServerInfo {
                     name: "github".to_string(),
-                    alive: true,
+                    health: wcore_mcp::manager::McpServerHealth::Ready { tool_count: 4 },
                 },
                 McpServerInfo {
                     name: "stripe".to_string(),
-                    alive: false,
+                    health: wcore_mcp::manager::McpServerHealth::Failed {
+                        reason: "connection refused".to_string(),
+                    },
                 },
             ],
             hooks: vec![HookInfo {
@@ -3448,8 +3457,12 @@ mod tests {
 
         let mcp = render_mcp_list(Some(&inv));
         assert!(mcp.contains("MCP servers (2)"));
-        assert!(mcp.contains("● github  (connected)"));
-        assert!(mcp.contains("○ stripe  (down)"));
+        assert!(mcp.contains("● github  (connected, 4 tools)"));
+        // A failed server is now surfaced with its preserved cause, not "down".
+        assert!(
+            mcp.contains("✗ stripe  (failed: connection refused)"),
+            "got: {mcp}"
+        );
 
         let hooks = render_hooks_list(Some(&inv));
         assert!(hooks.contains("Hooks registered (1)"));

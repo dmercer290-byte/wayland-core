@@ -2890,6 +2890,7 @@ mod tests {
             crate::tui::app::McpServerStatus::Ready { tool_count } => {
                 assert_eq!(*tool_count, 2);
             }
+            other => panic!("expected Ready, got {other:?}"),
         }
     }
 
