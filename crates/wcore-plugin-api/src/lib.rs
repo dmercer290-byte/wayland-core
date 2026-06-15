@@ -40,6 +40,9 @@ pub mod cua_spec;
 pub mod mcp_server_spec;
 pub mod memory_spec;
 pub mod rule_spec;
+// Lane E1 — per-executable MCP spawn-consent key. Shared by the installer and
+// the runtime spawn gate; lives here because it operates on `McpServerSpec`.
+pub mod spawn_consent;
 // v0.6.4 Task 1.1 — `PluginTool`: the plugin-api-native tool contract.
 // A plugin delivers a tool as a `PluginTool` (metadata + execution
 // closure typed in allowed terms); the host adapter in `wcore-agent`
@@ -73,6 +76,7 @@ pub use cua_spec::{CuaOpSpec, CuaPolicySpec, CuaToolSpec};
 pub use mcp_server_spec::{McpServerSpec, McpTransport};
 pub use memory_spec::{MemoryItem, MemoryQuery, Partition};
 pub use rule_spec::{RuleScope, RuleSpec};
+pub use spawn_consent::{consent_key_from_parts, spawn_consent_key};
 pub use tool::{PluginTool, PluginToolCaps, PluginToolEmit, PluginToolInvocation};
 pub use user_model_spec::UserModelSpec;
 

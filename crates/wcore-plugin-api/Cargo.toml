@@ -17,6 +17,10 @@ wcore-sandbox.workspace = true
 async-trait.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+# Lane E1 — MCP spawn-consent key hashing. Both the installer (wcore-cli) and
+# the runtime spawn gate (wcore-agent) compute the key, so it lives here in the
+# crate that owns `McpServerSpec` rather than being duplicated across crates.
+sha2.workspace = true
 schemars = { workspace = true, features = ["chrono"] }
 toml.workspace = true
 inventory.workspace = true
