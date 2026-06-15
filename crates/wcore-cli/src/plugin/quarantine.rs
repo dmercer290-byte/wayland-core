@@ -4,10 +4,12 @@
 // hooks disabled and the `ext` transport blocked, then NORMALIZE-COPIED into a
 // clean tree: symlinks are skipped (an escaping symlink must never reach the
 // store), `.git` is dropped, and a cumulative size cap bounds the copy. Every
-// `git` invocation goes through `shell_command_argv` in argv mode — the URL,
-// ref, and sha reach `git` as literal argv entries, never interpolated into a
-// shell string. We also reject flag-like (`-`-leading) values so a crafted ref
-// can't smuggle a `git` option past the argv boundary.
+// `git` invocation uses a synchronous `std::process::Command` in argv mode —
+// the URL, ref, and sha reach `git` as literal argv entries, never interpolated
+// into a shell string (no shell is involved at all). We also reject flag-like
+// (`-`-leading) values so a crafted ref can't smuggle a `git` option past the
+// argv boundary, and reject absolute/`..` subdir paths so a git-subdir source
+// can't escape the clone. See `run_git` for why the async shell helper is unused.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -161,6 +163,21 @@ pub fn quarantine_clone(source: &SourceKind, dest: &Path) -> Result<ClonedSource
             "subdir not found in repo: {}",
             subdir.unwrap_or_default()
         )));
+    }
+    // Defense in depth: even though `reject_traversal` rejected `..` and
+    // absolute paths in the subdir string, a symlinked intermediate directory
+    // inside the repo could still resolve `src_root` outside the clone. Confirm
+    // containment after canonicalization before we copy anything out of it.
+    let clone_canon = clone_dir
+        .canonicalize()
+        .map_err(|e| PluginCliError::Quarantine(format!("clone resolve: {e}")))?;
+    let src_canon = src_root
+        .canonicalize()
+        .map_err(|e| PluginCliError::Quarantine(format!("subdir resolve: {e}")))?;
+    if !src_canon.starts_with(&clone_canon) {
+        return Err(PluginCliError::PathTraversal(
+            src_root.display().to_string(),
+        ));
     }
 
     let out = dest.join("plugin");

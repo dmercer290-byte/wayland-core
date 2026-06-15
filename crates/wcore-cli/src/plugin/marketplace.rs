@@ -184,14 +184,25 @@ fn parse_source(source: &Value, plugin_root: Option<&str>) -> Result<SourceKind>
     }
 }
 
-/// Reject any path containing a `..` (parent-dir) component. Shared by the
-/// parser and the quarantine clone.
+/// Reject any path that is absolute or contains a `..` (parent-dir) component.
+/// Shared by the parser and the quarantine clone. Rejecting absolute/root/prefix
+/// components matters because `Path::join` REPLACES its base when the argument
+/// is absolute — `clone_dir.join("/etc")` would escape the clone entirely on
+/// Unix, and a `C:\…` prefix does the same on Windows. The source string is
+/// attacker-controlled (it comes straight from `marketplace.json`).
 pub(crate) fn reject_traversal(s: &str) -> Result<()> {
     use std::path::Component;
-    let has_parent = Path::new(s)
-        .components()
-        .any(|c| matches!(c, Component::ParentDir));
-    if has_parent {
+    let p = Path::new(s);
+    if p.is_absolute() {
+        return Err(PluginCliError::PathTraversal(s.to_string()));
+    }
+    let bad = p.components().any(|c| {
+        matches!(
+            c,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    });
+    if bad {
         return Err(PluginCliError::PathTraversal(s.to_string()));
     }
     Ok(())

@@ -85,6 +85,38 @@ fn rejects_dotdot_in_relative_source() {
 }
 
 #[test]
+fn rejects_absolute_relative_source() {
+    // `Path::join` replaces its base on an absolute arg, so an absolute source
+    // would escape the marketplace/clone root. Must be rejected at parse.
+    let catalog = r#"{
+      "name": "evil",
+      "owner": { "name": "x" },
+      "plugins": [ { "name": "esc", "source": "/etc" } ]
+    }"#;
+    let err = parse_marketplace(catalog).unwrap_err();
+    assert!(
+        matches!(err, PluginCliError::PathTraversal(_)),
+        "expected PathTraversal for absolute source, got {err:?}"
+    );
+}
+
+#[test]
+fn rejects_absolute_git_subdir_path() {
+    let catalog = r#"{
+      "name": "evil",
+      "owner": { "name": "x" },
+      "plugins": [
+        { "name": "esc", "source": { "source": "git-subdir", "url": "https://h/r.git", "path": "/etc" } }
+      ]
+    }"#;
+    let err = parse_marketplace(catalog).unwrap_err();
+    assert!(
+        matches!(err, PluginCliError::PathTraversal(_)),
+        "expected PathTraversal for absolute subdir, got {err:?}"
+    );
+}
+
+#[test]
 fn rejects_dotdot_in_git_subdir_path() {
     let catalog = r#"{
       "name": "evil",
