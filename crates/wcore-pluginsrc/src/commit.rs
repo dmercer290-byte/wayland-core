@@ -117,6 +117,27 @@ pub fn commit_plan(
         serde_json::to_string_pretty(&provenance)?,
     )?;
 
+    // 5b. Spawn-consent sidecar (Lane E). Installing the plugin grants consent
+    // to spawn the MCP server it ships, keyed by what it executes (command +
+    // args + env-key set + transport — see `spawn_consent_key`). The runtime
+    // loader recomputes the key on the template form and refuses to spawn a
+    // server whose key isn't granted here, so a later plugin update that swaps
+    // the command or adds env keys requires a fresh install + consent. Only v1's
+    // single server is registered, so only its key is recorded.
+    if let Some(server) = draft.mcp_servers.first() {
+        let key = wcore_plugin_api::consent_key_from_parts(
+            &server.transport,
+            server.env.keys().map(String::as_str),
+        );
+        let consent = wcore_plugin_api::McpSpawnConsent {
+            mcp_spawn_keys: vec![key],
+        };
+        fs::write(
+            staging.join(wcore_plugin_api::CONSENT_SIDECAR),
+            serde_json::to_string_pretty(&consent)?,
+        )?;
+    }
+
     // 6. Atomic swap: remove any prior install, then rename staging into place.
     if final_dir.exists() {
         fs::remove_dir_all(&final_dir)?;

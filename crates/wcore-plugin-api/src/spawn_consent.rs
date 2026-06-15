@@ -25,9 +25,59 @@
 //! The server `name` is intentionally excluded: renaming a server does not
 //! change what it executes, so it should not invalidate consent.
 
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::mcp_server_spec::{McpServerSpec, McpTransport};
+
+/// Filename of the spawn-consent sidecar written into a plugin's install dir.
+pub const CONSENT_SIDECAR: &str = "consent.json";
+
+/// The spawn-consent grant recorded at install time, read back at spawn time.
+///
+/// Installing a marketplace plugin records the [`spawn_consent_key`] of each
+/// MCP server it ships. The runtime loader recomputes the key for the server it
+/// is about to spawn (on the pre-substitution template form) and refuses to
+/// spawn anything whose key is not in [`mcp_spawn_keys`]. A plugin update that
+/// changes the command, args, transport, or env-key set therefore yields a new
+/// key that the old sidecar does not grant, and the server is skipped until the
+/// user re-installs and re-consents.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpSpawnConsent {
+    /// Granted spawn-consent keys.
+    #[serde(default)]
+    pub mcp_spawn_keys: Vec<String>,
+}
+
+impl McpSpawnConsent {
+    /// Path of the sidecar within an install dir.
+    pub fn path(install_dir: &Path) -> PathBuf {
+        install_dir.join(CONSENT_SIDECAR)
+    }
+
+    /// Load the sidecar from an install dir. Returns `Ok(None)` when no sidecar
+    /// exists (i.e. consent was never granted), and an error only on malformed
+    /// JSON or an unreadable file.
+    pub fn load(install_dir: &Path) -> std::io::Result<Option<Self>> {
+        let p = Self::path(install_dir);
+        match std::fs::read_to_string(&p) {
+            Ok(s) => {
+                let parsed = serde_json::from_str(&s)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                Ok(Some(parsed))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Whether `key` is among the granted spawn-consent keys.
+    pub fn grants(&self, key: &str) -> bool {
+        self.mcp_spawn_keys.iter().any(|k| k == key)
+    }
+}
 
 /// Stable consent key for an MCP server: a hex SHA-256 over the transport kind,
 /// the command/url + ordered args, and the sorted unique set of env keys.
@@ -173,5 +223,38 @@ mod tests {
         let spec = stdio("node", &[], &[("A", "1")]);
         let dup = consent_key_from_parts(&spec.transport, ["A", "A"].into_iter());
         assert_eq!(spawn_consent_key(&spec), dup);
+    }
+
+    #[test]
+    fn sidecar_missing_loads_as_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(McpSpawnConsent::load(dir.path()).unwrap(), None);
+    }
+
+    #[test]
+    fn sidecar_roundtrips_and_grants_only_listed_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = stdio("node", &["s.js"], &[("API_KEY", "x")]);
+        let key = spawn_consent_key(&spec);
+        let consent = McpSpawnConsent {
+            mcp_spawn_keys: vec![key.clone()],
+        };
+        std::fs::write(
+            McpSpawnConsent::path(dir.path()),
+            serde_json::to_string_pretty(&consent).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = McpSpawnConsent::load(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded, consent);
+        assert!(loaded.grants(&key));
+        assert!(!loaded.grants("some-other-key"));
+    }
+
+    #[test]
+    fn sidecar_malformed_is_an_error_not_a_silent_none() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(McpSpawnConsent::path(dir.path()), "{ not json").unwrap();
+        assert!(McpSpawnConsent::load(dir.path()).is_err());
     }
 }

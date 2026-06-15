@@ -76,7 +76,9 @@ pub use cua_spec::{CuaOpSpec, CuaPolicySpec, CuaToolSpec};
 pub use mcp_server_spec::{McpServerSpec, McpTransport};
 pub use memory_spec::{MemoryItem, MemoryQuery, Partition};
 pub use rule_spec::{RuleScope, RuleSpec};
-pub use spawn_consent::{consent_key_from_parts, spawn_consent_key};
+pub use spawn_consent::{
+    CONSENT_SIDECAR, McpSpawnConsent, consent_key_from_parts, spawn_consent_key,
+};
 pub use tool::{PluginTool, PluginToolCaps, PluginToolEmit, PluginToolInvocation};
 pub use user_model_spec::UserModelSpec;
 

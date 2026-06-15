@@ -415,34 +415,44 @@ impl AgentBootstrap {
                     // binds plugin→server and fires the hooks.
                     plugin_outcome.hooks.extend(hooks);
                     if let Some(mut spec) = mcp_server {
-                        // Lane D (G3): resolve ${CLAUDE_PLUGIN_ROOT|DATA} and
-                        // ${CLAUDE_PROJECT_DIR} against the install dir / per-
-                        // plugin data dir / workspace BEFORE probing. Marketplace
-                        // plugins reference their own install dir this way; an
-                        // unresolved placeholder would fail the reachability
-                        // probe and the server would be silently skipped.
-                        if let Some(install_dir) = manifest_path.parent() {
-                            let ctx = crate::plugins::var_subst::PluginPathCtx::for_plugin(
-                                install_dir,
-                                &plugin_name,
-                                cwd_path,
-                            );
-                            crate::plugins::var_subst::substitute_spec(&mut spec, &ctx);
-                        }
-                        // Reachability gate mirroring the compiled-in IJFW
-                        // plugin: a stdio server whose command isn't launchable
-                        // is skipped (info-log) so boot never hangs. SSE/HTTP
-                        // transports can't be cheaply probed locally — trust
-                        // them and let wcore-mcp surface connect-time errors.
-                        if declarative_mcp_server_is_reachable(&spec) {
-                            plugin_outcome.mcp_servers.push(spec);
+                        let install_dir = manifest_path.parent();
+                        // Lane E/D4: spawn-consent gate. Compute the consent key
+                        // on the TEMPLATE form (before ${VAR} substitution) so it
+                        // matches the key recorded at install time, then refuse to
+                        // register a marketplace server the install dir's consent
+                        // sidecar does not grant. Must run before substitution.
+                        if !declarative_mcp_spawn_consented(install_dir, &spec, &plugin_name) {
+                            // Skipped + logged inside the helper.
                         } else {
-                            tracing::info!(
-                                plugin = %plugin_name,
-                                server = %spec.name,
-                                "declarative plugin MCP server did not start cleanly — \
-                                 skipping registration (hooks stay log-only)"
-                            );
+                            // Lane D (G3): resolve ${CLAUDE_PLUGIN_ROOT|DATA} and
+                            // ${CLAUDE_PROJECT_DIR} against the install dir / per-
+                            // plugin data dir / workspace BEFORE probing.
+                            // Marketplace plugins reference their own install dir
+                            // this way; an unresolved placeholder would fail the
+                            // reachability probe and be silently skipped.
+                            if let Some(install_dir) = install_dir {
+                                let ctx = crate::plugins::var_subst::PluginPathCtx::for_plugin(
+                                    install_dir,
+                                    &plugin_name,
+                                    cwd_path,
+                                );
+                                crate::plugins::var_subst::substitute_spec(&mut spec, &ctx);
+                            }
+                            // Reachability gate mirroring the compiled-in IJFW
+                            // plugin: a stdio server whose command isn't launchable
+                            // is skipped (info-log) so boot never hangs. SSE/HTTP
+                            // transports can't be cheaply probed locally — trust
+                            // them and let wcore-mcp surface connect-time errors.
+                            if declarative_mcp_server_is_reachable(&spec) {
+                                plugin_outcome.mcp_servers.push(spec);
+                            } else {
+                                tracing::info!(
+                                    plugin = %plugin_name,
+                                    server = %spec.name,
+                                    "declarative plugin MCP server did not start cleanly — \
+                                     skipping registration (hooks stay log-only)"
+                                );
+                            }
                         }
                     }
                 }
@@ -2710,6 +2720,59 @@ fn declarative_mcp_server_is_reachable(spec: &wcore_plugin_api::McpServerSpec) -
     }
 }
 
+/// Lane E/D4 — spawn-consent gate for a declarative plugin's MCP server.
+///
+/// Marketplace-installed plugins carry a `provenance.json` and a `consent.json`
+/// recording the [`wcore_plugin_api::spawn_consent_key`] granted at install
+/// time. The server is registered only if its key (computed here on the
+/// PRE-substitution template form, so it matches the install-time key) is
+/// granted. A plugin update that changes the command, args, transport, or
+/// env-key set produces a new key the old sidecar does not grant, so the server
+/// is skipped until the user re-installs and re-consents.
+///
+/// Locally authored declarative plugins carry no `provenance.json` and are
+/// trusted as before — the consent gate defends against marketplace-sourced
+/// third-party code, not against an attacker who already has local FS write.
+///
+/// Returns `true` to allow registration, `false` to skip (and logs the reason).
+/// Must be called BEFORE `${VAR}` substitution.
+fn declarative_mcp_spawn_consented(
+    install_dir: Option<&std::path::Path>,
+    spec: &wcore_plugin_api::McpServerSpec,
+    plugin_name: &str,
+) -> bool {
+    let Some(dir) = install_dir else {
+        // No install dir to verify against — refuse a marketplace-style spawn.
+        return false;
+    };
+    // Locally authored declarative plugin (not marketplace-installed): trusted.
+    if !dir.join("provenance.json").exists() {
+        return true;
+    }
+    let key = wcore_plugin_api::spawn_consent_key(spec);
+    match wcore_plugin_api::McpSpawnConsent::load(dir) {
+        Ok(Some(consent)) if consent.grants(&key) => true,
+        Ok(_) => {
+            tracing::info!(
+                plugin = %plugin_name,
+                server = %spec.name,
+                "declarative plugin MCP server not granted spawn consent — \
+                 skipping registration (re-install to consent)"
+            );
+            false
+        }
+        Err(e) => {
+            tracing::warn!(
+                plugin = %plugin_name,
+                server = %spec.name,
+                error = %e,
+                "unreadable MCP spawn-consent sidecar — skipping registration"
+            );
+            false
+        }
+    }
+}
+
 /// F13 (Task 8): build a parallel mini-registry for ScriptTool to dispatch
 /// against. Mirrors the built-ins registered in `build()` minus SpawnTool,
 /// MCP, plan-mode helpers, ToolSearch, and Script itself. The mini-registry
@@ -2792,4 +2855,90 @@ fn build_fallback_providers(config: &Config) -> Vec<(String, Arc<dyn LlmProvider
         fallbacks.push((entry.to_string(), provider));
     }
     fallbacks
+}
+
+#[cfg(test)]
+mod consent_gate_tests {
+    use super::declarative_mcp_spawn_consented;
+    use std::collections::HashMap;
+    use wcore_plugin_api::{McpServerSpec, McpSpawnConsent, McpTransport, spawn_consent_key};
+
+    fn spec() -> McpServerSpec {
+        McpServerSpec {
+            name: "srv".into(),
+            transport: McpTransport::Stdio {
+                command: "node".into(),
+                args: vec!["server.js".into()],
+            },
+            env: HashMap::from([("API_KEY".to_string(), "${CLAUDE_PLUGIN_ROOT}/x".to_string())]),
+        }
+    }
+
+    fn write_provenance(dir: &std::path::Path) {
+        std::fs::write(dir.join("provenance.json"), "{}").unwrap();
+    }
+
+    fn write_consent(dir: &std::path::Path, keys: &[String]) {
+        let consent = McpSpawnConsent {
+            mcp_spawn_keys: keys.to_vec(),
+        };
+        std::fs::write(
+            McpSpawnConsent::path(dir),
+            serde_json::to_string(&consent).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn local_plugin_without_provenance_is_trusted() {
+        let dir = tempfile::tempdir().unwrap();
+        // No provenance.json → locally authored → allowed without a consent file.
+        assert!(declarative_mcp_spawn_consented(
+            Some(dir.path()),
+            &spec(),
+            "local"
+        ));
+    }
+
+    #[test]
+    fn marketplace_plugin_with_matching_grant_is_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        write_provenance(dir.path());
+        write_consent(dir.path(), &[spawn_consent_key(&spec())]);
+        assert!(declarative_mcp_spawn_consented(
+            Some(dir.path()),
+            &spec(),
+            "mkt"
+        ));
+    }
+
+    #[test]
+    fn marketplace_plugin_without_consent_file_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        write_provenance(dir.path());
+        // provenance present but no consent.json → refuse.
+        assert!(!declarative_mcp_spawn_consented(
+            Some(dir.path()),
+            &spec(),
+            "mkt"
+        ));
+    }
+
+    #[test]
+    fn marketplace_plugin_with_stale_key_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        write_provenance(dir.path());
+        // Granted some other key (simulating a pre-update consent).
+        write_consent(dir.path(), &["stale-key".to_string()]);
+        assert!(!declarative_mcp_spawn_consented(
+            Some(dir.path()),
+            &spec(),
+            "mkt"
+        ));
+    }
+
+    #[test]
+    fn no_install_dir_is_refused() {
+        assert!(!declarative_mcp_spawn_consented(None, &spec(), "x"));
+    }
 }

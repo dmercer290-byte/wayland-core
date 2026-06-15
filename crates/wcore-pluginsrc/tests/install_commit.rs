@@ -73,6 +73,15 @@ fn commit_writes_self_contained_native_plugin() {
     assert!(prov.contains("\"marketplace\": \"acme\""));
     assert!(prov.contains("abc123"));
 
+    // Spawn-consent sidecar (Lane E): the plugin ships an MCP server, so a
+    // consent grant is recorded — exactly one key, a 64-char hex SHA-256.
+    let consent = wcore_plugin_api::McpSpawnConsent::load(&dir).expect("consent sidecar readable");
+    let consent = consent.expect("a plugin with an MCP server must record a consent grant");
+    assert_eq!(consent.mcp_spawn_keys.len(), 1);
+    let key = &consent.mcp_spawn_keys[0];
+    assert_eq!(key.len(), 64);
+    assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
+
     // Transactional: no staging directory left behind.
     assert!(!store.path().join(".staging-db@acme").exists());
 }
