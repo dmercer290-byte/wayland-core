@@ -39,6 +39,37 @@ pub enum PluginCliError {
 
     #[error("no release asset found for plugin {plugin} on {host}")]
     NoReleaseAsset { plugin: String, host: String },
+
+    /// A source path (relative path, git-subdir `path`, repo, or
+    /// `metadata.pluginRoot`) contained a `..` component or otherwise
+    /// resolved outside its containment root. Rejected before any clone or
+    /// copy touches disk.
+    #[error("path traversal rejected in source: {0}")]
+    PathTraversal(String),
+
+    /// A `git` invocation in the quarantine clone failed, timed out, or
+    /// produced no resolvable commit.
+    #[error("git: {0}")]
+    Git(String),
+
+    /// The quarantine acquisition layer rejected something (unsupported
+    /// source shape, size-cap overrun, missing marketplace.json, flag-like
+    /// argument, unrecognized plugin format).
+    #[error("quarantine: {0}")]
+    Quarantine(String),
+
+    /// A named marketplace is not present in `known_marketplaces.json`.
+    #[error("marketplace not found: {0}")]
+    MarketplaceNotFound(String),
+
+    /// A third-party `marketplace add` tried to claim one of the reserved
+    /// (official) marketplace names.
+    #[error("reserved marketplace name: {0}")]
+    ReservedName(String),
+
+    /// Lowering a foreign plugin into the Wayland-native model failed.
+    #[error("plugin lowering: {0}")]
+    PluginSrc(#[from] wcore_pluginsrc::PluginSrcError),
 }
 
 pub type Result<T> = std::result::Result<T, PluginCliError>;

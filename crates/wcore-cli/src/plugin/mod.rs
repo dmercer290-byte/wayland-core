@@ -15,7 +15,11 @@
 pub mod error;
 pub mod index;
 pub mod install;
+pub mod known;
+pub mod lockfile;
 pub mod manifest;
+pub mod marketplace;
+pub mod quarantine;
 pub mod registry;
 pub mod resolver;
 

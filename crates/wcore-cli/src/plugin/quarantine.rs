@@ -1,0 +1,319 @@
+// Lane C2: security-critical quarantine git clone.
+//
+// Foreign plugin sources are git-cloned into an isolated quarantine dir with
+// hooks disabled and the `ext` transport blocked, then NORMALIZE-COPIED into a
+// clean tree: symlinks are skipped (an escaping symlink must never reach the
+// store), `.git` is dropped, and a cumulative size cap bounds the copy. Every
+// `git` invocation goes through `shell_command_argv` in argv mode — the URL,
+// ref, and sha reach `git` as literal argv entries, never interpolated into a
+// shell string. We also reject flag-like (`-`-leading) values so a crafted ref
+// can't smuggle a `git` option past the argv boundary.
+
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::{Duration, Instant};
+
+use wcore_pluginsrc::SourceKind;
+
+use crate::plugin::error::{PluginCliError, Result};
+use crate::plugin::marketplace::reject_traversal;
+
+const DEFAULT_GIT_TIMEOUT_MS: u64 = 120_000;
+const DEFAULT_MAX_BYTES: u64 = 100_000_000;
+
+/// A cloned + normalized source ready to lower. `path` contains only
+/// allowlisted regular files and directories; `resolved_sha` pins the exact
+/// commit fetched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClonedSource {
+    pub path: PathBuf,
+    pub resolved_sha: String,
+}
+
+/// Quarantine-clone a git source into `dest` and return the normalized copy.
+/// Relative-path and npm sources are not cloned here (the former is resolved
+/// within the already-fetched marketplace repo; the latter is deferred to v1.1).
+pub fn quarantine_clone(source: &SourceKind, dest: &Path) -> Result<ClonedSource> {
+    let (url, git_ref, sha, subdir) = match source {
+        SourceKind::Github { repo, git_ref, sha } => {
+            (github_url(repo), git_ref.clone(), sha.clone(), None)
+        }
+        SourceKind::Url { url, git_ref, sha } => (url.clone(), git_ref.clone(), sha.clone(), None),
+        SourceKind::GitSubdir {
+            url,
+            path,
+            git_ref,
+            sha,
+        } => {
+            reject_traversal(path)?;
+            (
+                url.clone(),
+                git_ref.clone(),
+                sha.clone(),
+                Some(path.clone()),
+            )
+        }
+        SourceKind::RelativePath(_) => {
+            return Err(PluginCliError::Quarantine(
+                "relative-path source is resolved within the marketplace repo, not cloned".into(),
+            ));
+        }
+        SourceKind::Npm { .. } => {
+            return Err(PluginCliError::Quarantine(
+                "npm sources are deferred to v1.1 (needs a Node toolchain)".into(),
+            ));
+        }
+    };
+
+    reject_flaglike(&url)?;
+    if let Some(r) = &git_ref {
+        reject_flaglike(r)?;
+    }
+    if let Some(s) = &sha {
+        reject_flaglike(s)?;
+    }
+
+    std::fs::create_dir_all(dest)?;
+    let clone_dir = dest.join("clone");
+    if clone_dir.exists() {
+        std::fs::remove_dir_all(&clone_dir)?;
+    }
+    let clone_str = clone_dir
+        .to_str()
+        .ok_or_else(|| PluginCliError::Quarantine("non-UTF8 clone path".into()))?;
+
+    let timeout = Duration::from_millis(env_u64(
+        "WAYLAND_PLUGIN_GIT_TIMEOUT_MS",
+        DEFAULT_GIT_TIMEOUT_MS,
+    ));
+
+    // Shallow clone with hooks + ext transport disabled. `--` ends option
+    // parsing before the URL/dest positionals.
+    run_git(
+        &[
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "protocol.ext.allow=never",
+            "clone",
+            "--depth",
+            "1",
+            "--no-tags",
+            "--",
+            url.as_str(),
+            clone_str,
+        ],
+        None,
+        timeout,
+    )?;
+
+    // A pinned sha or named ref: fetch it shallowly, then detach onto it.
+    if let Some(sha) = &sha {
+        run_git(
+            &["fetch", "--depth", "1", "origin", sha.as_str()],
+            Some(&clone_dir),
+            timeout,
+        )?;
+        run_git(
+            &[
+                "-c",
+                "advice.detachedHead=false",
+                "checkout",
+                "--detach",
+                "FETCH_HEAD",
+            ],
+            Some(&clone_dir),
+            timeout,
+        )?;
+    } else if let Some(r) = &git_ref {
+        run_git(
+            &["fetch", "--depth", "1", "origin", r.as_str()],
+            Some(&clone_dir),
+            timeout,
+        )?;
+        run_git(
+            &[
+                "-c",
+                "advice.detachedHead=false",
+                "checkout",
+                "--detach",
+                "FETCH_HEAD",
+            ],
+            Some(&clone_dir),
+            timeout,
+        )?;
+    }
+
+    let resolved_sha = run_git(&["rev-parse", "HEAD"], Some(&clone_dir), timeout)?
+        .trim()
+        .to_string();
+    if resolved_sha.is_empty() {
+        return Err(PluginCliError::Git("empty HEAD sha after clone".into()));
+    }
+
+    let src_root = match &subdir {
+        Some(s) => clone_dir.join(s),
+        None => clone_dir.clone(),
+    };
+    if !src_root.is_dir() {
+        return Err(PluginCliError::Quarantine(format!(
+            "subdir not found in repo: {}",
+            subdir.unwrap_or_default()
+        )));
+    }
+
+    let out = dest.join("plugin");
+    if out.exists() {
+        std::fs::remove_dir_all(&out)?;
+    }
+    let cap = env_u64("WAYLAND_PLUGIN_MAX_BYTES", DEFAULT_MAX_BYTES);
+    let mut copied: u64 = 0;
+    normalize_copy(&src_root, &out, &mut copied, cap)?;
+
+    Ok(ClonedSource {
+        path: out,
+        resolved_sha,
+    })
+}
+
+/// A human-readable source descriptor recorded in the lockfile.
+pub fn describe_source(s: &SourceKind) -> String {
+    match s {
+        SourceKind::RelativePath(p) => format!("path:{}", p.display()),
+        SourceKind::Github { repo, .. } => format!("github:{repo}"),
+        SourceKind::Url { url, .. } => format!("url:{url}"),
+        SourceKind::GitSubdir { url, path, .. } => format!("git-subdir:{url}#{path}"),
+        SourceKind::Npm { package, .. } => format!("npm:{package}"),
+    }
+}
+
+fn github_url(repo: &str) -> String {
+    format!("https://github.com/{repo}.git")
+}
+
+/// Reject a value that would be parsed as a `git` option. argv mode stops the
+/// shell, not `git`'s own option parser — a `--upload-pack=...` ref is still an
+/// option unless we refuse leading-`-` positionals.
+fn reject_flaglike(s: &str) -> Result<()> {
+    if s.starts_with('-') {
+        return Err(PluginCliError::Quarantine(format!(
+            "refusing flag-like git argument: {s}"
+        )));
+    }
+    Ok(())
+}
+
+/// Copy `src` into `dst`, skipping symlinks and `.git`, enforcing a cumulative
+/// byte cap. Skipping ALL symlinks is the conservative v1 posture: an escaping
+/// symlink must never materialize in the store, and within-dir symlinks are
+/// rare in content plugins.
+fn normalize_copy(src: &Path, dst: &Path, copied: &mut u64, cap: u64) -> Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name == ".git" {
+            continue;
+        }
+        let ft = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(&name);
+
+        if ft.is_symlink() {
+            tracing::warn!(path = %from.display(), "quarantine: skipping symlink");
+            continue;
+        }
+        if ft.is_dir() {
+            normalize_copy(&from, &to, copied, cap)?;
+        } else if ft.is_file() {
+            let len = entry.metadata()?.len();
+            *copied = copied.saturating_add(len);
+            if *copied > cap {
+                return Err(PluginCliError::Quarantine(format!(
+                    "plugin exceeds size cap of {cap} bytes"
+                )));
+            }
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Run `git` in argv mode with a wall-clock timeout. stdout/stderr are drained
+/// on dedicated threads so a chatty `git` can never deadlock on a full pipe.
+///
+/// `git` is invoked via a synchronous `std::process::Command` (not the async
+/// `wcore_config::shell::shell_command_argv` helper, which returns a tokio
+/// `Command`) because the whole plugin install path is blocking. The security
+/// property is identical: each arg is a separate argv entry, so no shell
+/// interprets `;`/`&&`/`$()` — combined with `--`, `protocol.ext.allow=never`,
+/// and the leading-`-` reject above. Mirrors the sync git calls in
+/// `tui/commands/at_ref_send.rs` and `wcore-skills/src/discovery.rs`.
+fn run_git(args: &[&str], cwd: Option<&Path>, timeout: Duration) -> Result<String> {
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(args);
+    if let Some(c) = cwd {
+        cmd.current_dir(c);
+    }
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| PluginCliError::Git(format!("spawn git: {e}")))?;
+
+    let mut out_pipe = child.stdout.take().expect("stdout piped");
+    let mut err_pipe = child.stderr.take().expect("stderr piped");
+    let h_out = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = out_pipe.read_to_end(&mut b);
+        b
+    });
+    let h_err = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = err_pipe.read_to_end(&mut b);
+        b
+    });
+
+    let start = Instant::now();
+    let status = loop {
+        match child
+            .try_wait()
+            .map_err(|e| PluginCliError::Git(format!("wait git: {e}")))?
+        {
+            Some(s) => break s,
+            None => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(PluginCliError::Git(format!(
+                        "git {:?} timed out after {} ms",
+                        args,
+                        timeout.as_millis()
+                    )));
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    };
+
+    let out = h_out.join().unwrap_or_default();
+    let err = h_err.join().unwrap_or_default();
+    if !status.success() {
+        return Err(PluginCliError::Git(format!(
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&err).trim()
+        )));
+    }
+    Ok(String::from_utf8_lossy(&out).into_owned())
+}
+
+fn env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}

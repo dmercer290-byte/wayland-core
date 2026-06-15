@@ -68,6 +68,10 @@ wcore-memory.workspace   = true
 # CLI-side `make_plugin_provider_router` consumes (downcasts via
 # `as_any` to recover the concrete `OllamaProvider`).
 wcore-plugin-api.workspace = true
+# Lane C: marketplace resolver lowers foreign plugin formats (Claude Code, MCP
+# registry) into the Wayland-native plugin model via the install-time adapters
+# in `wcore-pluginsrc`. The runtime loader stays format-blind.
+wcore-pluginsrc.workspace = true
 wcore-providers.workspace = true
 wcore-replay.workspace   = true
 # The `/repomap` TUI command runs a fresh symbol scan of the project root and
