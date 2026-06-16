@@ -25,6 +25,7 @@ pub mod mistral;
 pub mod moonshot;
 pub mod nvidia;
 pub mod openai;
+pub mod openai_chatgpt;
 pub mod openai_compat;
 pub mod openai_compatible;
 pub mod openai_responses;
@@ -46,6 +47,7 @@ pub use catalog::{CatalogProviderConfig, provider_for_entry, register_catalog};
 // `LlmRequest`. Re-exported here for backward compatibility.
 pub use chain::{ProviderChain, ProviderSlot};
 pub use classify::classify_failover;
+pub use openai_chatgpt::{AsyncBearerSource, BearerCreds, OpenAIChatGptProvider};
 pub use cooldown::{CooldownClass, CooldownState, CooldownTracker};
 pub use failover::{FailoverError, FailoverReason, wrap_provider_error};
 pub use key_rotation::{KeyPool, split_keys};
