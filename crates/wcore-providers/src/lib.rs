@@ -22,9 +22,11 @@ pub mod key_rotation;
 // These were framework-shaped local-inference adapters shipped as code but
 // never wired to ProviderType arms. Revivable as plugins if needed.
 pub mod mistral;
+pub mod model_catalog;
 pub mod moonshot;
 pub mod nvidia;
 pub mod openai;
+pub mod openai_chatgpt;
 pub mod openai_compat;
 pub mod openai_compatible;
 pub mod openai_responses;
@@ -49,6 +51,7 @@ pub use classify::classify_failover;
 pub use cooldown::{CooldownClass, CooldownState, CooldownTracker};
 pub use failover::{FailoverError, FailoverReason, wrap_provider_error};
 pub use key_rotation::{KeyPool, split_keys};
+pub use openai_chatgpt::{AsyncBearerSource, BearerCreds, OpenAIChatGptProvider};
 pub use registry::{ProviderFactory, ProviderRegistry, RegistryError, WaylandProviderRegistry};
 pub use resilient::{
     CircuitBreaker, CircuitConfig, CircuitReporter, CircuitState, NoOpCircuitReporter,
@@ -75,7 +78,7 @@ use wcore_types::llm::{LlmEvent, LlmRequest};
 /// `display` is the human-facing label. When a provider has no richer
 /// display name (e.g. OpenAI's `/v1/models` returns only ids) `display`
 /// mirrors `id`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ModelInfo {
     pub id: String,
     pub display: String,
@@ -425,6 +428,20 @@ pub fn create_native_provider(config: &Config) -> Arc<dyn LlmProvider> {
                     ))
                 }
             }
+        }
+        // "Sign in with ChatGPT" cannot be built here: it needs an OAuth-backed
+        // async bearer source whose token store (`OAuthStorage`) lives in
+        // `wcore-agent`, which `wcore-providers` must NOT depend on (layering).
+        // `wcore-agent::bootstrap` special-cases this variant BEFORE calling
+        // `create_native_provider` and constructs `OpenAIChatGptProvider`
+        // directly with a bearer closure over `ChatGptTokenManager` (Phase 5).
+        // Reaching this arm means that special-case was bypassed — a bug.
+        ProviderType::OpenAIChatGpt => {
+            panic!(
+                "OpenAIChatGpt is constructed in bootstrap (with an OAuth bearer \
+                 source), not create_native_provider — this dispatch should never \
+                 be reached for the chatgpt provider"
+            )
         }
     }
 }

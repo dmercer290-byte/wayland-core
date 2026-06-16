@@ -1,0 +1,360 @@
+//! "Sign in with ChatGPT" (OpenAI Codex OAuth) inference provider.
+//!
+//! Routes turns through the ChatGPT **Codex** backend
+//! (`https://chatgpt.com/backend-api/codex/responses`) using the OpenAI
+//! **Responses API** wire format, authenticated by a per-request OAuth bearer
+//! rather than a static API key. The provider is intentionally free of any
+//! `wcore-agent`/OAuth dependency: the OAuth token manager lives in
+//! `wcore-agent` and is injected here as an **async** closure
+//! ([`AsyncBearerSource`]). The closure is awaited at the top of [`stream`]
+//! (where the OAuth refresh round-trip can happen), then its credentials are
+//! folded into the request headers.
+//!
+//! Everything below the bearer seam is reused verbatim from the existing
+//! Responses transport: [`build_responses_body`](crate::openai_responses::build_responses_body)
+//! produces the body, [`process_responses_sse_stream`](crate::openai::process_responses_sse_stream)
+//! parses the SSE stream into [`LlmEvent`]s. The only provider-local body
+//! adjustments are the Codex-specific deltas documented on [`stream`].
+//!
+//! ## Reference
+//!
+//! Wire details mirrored from OpenClaw (OpenAI-maintained Codex client) and
+//! Hermes — see `.planning/2026-06-16-CHATGPT-OAUTH-SPEC.md` §2.
+//!
+//! [`stream`]: OpenAIChatGptProvider::stream
+
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use serde_json::json;
+use tokio::sync::mpsc;
+
+use wcore_config::compat::ProviderCompat;
+use wcore_config::debug::DebugConfig;
+use wcore_types::llm::{LlmEvent, LlmRequest};
+
+use crate::openai::process_responses_sse_stream;
+use crate::openai_responses::build_responses_body;
+use crate::retry::builder_send_with_retry;
+use crate::{LlmProvider, ProviderError};
+
+/// The OAuth-resolved credentials a single Codex request needs: the bearer
+/// access token and the ChatGPT account id (decoded from the access-token JWT
+/// upstream in `wcore-agent`).
+#[derive(Clone)]
+pub struct BearerCreds {
+    pub access_token: String,
+    pub account_id: String,
+}
+
+/// An async source of [`BearerCreds`].
+///
+/// Async because an OAuth refresh is a network round-trip and the sync Azure
+/// `AzureTokenSource` pattern cannot `await`. The closure is invoked at the top
+/// of [`OpenAIChatGptProvider::stream`] — before headers are built — so a
+/// near-expiry token is refreshed transparently on every turn.
+pub type AsyncBearerSource = Arc<
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<BearerCreds, ProviderError>> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// The ChatGPT Codex inference backend base URL. The `/responses` path is
+/// appended by [`OpenAIChatGptProvider::responses_url`].
+pub const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
+
+/// Default `instructions` injected when a request carries no system prompt.
+///
+/// Codex (per both OpenClaw and Hermes) always sends a non-empty
+/// `instructions` field; `build_responses_body` omits it when `request.system`
+/// is empty. D4: ensure it is always present.
+const DEFAULT_INSTRUCTIONS: &str = "You are a helpful assistant.";
+
+/// OAuth-authenticated provider for the ChatGPT Codex Responses backend.
+pub struct OpenAIChatGptProvider {
+    client: wcore_egress::EgressClient,
+    bearer: AsyncBearerSource,
+    /// Defaults to [`CODEX_BASE_URL`]; overridable in tests via
+    /// [`OpenAIChatGptProvider::with_base_url`].
+    base_url: String,
+    compat: ProviderCompat,
+    debug: DebugConfig,
+}
+
+impl OpenAIChatGptProvider {
+    /// Build a provider over an async OAuth bearer source. Uses the shared
+    /// streaming HTTP client policy (30s connect, 300s between-bytes read,
+    /// redirects disabled).
+    pub fn new(bearer: AsyncBearerSource, compat: ProviderCompat, debug: DebugConfig) -> Self {
+        Self {
+            client: crate::http_client::build(),
+            bearer,
+            base_url: CODEX_BASE_URL.to_string(),
+            compat,
+            debug,
+        }
+    }
+
+    /// Test-only override of the Codex base URL so a mock SSE server can stand
+    /// in for `chatgpt.com`. Production always uses [`CODEX_BASE_URL`].
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+
+    /// The Codex `responses` endpoint: `<base>/responses`.
+    pub(crate) fn responses_url(&self) -> String {
+        format!("{}/responses", self.base_url.trim_end_matches('/'))
+    }
+
+    /// Build the Codex request headers from the OAuth credentials.
+    ///
+    /// Beyond the standard `Authorization`/`Content-Type`, Codex requires
+    /// `chatgpt-account-id` (from the access-token JWT), `OpenAI-Beta:
+    /// responses=experimental`, our honest `originator: wayland` attribution,
+    /// a wayland `User-Agent`, and (D3) `Accept: text/event-stream` so the edge
+    /// content-negotiates the SSE stream.
+    pub(crate) fn build_headers(
+        &self,
+        creds: &BearerCreds,
+    ) -> Result<reqwest::header::HeaderMap, ProviderError> {
+        use reqwest::header::{
+            ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT,
+        };
+        let mut h = HeaderMap::new();
+        h.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", creds.access_token))
+                .map_err(|e| ProviderError::Connection(format!("bad bearer: {e}")))?,
+        );
+        h.insert(
+            "chatgpt-account-id",
+            HeaderValue::from_str(&creds.account_id)
+                .map_err(|e| ProviderError::Connection(format!("bad account id: {e}")))?,
+        );
+        h.insert(
+            "OpenAI-Beta",
+            HeaderValue::from_static("responses=experimental"),
+        );
+        h.insert("originator", HeaderValue::from_static("wayland"));
+        h.insert(
+            USER_AGENT,
+            HeaderValue::from_static(concat!("wayland-core/", env!("CARGO_PKG_VERSION"))),
+        );
+        h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        h.insert(ACCEPT, HeaderValue::from_static("text/event-stream"));
+        Ok(h)
+    }
+
+    /// Build the Codex Responses body: the shared builder plus the
+    /// Codex-specific adjustments (kept here so the shared builder stays
+    /// provider-neutral).
+    ///
+    /// * A2 — strip `max_output_tokens` (the Codex backend rejects it).
+    /// * D2 — we deliberately do NOT request
+    ///   `include: ["reasoning.encrypted_content"]`. Codex seals each
+    ///   `reasoning` item to the `function_call` that follows it; if we
+    ///   requested encrypted reasoning we would have to replay that item ahead
+    ///   of the paired function_call on the next turn, or the backend rejects
+    ///   turn 2 of a tool loop with `missing_following_item`. We don't yet
+    ///   round-trip reasoning (`ContentBlock::Thinking` is a bare string and
+    ///   `push_assistant_items` drops reasoning), so NOT requesting it keeps the
+    ///   multi-turn history self-consistent. Full reasoning round-trip (carry
+    ///   the encrypted blob paired with each function_call) is a follow-up.
+    /// * D4 — ensure `instructions` is always present.
+    /// * D5 — when tools are present, send `tool_choice: "auto"` +
+    ///   `parallel_tool_calls: true` (matches both references).
+    fn build_codex_body(&self, request: &LlmRequest) -> serde_json::Value {
+        let mut body = build_responses_body(request, &self.compat);
+        if let Some(obj) = body.as_object_mut() {
+            // A2: Codex rejects max_output_tokens on this backend.
+            obj.remove("max_output_tokens");
+            // D4: instructions is unconditional on Codex.
+            if !obj.contains_key("instructions") {
+                obj.insert("instructions".to_string(), json!(DEFAULT_INSTRUCTIONS));
+            }
+            // D5: tool routing flags ride alongside a non-empty tools array.
+            if !request.tools.is_empty() {
+                obj.insert("tool_choice".to_string(), json!("auto"));
+                obj.insert("parallel_tool_calls".to_string(), json!(true));
+            }
+        }
+        body
+    }
+}
+
+#[async_trait]
+impl LlmProvider for OpenAIChatGptProvider {
+    fn alias_key(&self) -> &str {
+        "openai-chatgpt"
+    }
+
+    async fn stream(
+        &self,
+        request: &LlmRequest,
+    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        // Acquire (and, if near expiry, refresh) the OAuth bearer first — this
+        // is the only async point where the token manager can do its network
+        // round-trip before the sync header build.
+        let creds = (self.bearer)().await?;
+
+        let url = self.responses_url();
+        let body = self.build_codex_body(request);
+        let headers = self.build_headers(&creds)?;
+
+        let resp =
+            builder_send_with_retry(self.client.post(&url).headers(headers).json(&body)).await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            // 401 → the OAuth token is bad/expired beyond refresh; map to
+            // MissingApiKey so the CLI nudges `wayland auth login chatgpt`.
+            if status.as_u16() == 401 {
+                return Err(ProviderError::MissingApiKey);
+            }
+            return Err(ProviderError::Api {
+                status: status.as_u16(),
+                message: text,
+            });
+        }
+
+        let (tx, rx) = mpsc::channel(64);
+        let debug = self.debug.clone();
+        tokio::spawn(async move {
+            if let Err(e) = process_responses_sse_stream(resp, &tx, &debug).await {
+                let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+            }
+        });
+
+        Ok(rx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wcore_types::message::{ContentBlock, Message, Role};
+    use wcore_types::tool::ToolDef;
+
+    /// A bearer source that must never be invoked (header/url tests don't stream).
+    fn unreachable_bearer() -> AsyncBearerSource {
+        Arc::new(|| {
+            Box::pin(async {
+                unreachable!("bearer source must not be called in this test");
+            })
+        })
+    }
+
+    fn provider() -> OpenAIChatGptProvider {
+        OpenAIChatGptProvider::new(
+            unreachable_bearer(),
+            ProviderCompat::default(),
+            DebugConfig::default(),
+        )
+    }
+
+    fn request_with_tools(tools: Vec<ToolDef>) -> LlmRequest {
+        LlmRequest {
+            model: "gpt-5.5".into(),
+            system: String::new(),
+            messages: vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text { text: "hi".into() }],
+            )],
+            max_tokens: 4096,
+            tools,
+            ..Default::default()
+        }
+    }
+
+    // --- Task 3.2: headers + url ----------------------------------------
+
+    #[test]
+    fn headers_carry_account_id_beta_and_originator() {
+        let creds = BearerCreds {
+            access_token: "at".into(),
+            account_id: "acct_9".into(),
+        };
+        let h = provider().build_headers(&creds).unwrap();
+        assert_eq!(h["authorization"], "Bearer at");
+        assert_eq!(h["chatgpt-account-id"], "acct_9");
+        assert_eq!(h["openai-beta"], "responses=experimental");
+        assert_eq!(h["originator"], "wayland");
+        // D3: the SSE Accept header is present.
+        assert_eq!(h["accept"], "text/event-stream");
+        assert_eq!(h["content-type"], "application/json");
+    }
+
+    #[test]
+    fn responses_url_targets_codex_backend() {
+        assert_eq!(
+            provider().responses_url(),
+            "https://chatgpt.com/backend-api/codex/responses"
+        );
+    }
+
+    #[test]
+    fn responses_url_does_not_double_slash_on_trailing_base() {
+        let p = provider().with_base_url("http://localhost:1234/");
+        assert_eq!(p.responses_url(), "http://localhost:1234/responses");
+    }
+
+    // --- Task 3.4 / A2 / D2 / D4 / D5: body adjustments -----------------
+
+    #[test]
+    fn body_strips_max_output_tokens() {
+        let body = provider().build_codex_body(&request_with_tools(vec![]));
+        assert!(
+            body.get("max_output_tokens").is_none(),
+            "Codex rejects max_output_tokens; it must be stripped: {body}"
+        );
+    }
+
+    #[test]
+    fn body_does_not_request_encrypted_reasoning_until_round_trip_exists() {
+        // We must NOT request `include: ["reasoning.encrypted_content"]` while
+        // we cannot replay the sealed reasoning item — doing so 400s turn 2 of
+        // a tool loop (`missing_following_item`). Lock that decision in.
+        let body = provider().build_codex_body(&request_with_tools(vec![]));
+        assert!(
+            body.get("include").is_none(),
+            "include must be absent: {body}"
+        );
+    }
+
+    #[test]
+    fn body_injects_default_instructions_when_system_empty() {
+        let body = provider().build_codex_body(&request_with_tools(vec![]));
+        assert_eq!(body["instructions"], json!(DEFAULT_INSTRUCTIONS));
+    }
+
+    #[test]
+    fn body_preserves_caller_instructions_when_system_present() {
+        let mut req = request_with_tools(vec![]);
+        req.system = "You are Codex.".into();
+        let body = provider().build_codex_body(&req);
+        assert_eq!(body["instructions"], json!("You are Codex."));
+    }
+
+    #[test]
+    fn body_adds_tool_routing_flags_only_when_tools_present() {
+        // No tools → no tool_choice / parallel_tool_calls (and no tools field).
+        let no_tools = provider().build_codex_body(&request_with_tools(vec![]));
+        assert!(no_tools.get("tool_choice").is_none());
+        assert!(no_tools.get("parallel_tool_calls").is_none());
+
+        // With tools → both flags present alongside the tools array.
+        let with_tools = provider().build_codex_body(&request_with_tools(vec![ToolDef {
+            name: "read".into(),
+            description: "Read a file".into(),
+            input_schema: json!({ "type": "object", "properties": {} }),
+            deferred: false,
+        }]));
+        assert_eq!(with_tools["tool_choice"], json!("auto"));
+        assert_eq!(with_tools["parallel_tool_calls"], json!(true));
+        assert!(with_tools["tools"].is_array());
+    }
+}

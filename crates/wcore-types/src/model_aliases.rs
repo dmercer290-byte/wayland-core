@@ -73,6 +73,52 @@ pub fn openai_gpt4_1_mini() -> String {
     from_env_or(OPENAI_GPT4_1_MINI, "E2E_OPENAI_GPT4_1_MINI")
 }
 
+// ── OpenAI Codex ("Sign in with ChatGPT") ───────────────────────────────────
+//
+// These model ids route through the ChatGPT Codex backend
+// (`chatgpt.com/backend-api/codex`) under OAuth subscription auth, NOT the
+// API-key `api.openai.com` path. They are distinct from the `OPENAI_*` ids
+// above and only valid for `--provider openai-chatgpt`.
+
+/// Codex headline model — the default for `--provider openai-chatgpt`.
+pub const OPENAI_CODEX_GPT55: &str = "gpt-5.5";
+pub fn openai_codex_gpt55() -> String {
+    from_env_or(OPENAI_CODEX_GPT55, "E2E_OPENAI_CODEX_GPT55")
+}
+
+/// Codex high-reasoning tier.
+pub const OPENAI_CODEX_GPT55_PRO: &str = "gpt-5.5-pro";
+pub fn openai_codex_gpt55_pro() -> String {
+    from_env_or(OPENAI_CODEX_GPT55_PRO, "E2E_OPENAI_CODEX_GPT55_PRO")
+}
+
+/// Codex prior-generation general model.
+pub const OPENAI_CODEX_GPT54: &str = "gpt-5.4";
+pub fn openai_codex_gpt54() -> String {
+    from_env_or(OPENAI_CODEX_GPT54, "E2E_OPENAI_CODEX_GPT54")
+}
+
+/// Codex prior-generation code-specialised model.
+pub const OPENAI_CODEX_GPT54_CODEX: &str = "gpt-5.4-codex";
+pub fn openai_codex_gpt54_codex() -> String {
+    from_env_or(OPENAI_CODEX_GPT54_CODEX, "E2E_OPENAI_CODEX_GPT54_CODEX")
+}
+
+/// Codex 5.3-generation code-specialised model.
+pub const OPENAI_CODEX_GPT53_CODEX: &str = "gpt-5.3-codex";
+pub fn openai_codex_gpt53_codex() -> String {
+    from_env_or(OPENAI_CODEX_GPT53_CODEX, "E2E_OPENAI_CODEX_GPT53_CODEX")
+}
+
+/// Codex 5.3-generation fast/cheap code model.
+pub const OPENAI_CODEX_GPT53_CODEX_SPARK: &str = "gpt-5.3-codex-spark";
+pub fn openai_codex_gpt53_codex_spark() -> String {
+    from_env_or(
+        OPENAI_CODEX_GPT53_CODEX_SPARK,
+        "E2E_OPENAI_CODEX_GPT53_CODEX_SPARK",
+    )
+}
+
 // ── AWS Bedrock ────────────────────────────────────────────────────────────
 //
 // Bedrock IDs follow `<vendor>.<model-id>-<release-date>-v<N>:<M>`. Dates and
@@ -178,6 +224,17 @@ pub fn expand_short_form(model: &str) -> Option<&'static str> {
         // re-using the existing constants keeps a single source of truth.
         ("gemini", "pro") => Some(VERTEX_GEMINI_PRO),
         ("gemini", "flash") => Some(VERTEX_GEMINI_FLASH),
+        // "Sign in with ChatGPT" — Codex backend model roles. The role token
+        // is the bare model id minus the `gpt-` prefix (e.g. `5.5`, `5.4-codex`)
+        // so the `/model` picker can offer compact handles.
+        ("openai-chatgpt", "5.5") => Some(OPENAI_CODEX_GPT55),
+        ("openai-chatgpt", "5.5-pro") => Some(OPENAI_CODEX_GPT55_PRO),
+        ("openai-chatgpt", "5.4") => Some(OPENAI_CODEX_GPT54),
+        ("openai-chatgpt", "5.4-codex") | ("openai-chatgpt", "codex") => {
+            Some(OPENAI_CODEX_GPT54_CODEX)
+        }
+        ("openai-chatgpt", "5.3-codex") => Some(OPENAI_CODEX_GPT53_CODEX),
+        ("openai-chatgpt", "5.3-codex-spark") => Some(OPENAI_CODEX_GPT53_CODEX_SPARK),
         _ => None,
     }
 }
@@ -197,7 +254,14 @@ pub fn expand_short_form(model: &str) -> Option<&'static str> {
 /// here must list models in [`models_for_provider`] (guarded by a no-drift
 /// test). A user can still configure other providers via custom aliases.
 pub fn known_providers() -> &'static [&'static str] {
-    &["anthropic", "openai", "bedrock", "vertex", "gemini"]
+    &[
+        "anthropic",
+        "openai",
+        "bedrock",
+        "vertex",
+        "gemini",
+        "openai-chatgpt",
+    ]
 }
 
 pub fn models_for_provider(provider: &str) -> &'static [(&'static str, &'static str)] {
@@ -228,6 +292,18 @@ pub fn models_for_provider(provider: &str) -> &'static [(&'static str, &'static 
             ("gemini:pro", VERTEX_GEMINI_PRO),
             ("gemini:flash", VERTEX_GEMINI_FLASH),
         ],
+        // "Sign in with ChatGPT" — Codex backend catalog, most-capable first.
+        "openai-chatgpt" => &[
+            ("openai-chatgpt:5.5", OPENAI_CODEX_GPT55),
+            ("openai-chatgpt:5.5-pro", OPENAI_CODEX_GPT55_PRO),
+            ("openai-chatgpt:5.4", OPENAI_CODEX_GPT54),
+            ("openai-chatgpt:5.4-codex", OPENAI_CODEX_GPT54_CODEX),
+            ("openai-chatgpt:5.3-codex", OPENAI_CODEX_GPT53_CODEX),
+            (
+                "openai-chatgpt:5.3-codex-spark",
+                OPENAI_CODEX_GPT53_CODEX_SPARK,
+            ),
+        ],
         _ => &[],
     }
 }
@@ -248,7 +324,14 @@ mod tests {
         // Every short_form the /model picker offers MUST resolve through
         // expand_short_form to the resolved id it advertises — the catalog
         // and the resolver can't silently diverge.
-        for provider in ["anthropic", "openai", "bedrock", "vertex", "gemini"] {
+        for provider in [
+            "anthropic",
+            "openai",
+            "bedrock",
+            "vertex",
+            "gemini",
+            "openai-chatgpt",
+        ] {
             let models = models_for_provider(provider);
             assert!(!models.is_empty(), "{provider} must list models");
             for (short, resolved) in models {
@@ -262,6 +345,27 @@ mod tests {
         assert!(
             models_for_provider("nonesuch").is_empty(),
             "an unknown provider lists nothing"
+        );
+    }
+
+    #[test]
+    fn chatgpt_provider_has_codex_models() {
+        let m = models_for_provider("openai-chatgpt");
+        // The headline Codex model is offered.
+        assert!(
+            m.iter().any(|(_, id)| *id == "gpt-5.5"),
+            "openai-chatgpt must offer gpt-5.5"
+        );
+        // It is a known provider so /provider and /model can reach it.
+        assert!(known_providers().contains(&"openai-chatgpt"));
+        // Every advertised short-form resolves (drift guard, provider-scoped).
+        for (short, resolved) in m {
+            assert_eq!(expand_short_form(short), Some(*resolved));
+        }
+        // The `codex` convenience alias resolves to the code-specialised model.
+        assert_eq!(
+            expand_short_form("openai-chatgpt:codex"),
+            Some(OPENAI_CODEX_GPT54_CODEX)
         );
     }
 

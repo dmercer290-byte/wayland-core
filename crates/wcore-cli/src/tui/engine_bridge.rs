@@ -1199,17 +1199,20 @@ impl TuiEngine {
     ///
     ///  1. Re-resolve `Config` from disk (global ← project ← CLI defaults),
     ///     the same `Config::resolve` path `main.rs` boot uses.
-    ///  2. Rebuild the provider via `wcore_providers::create_provider` — the
-    ///     API key is baked into the provider `Arc` at construction, so a
-    ///     fresh build is the only way the newly entered key reaches the
-    ///     wire.
+    ///  2. Rebuild the provider via
+    ///     `wcore_agent::bootstrap::create_provider_with_oauth` (the OAuth-aware
+    ///     analogue of `wcore_providers::create_provider`) — the API key /
+    ///     OAuth bearer source is baked into the provider `Arc` at
+    ///     construction, so a fresh build is the only way the newly entered
+    ///     credential reaches the wire.
     ///  3. Lock the engine and swap provider + compat + model atomically
     ///     (`rebind_provider`), replace the system prompt with the resolved
     ///     prompt + the `[default] user` display name (`set_system_prompt`,
     ///     D016), and push the resolved approval posture to the shared
     ///     manager (`set_mode`, D007).
     ///
-    /// M1/M2 honesty: steps 1 + 2 (`Config::resolve` + `create_provider`)
+    /// M1/M2 honesty: steps 1 + 2 (`Config::resolve` +
+    /// `create_provider_with_oauth`)
     /// run SYNCHRONOUSLY here, BEFORE any task is spawned — they take no
     /// `.await`. On a resolve failure (a malformed config the user just
     /// wrote) the engine is left untouched (the key is never dropped) and
@@ -1332,7 +1335,28 @@ impl TuiEngine {
     ) -> Option<RebindApplied> {
         // Rebuild the provider so the freshly entered API key reaches the
         // wire (the key is baked into the provider Arc). Synchronous.
-        let provider = wcore_providers::create_provider(&config);
+        //
+        // Routed through the OAuth-aware builder rather than
+        // `wcore_providers::create_provider` so a runtime swap to an
+        // OAuth-backed provider (`openai-chatgpt`, and any future
+        // `*-oauth` provider) constructs its bearer-source-backed provider
+        // instead of hitting the `create_native_provider` panic. For every
+        // non-OAuth provider this returns exactly what `create_provider`
+        // did (a `ResilientProvider` with an empty fallback chain + NoOp
+        // reporter), so existing behaviour is unchanged. A build failure
+        // (e.g. an unreadable OAuth token store) is treated like a resolve
+        // failure: leave the engine on its current binding and report
+        // "live apply skipped" rather than dropping the running provider.
+        let provider = match wcore_agent::bootstrap::create_provider_with_oauth(&config) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    target: "wcore_cli::tui::engine_bridge",
+                    "rebind skipped: provider build failed ({e:#})"
+                );
+                return None;
+            }
+        };
         let compat = config.compat.clone();
         let model = config.model.clone();
 

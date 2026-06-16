@@ -441,6 +441,13 @@ impl LlmProvider for VertexProvider {
 
         Ok(rx)
     }
+
+    fn alias_key(&self) -> &str {
+        // Live discovery on Vertex (GCP-OAuth + pagination + dual-publisher
+        // Anthropic/Google catalogs) is a heavier follow-up; for now the
+        // `/model` picker floors to the static Vertex alias catalog.
+        "vertex"
+    }
 }
 
 // --- Internal types ---

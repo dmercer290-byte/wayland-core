@@ -19,10 +19,15 @@
 //! - Callback listener has a 5-minute idle timeout so a user who closes
 //!   the browser tab doesn't leak the bound port.
 
+pub mod chatgpt;
 pub mod flow;
 pub mod pkce;
 pub mod storage;
 
+pub use chatgpt::{
+    ChatGptLoginStatus, ChatGptTokenManager, CodexClaims, build_chatgpt_flow, decode_codex_claims,
+    login_status as chatgpt_login_status,
+};
 pub use flow::{OAuthFlow, OAuthTokens, RedirectStrategy, RefreshError, SingleFlightRefresh};
 pub use pkce::{PkceChallenge, PkceMode};
 pub use storage::{OAuthStorage, OAuthStorageError};

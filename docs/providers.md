@@ -6,6 +6,7 @@
 |----------|------------|-------|
 | Anthropic | API Key | Prompt caching, streaming, vision |
 | OpenAI | API Key | Compatible with DeepSeek, Qwen, Ollama, vLLM |
+| OpenAI (ChatGPT) | OAuth (Sign in with ChatGPT) | Routes through the ChatGPT Codex backend on your subscription — see [Sign in with ChatGPT](#sign-in-with-chatgpt) |
 | AWS Bedrock | SigV4 | Regional endpoints, AWS credential chain |
 | Google Vertex AI | GCP OAuth2 / Service Account | Metadata server auto-detection |
 
@@ -212,6 +213,103 @@ the standard `OLLAMA_HOST` environment variable.
 `capabilities.plugins` flips to `true` whenever any plugin (including
 wayland-ollama) is loaded — see W8c.3 H.2 plugin-aware capability
 advertising in `crates/wcore-agent/src/output/protocol_sink.rs`.
+
+---
+
+## Sign in with ChatGPT
+
+Authenticate with your **ChatGPT subscription** instead of an OpenAI API key and
+route inference through the ChatGPT **Codex** backend
+(`chatgpt.com/backend-api/codex`). API-key OpenAI (`--provider openai`) is
+untouched and remains the always-works fallback — this path degrades to "logged
+out," never to a broken engine.
+
+### Logging in
+
+```bash
+wayland-core auth login chatgpt
+```
+
+This opens your browser to OpenAI's sign-in page (a loopback PKCE flow on
+`http://localhost:1455/auth/callback`). Approve the request and the tokens are
+written **encrypted** to:
+
+```
+~/.wayland/oauth/chatgpt.json     # dir mode 0700, file mode 0600 on Unix
+```
+
+The stored access token is a JWT; your `chatgpt_account_id` is read from it (no
+separate API call) and sent as the `chatgpt-account-id` request header. Login
+fails if the token carries no account id. Refresh tokens **rotate** (single-use)
+and are re-persisted transparently on every turn near expiry, so sign-in
+survives across sessions without re-authenticating.
+
+> If port `1455` is already in use the login errors with guidance — it is the
+> exact redirect URI registered against OpenAI's Codex client and cannot be
+> changed. A device-code flow for headless/SSH hosts is a planned follow-up.
+
+### Using it
+
+Select the provider and a Codex model:
+
+```bash
+wayland-core --provider openai-chatgpt --model gpt-5.5 "explain this repo"
+```
+
+`chatgpt` is accepted as an alias for `openai-chatgpt`. The default model is
+`gpt-5.5`. Available Codex model ids:
+
+| Model id | Short-form |
+|----------|-----------|
+| `gpt-5.5` (default) | `openai-chatgpt:5.5` |
+| `gpt-5.5-pro` | `openai-chatgpt:5.5-pro` |
+| `gpt-5.4` | `openai-chatgpt:5.4` |
+| `gpt-5.4-codex` | `openai-chatgpt:5.4-codex` (or `openai-chatgpt:codex`) |
+| `gpt-5.3-codex` | `openai-chatgpt:5.3-codex` |
+| `gpt-5.3-codex-spark` | `openai-chatgpt:5.3-codex-spark` |
+
+These ids are valid **only** for `--provider openai-chatgpt`; they are not
+OpenAI API model names.
+
+### Status and logout
+
+```bash
+wayland-core auth status          # signed in (plan: pro), expires in N min — or "not signed in"
+wayland-core auth logout chatgpt  # clears the in-memory cache + on-disk token + any tmp orphan
+```
+
+### Importing a Codex CLI login
+
+If you already signed in with OpenAI's Codex CLI, import its tokens instead of
+re-running the browser flow:
+
+```bash
+wayland-core auth login chatgpt --import-codex
+```
+
+This reads `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`), validates the
+file's ownership/permissions, decodes the account id, and stores the tokens
+under `~/.wayland/oauth/chatgpt.json`. `wayland-core auth status` also attempts a
+one-shot import when no wayland token exists yet.
+
+### Fallback
+
+If anything about subscription auth stops working, switch back to an API key at
+any time:
+
+```bash
+wayland-core --provider openai --model gpt-4o "..."   # always-works fallback
+```
+
+### A note on Terms of Service
+
+This path reuses OpenAI's **published Codex** `client_id`
+(`app_EMoamEEZ73f0CkXaXp7hrann`) to authenticate a ChatGPT subscription for a
+third-party agent — outside that client's originally intended use. It is what
+the open-source Codex/OpenClaw clients do and is **tolerated in practice today**,
+but there is no cited explicit permission; "allowed in practice" is an
+observation, not a guarantee. If OpenAI tightens client/originator/edge checks,
+this path may break — API-key auth is the supported, always-works alternative.
 
 ---
 

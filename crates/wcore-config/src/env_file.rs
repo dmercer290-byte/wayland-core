@@ -138,6 +138,53 @@ pub fn read_env_vars(env_path: &Path) -> BTreeMap<String, String> {
     parse_env(&body)
 }
 
+/// Whether `key` is a provider/API credential we should load from the Wayland
+/// `.env` at startup. Matches the bare `API_KEY` and anything ending in
+/// `_API_KEY` (the convention every LLM/tool provider key follows —
+/// `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `FIRECRAWL_API_KEY`,
+/// …).
+///
+/// This deliberately EXCLUDES non-credential entries that may share the file
+/// (`~/.wayland/.env` is a shared dotenv: a host may also keep `DATABASE_URL`,
+/// `PYTHONPATH`, `WAYLAND_SHARED_SECRET`, … there). Loading those into the
+/// process is overreach and has real side effects — e.g. injecting a
+/// `DATABASE_URL` makes the engine eagerly resolve a Postgres tool backend at
+/// boot, which hangs if that DB is unreachable. We only want the provider keys
+/// the Config TUI writes here to take effect.
+fn is_credential_key(key: &str) -> bool {
+    key == "API_KEY" || key.ends_with("_API_KEY")
+}
+
+/// Load provider credential keys from the Wayland `.env` file
+/// (`~/.wayland/.env`, or `$WAYLAND_HOME/.env`) into the process environment at
+/// startup.
+///
+/// The Config TUI writes provider credentials to this file
+/// (`surfaces/config.rs` `save`), but nothing read it back, so a UI-saved key
+/// never reached `resolve_api_key` on the next launch — the key only worked if
+/// it was also exported in the shell. This closes that seam.
+///
+/// Scope: only `*_API_KEY`-shaped keys (see [`is_credential_key`]) are loaded —
+/// arbitrary entries in the shared dotenv (`DATABASE_URL`, `PYTHONPATH`, …) are
+/// ignored so loading the file can't alter unrelated engine behavior.
+///
+/// Semantics: an entry already present in the environment WINS — an exported
+/// shell var is never overwritten by the file. Best-effort: a missing/empty
+/// file is a no-op; `read_env_vars`/`parse_env` already drop malformed lines.
+///
+/// MUST be called single-threaded at process startup (before any runtime
+/// threads spawn): `std::env::set_var` is unsound with other threads running.
+pub fn load_wayland_env_file() {
+    let path = crate::config::profile_home().join(".env");
+    for (key, value) in read_env_vars(&path) {
+        if is_credential_key(&key) && std::env::var_os(&key).is_none() {
+            // SAFETY: called once at startup before any threads are spawned
+            // (wcore-cli main() invokes this before building the Tokio runtime).
+            unsafe { std::env::set_var(&key, value) };
+        }
+    }
+}
+
 /// Validate a key. Matches `^[A-Z][A-Z0-9_]*$`.
 fn validate_key(key: &str) -> Result<(), EnvFileError> {
     let bytes = key.as_bytes();
@@ -436,6 +483,79 @@ mod tests {
             !captured.contains("ULTRA-SENSITIVE-DEADBEEF"),
             "value MUST NOT appear in log: {captured}"
         );
+    }
+
+    // ── Startup loader ──────────────────────────────────────────────────
+
+    #[test]
+    #[serial_test::serial]
+    fn load_wayland_env_file_applies_without_overriding() {
+        // Snapshot the env vars this test mutates so it restores them on exit
+        // (it touches process-global state; #[serial] keeps it off the other
+        // env-reading tests' threads).
+        let prev_home = std::env::var_os("WAYLAND_HOME");
+        let prev_foo = std::env::var_os("FOO_API_KEY");
+        let prev_bar = std::env::var_os("BAR_API_KEY");
+        let prev_db = std::env::var_os("DATABASE_URL");
+
+        let dir = TempDir::new().unwrap();
+        let env_path = dir.path().join(".env");
+        // FOO_API_KEY: credential, absent  → loaded.
+        // BAR_API_KEY: credential, exported → not clobbered.
+        // DATABASE_URL: NOT a credential    → must be ignored (loading it could
+        //               trip the Postgres tool backend at boot).
+        std::fs::write(
+            &env_path,
+            "FOO_API_KEY=fromfile\nBAR_API_KEY=fromfile\nDATABASE_URL=postgres://x/y",
+        )
+        .unwrap();
+
+        // SAFETY: #[serial] gates this test against other env mutators.
+        unsafe {
+            std::env::set_var("WAYLAND_HOME", dir.path());
+            // BAR_API_KEY is already exported — the file value must NOT clobber it.
+            std::env::set_var("BAR_API_KEY", "exported");
+            std::env::remove_var("FOO_API_KEY");
+            std::env::remove_var("DATABASE_URL");
+        }
+
+        load_wayland_env_file();
+
+        assert_eq!(
+            std::env::var("FOO_API_KEY").ok().as_deref(),
+            Some("fromfile"),
+            "credential entry should be loaded when absent from the environment"
+        );
+        assert_eq!(
+            std::env::var("BAR_API_KEY").ok().as_deref(),
+            Some("exported"),
+            "exported var must win over the file value"
+        );
+        assert!(
+            std::env::var_os("DATABASE_URL").is_none(),
+            "non-credential entries must NOT be loaded from the shared dotenv"
+        );
+
+        // Restore prior values.
+        // SAFETY: still inside the #[serial] guard.
+        unsafe {
+            match prev_home {
+                Some(v) => std::env::set_var("WAYLAND_HOME", v),
+                None => std::env::remove_var("WAYLAND_HOME"),
+            }
+            match prev_foo {
+                Some(v) => std::env::set_var("FOO_API_KEY", v),
+                None => std::env::remove_var("FOO_API_KEY"),
+            }
+            match prev_bar {
+                Some(v) => std::env::set_var("BAR_API_KEY", v),
+                None => std::env::remove_var("BAR_API_KEY"),
+            }
+            match prev_db {
+                Some(v) => std::env::set_var("DATABASE_URL", v),
+                None => std::env::remove_var("DATABASE_URL"),
+            }
+        }
     }
 
     // ── Parser round-trip ───────────────────────────────────────────────

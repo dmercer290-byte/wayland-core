@@ -940,6 +940,14 @@ pub enum ProviderType {
     /// `api.cohere.com/compatibility/v1`. Models: `command-r-plus`, etc.
     /// v0.8.1 U10 (F-025 fix): wired from orphan module to reachable arm.
     Cohere,
+    /// "Sign in with ChatGPT" — routes inference through the ChatGPT Codex
+    /// backend (`chatgpt.com/backend-api/codex`) using OAuth tokens from a
+    /// ChatGPT subscription instead of an OpenAI API key. Speaks the OpenAI
+    /// Responses wire format. The provider is constructed in `bootstrap`
+    /// (not `create_native_provider`) because it needs an OAuth-backed bearer
+    /// source that lives in `wcore-agent` (layering). Distinct from `OpenAI`,
+    /// which is API-key auth against `api.openai.com`.
+    OpenAIChatGpt,
 }
 
 impl ProviderType {
@@ -965,6 +973,10 @@ impl ProviderType {
                 | ProviderType::Qwen
                 | ProviderType::Mistral
                 | ProviderType::Cohere
+                // A7: ChatGPT Codex rides the OpenAI Responses wire format and
+                // its compat preset is built on `openai_compat_provider`, so it
+                // belongs to the OpenAI-compatible family for plumbing purposes.
+                | ProviderType::OpenAIChatGpt
         )
     }
 }
@@ -1026,6 +1038,9 @@ pub(crate) fn default_model_for(provider: ProviderType) -> &'static str {
         ProviderType::Moonshot | ProviderType::Qwen => "",
         // F-025: Mistral + Cohere have heterogeneous model catalogs; user sets model.
         ProviderType::Mistral | ProviderType::Cohere => "",
+        // ChatGPT Codex default: gpt-5.5 (the headline Codex model). See
+        // `wcore_types::model_aliases` codex consts for the full catalog.
+        ProviderType::OpenAIChatGpt => "gpt-5.5",
     }
 }
 
@@ -1041,6 +1056,279 @@ pub fn default_model_for_slug(slug: &str) -> &'static str {
     match parse_builtin_provider(slug) {
         Some(provider) => default_model_for(provider),
         None => "",
+    }
+}
+
+/// Parse a built-in provider slug (or documented alias) into its
+/// [`ProviderType`]. Thin public wrapper over the crate-private match used by
+/// `resolve` — exposed so callers in higher crates (the `/provider` picker)
+/// can route a slug through the same single source of truth. Returns `None`
+/// for an unknown name.
+pub fn provider_type_from_slug(slug: &str) -> Option<ProviderType> {
+    parse_builtin_provider(slug)
+}
+
+/// The built-in providers a connection check can meaningfully cover: the four
+/// natives plus Gemini and the OAuth ChatGPT backend. These are the
+/// [`wcore_types::model_aliases::known_providers`] catalog, expressed as
+/// [`ProviderType`]s so [`connected_providers`] never has to round-trip
+/// through slug strings. Tier-2 / catalog providers are intentionally absent —
+/// the picker and the catalog refresh only consider the known set.
+const KNOWN_PROVIDER_TYPES: &[ProviderType] = &[
+    ProviderType::Anthropic,
+    ProviderType::OpenAI,
+    ProviderType::Bedrock,
+    ProviderType::Vertex,
+    ProviderType::Gemini,
+    ProviderType::OpenAIChatGpt,
+];
+
+/// Canonical slug for a [`ProviderType`] — the inverse of
+/// [`parse_builtin_provider`]'s primary spelling (NOT an alias). This is the
+/// key under which a provider's live model list is cached
+/// (`model_catalog::save`) and the alias-catalog key
+/// (`wcore_types::model_aliases`). Keep in sync with `parse_builtin_provider`.
+pub fn provider_type_slug(provider: ProviderType) -> &'static str {
+    match provider {
+        ProviderType::Anthropic => "anthropic",
+        ProviderType::OpenAI => "openai",
+        ProviderType::Bedrock => "bedrock",
+        ProviderType::Vertex => "vertex",
+        ProviderType::Gemini => "gemini",
+        ProviderType::AzureOpenAI => "azure-openai",
+        ProviderType::Together => "together",
+        ProviderType::Fireworks => "fireworks",
+        ProviderType::Nvidia => "nvidia",
+        ProviderType::Perplexity => "perplexity",
+        ProviderType::Cerebras => "cerebras",
+        ProviderType::OpenRouter => "openrouter",
+        ProviderType::FluxRouter => "flux-router",
+        ProviderType::Deepseek => "deepseek",
+        ProviderType::Xai => "xai",
+        ProviderType::Groq => "groq",
+        ProviderType::Moonshot => "moonshot",
+        ProviderType::Qwen => "qwen",
+        ProviderType::Mistral => "mistral",
+        ProviderType::Cohere => "cohere",
+        ProviderType::OpenAIChatGpt => "openai-chatgpt",
+    }
+}
+
+/// Path to the stored OAuth token for the ChatGPT backend
+/// (`~/.wayland/oauth/chatgpt.json`). Mirrors `wcore_agent::oauth::OAuthStorage`
+/// (`from_home` → `~/.wayland/oauth/`, `path_for("chatgpt")` →
+/// `chatgpt.json`) WITHOUT depending on `wcore-agent` (layering): the check is
+/// a cheap path existence test, not a token load. The `chatgpt` provider slug
+/// is the OAuth-store key (distinct from the `openai-chatgpt` catalog slug).
+///
+/// Resolved under [`profile_home`] so it honours `WAYLAND_HOME` exactly like the
+/// token *writer* (`OAuthStorage::from_home`) — the two must agree or a
+/// sandboxed run would look for the token in the wrong place. Identical to the
+/// old `dirs::home_dir()/.wayland/oauth/chatgpt.json` when `WAYLAND_HOME` is
+/// unset.
+fn chatgpt_oauth_token_path() -> PathBuf {
+    profile_home().join("oauth").join("chatgpt.json")
+}
+
+/// Whether `provider`'s credential is present right now, decided synchronously
+/// with no network. The single source of truth shared by the `/provider`
+/// picker (`wcore-cli`) and the model-catalog refresh service
+/// (`wcore-providers`). Mirrors the three credential classes
+/// [`resolve_api_key`] distinguishes:
+///
+/// - **Ambient cloud** (`bedrock`, `vertex`): connected only when a real
+///   credential source is present on this host (see
+///   [`aws_ambient_credentials_present`] / [`gcp_ambient_credentials_present`])
+///   — NOT unconditionally. They carry no API key, but listing them as
+///   connected on a box with no AWS/GCP credentials offered the user a provider
+///   that would error on the first turn.
+/// - **OAuth** (`openai-chatgpt`): connected when the stored login file
+///   (`~/.wayland/oauth/chatgpt.json`) exists.
+/// - **API key** (everything else): connected when `resolve_api_key`
+///   resolves a non-empty key via the config field / credentials store / env
+///   chain. A `MissingApiKey` error (or an empty resolved key) is "not
+///   connected".
+pub fn provider_connected(provider: ProviderType) -> bool {
+    match provider {
+        // Ambient cloud credentials — connected only when AWS/GCP credentials
+        // are actually present (env, shared config/credentials files, container
+        // or OIDC role, or ADC), decided with no network call.
+        ProviderType::Bedrock => aws_ambient_credentials_present(),
+        ProviderType::Vertex => gcp_ambient_credentials_present(),
+        // OAuth-backed — the stored login token is the credential.
+        ProviderType::OpenAIChatGpt => chatgpt_oauth_token_path().exists(),
+        // API-key providers: resolved key must be present and non-empty.
+        _ => {
+            let storage = crate::credentials::CredentialsStorageConfig::default();
+            matches!(
+                resolve_api_key(None, None, provider, &storage),
+                Ok(key) if !key.trim().is_empty()
+            )
+        }
+    }
+}
+
+/// Whether AWS credentials the Bedrock provider's default SDK chain would use
+/// are present on this host — checked synchronously with no network (never
+/// touches IMDS). Mirrors the sources listed in `bedrock.rs`'s
+/// "No AWS credentials found" error: explicit access keys, a named profile, an
+/// ECS/EKS container or web-identity role, or the shared `~/.aws` files.
+fn aws_ambient_credentials_present() -> bool {
+    let present = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+    // Explicit static keys (both halves required), a named profile, or an
+    // ECS/EKS/OIDC role handed to the process via env.
+    if (present("AWS_ACCESS_KEY_ID") && present("AWS_SECRET_ACCESS_KEY"))
+        || present("AWS_PROFILE")
+        || present("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+        || present("AWS_CONTAINER_CREDENTIALS_FULL_URI")
+        || present("AWS_WEB_IDENTITY_TOKEN_FILE")
+    {
+        return true;
+    }
+    // Shared credentials/config files (honour the standard overrides, else the
+    // default `~/.aws/{credentials,config}` locations).
+    let home = dirs::home_dir();
+    let creds_file = std::env::var_os("AWS_SHARED_CREDENTIALS_FILE")
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|h| h.join(".aws").join("credentials")));
+    let config_file = std::env::var_os("AWS_CONFIG_FILE")
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|h| h.join(".aws").join("config")));
+    creds_file.is_some_and(|p| p.exists()) || config_file.is_some_and(|p| p.exists())
+}
+
+/// Whether GCP credentials the Vertex provider would use are present on this
+/// host — checked synchronously with no network. Mirrors `vertex.rs`'s
+/// resolution order: a `GOOGLE_APPLICATION_CREDENTIALS` service-account file, or
+/// gcloud Application Default Credentials at
+/// `~/.config/gcloud/application_default_credentials.json`.
+fn gcp_ambient_credentials_present() -> bool {
+    if std::env::var_os("GOOGLE_APPLICATION_CREDENTIALS").is_some_and(|v| !v.is_empty()) {
+        return true;
+    }
+    dirs::home_dir()
+        .map(|h| h.join(".config/gcloud/application_default_credentials.json"))
+        .is_some_and(|p| p.exists())
+}
+
+/// The built-in providers (from [`KNOWN_PROVIDER_TYPES`]) that have a usable
+/// credential right now — see [`provider_connected`]. Used by the model-catalog
+/// refresh service to decide which providers to fetch live model lists for, and
+/// by the `/provider` picker to separate ready providers from ones that would
+/// error on the first turn.
+pub fn connected_providers() -> Vec<ProviderType> {
+    KNOWN_PROVIDER_TYPES
+        .iter()
+        .copied()
+        .filter(|p| provider_connected(*p))
+        .collect()
+}
+
+/// Default base URL for `provider` when neither CLI, config, nor a catalog
+/// entry supplies one. Extracted from `Config::resolve` so the model-catalog
+/// refresh service (`wcore-providers`) can stamp the same URL onto a
+/// per-provider discovery `Config` without duplicating the mapping. An empty
+/// string means "let the provider supply its own default" (Tier-2 newtypes) or
+/// "URL is derived from region/project, not base_url" (Bedrock/Vertex).
+pub fn default_base_url_for(provider: ProviderType) -> String {
+    match provider {
+        ProviderType::Anthropic => "https://api.anthropic.com".into(),
+        ProviderType::OpenAI => "https://api.openai.com".into(),
+        // Bedrock/Vertex URLs are constructed from region/project, not base_url
+        ProviderType::Bedrock | ProviderType::Vertex => String::new(),
+        // Mirrors `wcore_providers::gemini::DEFAULT_GEMINI_BASE_URL`.
+        // We can't import that here (would create a circular dep:
+        // wcore-providers already depends on wcore-config). The
+        // provider crate falls back to this same literal when
+        // `base_url` is empty, so a future drift here is benign
+        // until someone overrides this value mid-stack.
+        ProviderType::Gemini => "https://generativelanguage.googleapis.com".into(),
+        // v0.6.3 Tier-2 providers: the provider newtype falls back to
+        // its own `*_DEFAULT_BASE_URL` const when `base_url` is empty,
+        // so leave it empty here and let the provider supply the
+        // default. Azure OpenAI is the exception — it has no static
+        // default (the resource subdomain is account-specific) and
+        // REQUIRES `base_url` to be set; an empty value surfaces as a
+        // loud connect error rather than a wrong-host request.
+        ProviderType::AzureOpenAI
+        | ProviderType::Together
+        | ProviderType::Fireworks
+        | ProviderType::Nvidia
+        | ProviderType::Perplexity
+        | ProviderType::Cerebras
+        | ProviderType::OpenRouter
+        | ProviderType::FluxRouter => String::new(),
+        ProviderType::Deepseek | ProviderType::Xai | ProviderType::Groq => String::new(),
+        ProviderType::Moonshot | ProviderType::Qwen => String::new(),
+        // F-025: Mistral + Cohere fall back to their own default base URLs.
+        ProviderType::Mistral | ProviderType::Cohere => String::new(),
+        // ChatGPT Codex backend — NOT api.openai.com. The provider
+        // appends `/responses` to this base. Mirrors
+        // `wcore_providers::openai_chatgpt::CODEX_BASE_URL`.
+        ProviderType::OpenAIChatGpt => "https://chatgpt.com/backend-api/codex".into(),
+    }
+}
+
+/// The `ProviderCompat` preset for a native (non-catalog) `provider`. Extracted
+/// from `Config::resolve` so the model-catalog refresh service can build a
+/// per-provider discovery `Config` with the correct wire shape and cost
+/// attribution without duplicating the mapping. Catalog (`--provider <id>`)
+/// entries do NOT go through here — they use `ProviderCompat::from_catalog_entry`
+/// at the call site.
+pub fn compat_defaults_for(provider: ProviderType) -> ProviderCompat {
+    match provider {
+        ProviderType::Anthropic => ProviderCompat::anthropic_defaults(),
+        ProviderType::Bedrock => ProviderCompat::bedrock_defaults(),
+        ProviderType::Vertex => ProviderCompat::vertex_defaults(),
+        ProviderType::Gemini => ProviderCompat::gemini_defaults(),
+        ProviderType::OpenAI => ProviderCompat::openai_defaults(),
+        ProviderType::AzureOpenAI => ProviderCompat::azure_openai_defaults(),
+        ProviderType::Together => ProviderCompat::together_defaults(),
+        ProviderType::Fireworks => ProviderCompat::fireworks_defaults(),
+        ProviderType::Nvidia => ProviderCompat::nvidia_defaults(),
+        ProviderType::Perplexity => ProviderCompat::perplexity_defaults(),
+        ProviderType::Cerebras => ProviderCompat::cerebras_defaults(),
+        ProviderType::OpenRouter => ProviderCompat::openrouter_defaults(),
+        ProviderType::FluxRouter => ProviderCompat::flux_router_defaults(),
+        ProviderType::Deepseek => ProviderCompat::deepseek_defaults(),
+        ProviderType::Xai => ProviderCompat::xai_defaults(),
+        ProviderType::Groq => ProviderCompat::groq_defaults(),
+        ProviderType::Moonshot => ProviderCompat::moonshot_defaults(),
+        ProviderType::Qwen => ProviderCompat::qwen_defaults(),
+        // F-025: Mistral + Cohere wired to reachable compat defaults.
+        ProviderType::Mistral => ProviderCompat::mistral_defaults(),
+        ProviderType::Cohere => ProviderCompat::cohere_defaults(),
+        // ChatGPT Codex: OpenAI Responses wire format, effort levels,
+        // provider id "openai-chatgpt" for cost attribution.
+        ProviderType::OpenAIChatGpt => ProviderCompat::chatgpt_defaults(),
+    }
+}
+
+impl Config {
+    /// Derive a single-purpose `Config` for live model discovery of `provider`,
+    /// reusing `self` for everything but the provider-identifying fields.
+    ///
+    /// Overrides exactly four fields so `create_native_provider` constructs the
+    /// right client: `provider`, the resolved `api_key` (config/store/env
+    /// chain — empty for ambient cloud), the default `base_url`, and the compat
+    /// preset (wire shape + cost attribution). Every other field (debug,
+    /// prompt_caching, bedrock/vertex sub-configs, …) is inherited from `self`
+    /// so the discovery client matches the base environment.
+    ///
+    /// `provider_label` is set to the canonical slug so the constructed
+    /// provider's cost attribution and any label-keyed logging read correctly.
+    /// The model is left as `self.model` — `list_models` does not consult it.
+    pub fn for_provider_discovery(&self, provider: ProviderType) -> Self {
+        let storage = crate::credentials::CredentialsStorageConfig::default();
+        let api_key = resolve_api_key(None, None, provider, &storage).unwrap_or_default();
+        Self {
+            provider,
+            provider_label: provider_type_slug(provider).to_string(),
+            api_key,
+            base_url: default_base_url_for(provider),
+            compat: compat_defaults_for(provider),
+            ..self.clone()
+        }
     }
 }
 
@@ -1117,38 +1405,7 @@ impl Config {
             .clone()
             .or_else(|| provider_config.base_url.clone())
             .or_else(|| catalog_entry.as_ref().map(|e| e.base_url.clone()))
-            .unwrap_or_else(|| match provider {
-                ProviderType::Anthropic => "https://api.anthropic.com".into(),
-                ProviderType::OpenAI => "https://api.openai.com".into(),
-                // Bedrock/Vertex URLs are constructed from region/project, not base_url
-                ProviderType::Bedrock | ProviderType::Vertex => String::new(),
-                // Mirrors `wcore_providers::gemini::DEFAULT_GEMINI_BASE_URL`.
-                // We can't import that here (would create a circular dep:
-                // wcore-providers already depends on wcore-config). The
-                // provider crate falls back to this same literal when
-                // `base_url` is empty, so a future drift here is benign
-                // until someone overrides this value mid-stack.
-                ProviderType::Gemini => "https://generativelanguage.googleapis.com".into(),
-                // v0.6.3 Tier-2 providers: the provider newtype falls back to
-                // its own `*_DEFAULT_BASE_URL` const when `base_url` is empty,
-                // so leave it empty here and let the provider supply the
-                // default. Azure OpenAI is the exception — it has no static
-                // default (the resource subdomain is account-specific) and
-                // REQUIRES `base_url` to be set; an empty value surfaces as a
-                // loud connect error rather than a wrong-host request.
-                ProviderType::AzureOpenAI
-                | ProviderType::Together
-                | ProviderType::Fireworks
-                | ProviderType::Nvidia
-                | ProviderType::Perplexity
-                | ProviderType::Cerebras
-                | ProviderType::OpenRouter
-                | ProviderType::FluxRouter => String::new(),
-                ProviderType::Deepseek | ProviderType::Xai | ProviderType::Groq => String::new(),
-                ProviderType::Moonshot | ProviderType::Qwen => String::new(),
-                // F-025: Mistral + Cohere fall back to their own default base URLs.
-                ProviderType::Mistral | ProviderType::Cohere => String::new(),
-            });
+            .unwrap_or_else(|| default_base_url_for(provider));
 
         let raw_model = cli
             .model
@@ -1257,29 +1514,7 @@ impl Config {
         let compat_defaults = if let Some(entry) = catalog_entry.as_ref() {
             ProviderCompat::from_catalog_entry(&entry.id, entry.api_path.as_deref())
         } else {
-            match provider {
-                ProviderType::Anthropic => ProviderCompat::anthropic_defaults(),
-                ProviderType::Bedrock => ProviderCompat::bedrock_defaults(),
-                ProviderType::Vertex => ProviderCompat::vertex_defaults(),
-                ProviderType::Gemini => ProviderCompat::gemini_defaults(),
-                ProviderType::OpenAI => ProviderCompat::openai_defaults(),
-                ProviderType::AzureOpenAI => ProviderCompat::azure_openai_defaults(),
-                ProviderType::Together => ProviderCompat::together_defaults(),
-                ProviderType::Fireworks => ProviderCompat::fireworks_defaults(),
-                ProviderType::Nvidia => ProviderCompat::nvidia_defaults(),
-                ProviderType::Perplexity => ProviderCompat::perplexity_defaults(),
-                ProviderType::Cerebras => ProviderCompat::cerebras_defaults(),
-                ProviderType::OpenRouter => ProviderCompat::openrouter_defaults(),
-                ProviderType::FluxRouter => ProviderCompat::flux_router_defaults(),
-                ProviderType::Deepseek => ProviderCompat::deepseek_defaults(),
-                ProviderType::Xai => ProviderCompat::xai_defaults(),
-                ProviderType::Groq => ProviderCompat::groq_defaults(),
-                ProviderType::Moonshot => ProviderCompat::moonshot_defaults(),
-                ProviderType::Qwen => ProviderCompat::qwen_defaults(),
-                // F-025: Mistral + Cohere wired to reachable compat defaults.
-                ProviderType::Mistral => ProviderCompat::mistral_defaults(),
-                ProviderType::Cohere => ProviderCompat::cohere_defaults(),
-            }
+            compat_defaults_for(provider)
         };
 
         let user_compat = provider_config.compat.clone().unwrap_or_default();
@@ -1404,6 +1639,9 @@ fn parse_builtin_provider(s: &str) -> Option<ProviderType> {
         // plugins if local-runtime support is needed again.
         "mistral" => Some(ProviderType::Mistral),
         "cohere" => Some(ProviderType::Cohere),
+        // "Sign in with ChatGPT" — OAuth-backed Codex backend. "chatgpt" is the
+        // natural short alias; "openai-chatgpt" is the canonical id.
+        "openai-chatgpt" | "chatgpt" => Some(ProviderType::OpenAIChatGpt),
         _ => None,
     }
 }
@@ -1417,7 +1655,7 @@ pub const BUILTIN_PROVIDER_NAMES: &str = "anthropic, openai, bedrock, vertex, ge
      azure-openai (alias: azure), together, fireworks, nvidia, perplexity, \
      cerebras, openrouter, flux-router (alias: flux), deepseek, xai (alias: grok), \
      groq, moonshot (alias: kimi), qwen (aliases: alibaba, dashscope), \
-     mistral, cohere";
+     mistral, cohere, openai-chatgpt (alias: chatgpt)";
 
 fn merge_provider_configs(base: ProviderConfig, overlay: ProviderConfig) -> ProviderConfig {
     ProviderConfig {
@@ -1559,6 +1797,13 @@ fn resolve_api_key(
         ProviderType::Bedrock | ProviderType::Vertex => {
             return Ok(String::new());
         }
+        // ChatGPT Codex authenticates via OAuth tokens resolved out-of-band by
+        // the bootstrap-built bearer source (same shape as Bedrock/Vertex — no
+        // inline API key). Returning an empty key here keeps config resolution
+        // from erroring with MissingApiKey when no OPENAI_API_KEY is set.
+        ProviderType::OpenAIChatGpt => {
+            return Ok(String::new());
+        }
         ProviderType::Gemini => {
             // Native Gemini uses an API key (NOT GCP OAuth — that's Vertex).
             // Standard env vars per Google's CLI samples.
@@ -1682,6 +1927,8 @@ fn lookup_store_api_key(
         ProviderType::Anthropic => "providers.anthropic.api_key",
         ProviderType::OpenAI => "providers.openai.api_key",
         ProviderType::Bedrock | ProviderType::Vertex => return None,
+        // ChatGPT Codex has no credentials-store API key — auth is OAuth.
+        ProviderType::OpenAIChatGpt => return None,
         ProviderType::Gemini => "providers.gemini.api_key",
         // v0.6.3 Tier-2 providers — credentials store path keyed by id.
         ProviderType::AzureOpenAI => "providers.azure-openai.api_key",
@@ -2830,6 +3077,23 @@ mod tests {
             parse_builtin_provider("cerebras"),
             Some(ProviderType::Cerebras)
         );
+    }
+
+    #[test]
+    fn parses_chatgpt_provider_aliases() {
+        // Both the canonical id and the short alias resolve to the same type.
+        assert_eq!(
+            parse_builtin_provider("openai-chatgpt"),
+            Some(ProviderType::OpenAIChatGpt)
+        );
+        assert_eq!(
+            parse_builtin_provider("chatgpt"),
+            Some(ProviderType::OpenAIChatGpt)
+        );
+        // The Codex backend default model is gpt-5.5.
+        assert_eq!(default_model_for(ProviderType::OpenAIChatGpt), "gpt-5.5");
+        // It rides OpenAI-compat plumbing (A7).
+        assert!(ProviderType::OpenAIChatGpt.is_openai_compatible());
     }
 
     #[test]
@@ -4474,5 +4738,249 @@ skills_lifecycle = true
             toml_contents.contains("first-run-model"),
             "first migration must carry the legacy model into the TOML; got:\n{toml_contents}"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // connected_providers() / provider_connected() — credential detection
+    // -------------------------------------------------------------------------
+
+    /// Env vars that influence a provider's connection verdict. Cleared for the
+    /// duration of each connected-providers test so the host environment can't
+    /// leak a real key (or `API_KEY`, which `resolve_api_key` checks first).
+    const CRED_ENV_KEYS: &[&str] = &[
+        "HOME",
+        "WAYLAND_HOME",
+        "API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        // Ambient cloud credential sources read by the Bedrock/Vertex probes,
+        // so the guard is hermetic for them too (sandboxed HOME clears the
+        // `~/.aws/*` and ADC file fallbacks).
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_PROFILE",
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+        "AWS_WEB_IDENTITY_TOKEN_FILE",
+        "AWS_SHARED_CREDENTIALS_FILE",
+        "AWS_CONFIG_FILE",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    ];
+
+    /// Hermetic credential environment: points `HOME` (the ChatGPT OAuth-file
+    /// root) and `WAYLAND_HOME` (the credentials-store root) at fresh tempdirs
+    /// and clears every credential env var, restoring all of them on drop.
+    /// Tests using it must be `#[serial]`.
+    struct CredEnvGuard {
+        _home: tempfile::TempDir,
+        _wh: tempfile::TempDir,
+        prior: Vec<(&'static str, Option<std::ffi::OsString>)>,
+    }
+
+    impl CredEnvGuard {
+        fn new() -> Self {
+            let home = tempfile::TempDir::new().unwrap();
+            let wh = tempfile::TempDir::new().unwrap();
+            let prior = CRED_ENV_KEYS
+                .iter()
+                .map(|k| (*k, std::env::var_os(k)))
+                .collect();
+            // SAFETY: callers are #[serial]; no concurrent env access.
+            unsafe {
+                for k in CRED_ENV_KEYS {
+                    std::env::remove_var(k);
+                }
+                std::env::set_var("HOME", home.path());
+                std::env::set_var("WAYLAND_HOME", wh.path());
+            }
+            Self {
+                _home: home,
+                _wh: wh,
+                prior,
+            }
+        }
+
+        /// Create the ChatGPT OAuth token file under the guarded `HOME`, exactly
+        /// where `wcore_agent::oauth::OAuthStorage::from_home` would
+        /// (`~/.wayland/oauth/chatgpt.json`).
+        fn write_chatgpt_token(&self) {
+            // Write where `chatgpt_oauth_token_path` reads — under the guarded
+            // `WAYLAND_HOME` (via `profile_home`), so detection is hermetic on
+            // every platform (Windows' `dirs::home_dir()` ignores `HOME`).
+            let dir = crate::config::profile_home().join("oauth");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("chatgpt.json"), "{\"access_token\":\"t\"}").unwrap();
+        }
+    }
+
+    impl Drop for CredEnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: serialized; restore each prior value (or clear it).
+            unsafe {
+                for (k, v) in &self.prior {
+                    match v {
+                        Some(val) => std::env::set_var(k, val),
+                        None => std::env::remove_var(k),
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[serial_test::serial(wayland_home_env)]
+    fn connected_providers_detects_key_ambient_and_oauth_excludes_keyless() {
+        let guard = CredEnvGuard::new();
+        // Keyed provider: Anthropic via its env var.
+        unsafe { std::env::set_var("ANTHROPIC_API_KEY", "sk-ant-test") };
+        // Ambient cloud: provide real credential sources via env (no home
+        // dependency, so this is hermetic on Windows too where dirs::home_dir()
+        // ignores HOME) — AWS static keys for Bedrock, an ADC path for Vertex.
+        unsafe {
+            std::env::set_var("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE");
+            std::env::set_var("AWS_SECRET_ACCESS_KEY", "secret");
+            std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/sa.json");
+        }
+        // OAuth provider: present token file = connected.
+        guard.write_chatgpt_token();
+
+        let connected = connected_providers();
+
+        // Keyed provider detected.
+        assert!(
+            connected.contains(&ProviderType::Anthropic),
+            "Anthropic with ANTHROPIC_API_KEY set must be connected: {connected:?}"
+        );
+        // Ambient cloud is connected when a credential source is present.
+        assert!(
+            connected.contains(&ProviderType::Bedrock),
+            "Bedrock with AWS credentials must be connected: {connected:?}"
+        );
+        assert!(
+            connected.contains(&ProviderType::Vertex),
+            "Vertex with GOOGLE_APPLICATION_CREDENTIALS must be connected: {connected:?}"
+        );
+        // OAuth provider with a stored token file is connected.
+        assert!(
+            connected.contains(&ProviderType::OpenAIChatGpt),
+            "ChatGPT with a stored token file must be connected: {connected:?}"
+        );
+        // Keyless providers are excluded.
+        assert!(
+            !connected.contains(&ProviderType::OpenAI),
+            "OpenAI without OPENAI_API_KEY must NOT be connected: {connected:?}"
+        );
+        assert!(
+            !connected.contains(&ProviderType::Gemini),
+            "Gemini without GEMINI/GOOGLE_API_KEY must NOT be connected: {connected:?}"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial(wayland_home_env)]
+    fn provider_connected_oauth_false_without_token_file() {
+        let _guard = CredEnvGuard::new();
+        // No token file written → ChatGPT is not connected. (Ambient-cloud
+        // connection is covered hermetically by
+        // `ambient_cloud_connection_reflects_real_credentials`, which overrides
+        // the AWS shared-file paths rather than relying on the home dir — the
+        // only way to make it deterministic on Windows.)
+        assert!(
+            !provider_connected(ProviderType::OpenAIChatGpt),
+            "ChatGPT without a stored token file must be unconnected"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial(wayland_home_env)]
+    fn for_provider_discovery_overrides_identifying_fields() {
+        let _guard = CredEnvGuard::new();
+        unsafe { std::env::set_var("OPENAI_API_KEY", "sk-openai-test") };
+        let base = Config {
+            provider: ProviderType::Anthropic,
+            prompt_caching: true,
+            ..Config::default()
+        };
+        let cfg = base.for_provider_discovery(ProviderType::OpenAI);
+        assert_eq!(cfg.provider, ProviderType::OpenAI);
+        assert_eq!(cfg.provider_label, "openai");
+        assert_eq!(cfg.api_key, "sk-openai-test");
+        assert_eq!(cfg.base_url, "https://api.openai.com");
+        assert_eq!(cfg.compat.provider_type(), "openai");
+        // Non-identifying fields are inherited from the base.
+        assert!(
+            cfg.prompt_caching,
+            "for_provider_discovery must inherit base fields like prompt_caching"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial(wayland_home_env)]
+    fn ambient_cloud_connection_reflects_real_credentials() {
+        // Snapshot every var these probes read so the test restores them.
+        let keys = [
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_PROFILE",
+            "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+            "AWS_WEB_IDENTITY_TOKEN_FILE",
+            "AWS_SHARED_CREDENTIALS_FILE",
+            "AWS_CONFIG_FILE",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+        ];
+        let saved: Vec<(&str, Option<std::ffi::OsString>)> =
+            keys.iter().map(|k| (*k, std::env::var_os(k))).collect();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("does-not-exist");
+
+        // SAFETY: serialized via the shared `wayland_home_env` group, so no
+        // other env-reading test runs concurrently.
+        unsafe {
+            for k in keys {
+                std::env::remove_var(k);
+            }
+            // Point the AWS shared-file lookups at nonexistent paths so the
+            // `~/.aws/*` fallback is bypassed deterministically on every OS.
+            std::env::set_var("AWS_SHARED_CREDENTIALS_FILE", &missing);
+            std::env::set_var("AWS_CONFIG_FILE", &missing);
+        }
+
+        // No env keys + nonexistent shared files ⇒ Bedrock not connected.
+        assert!(
+            !provider_connected(ProviderType::Bedrock),
+            "Bedrock must NOT be connected without any AWS credential source"
+        );
+
+        // Explicit static keys ⇒ connected.
+        unsafe {
+            std::env::set_var("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE");
+            std::env::set_var("AWS_SECRET_ACCESS_KEY", "secret");
+        }
+        assert!(
+            provider_connected(ProviderType::Bedrock),
+            "explicit AWS keys must mark Bedrock connected"
+        );
+
+        // A GOOGLE_APPLICATION_CREDENTIALS path ⇒ Vertex connected.
+        unsafe { std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", missing.as_os_str()) };
+        assert!(
+            provider_connected(ProviderType::Vertex),
+            "GOOGLE_APPLICATION_CREDENTIALS must mark Vertex connected"
+        );
+
+        // Restore every var.
+        // SAFETY: still inside the serial guard.
+        unsafe {
+            for (k, v) in saved {
+                match v {
+                    Some(val) => std::env::set_var(k, val),
+                    None => std::env::remove_var(k),
+                }
+            }
+        }
     }
 }

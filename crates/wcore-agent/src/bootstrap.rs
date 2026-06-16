@@ -542,8 +542,10 @@ impl AgentBootstrap {
         // The wrap carries no fallback chain — a single configured provider
         // has no alternate — but fail-fast circuit-breaking is live for all.
         let injected_or_routed = self.provider.take().or(routed_provider);
-        let primary_provider: Arc<dyn LlmProvider> = injected_or_routed
-            .unwrap_or_else(|| wcore_providers::create_native_provider(&self.config));
+        let primary_provider: Arc<dyn LlmProvider> = match injected_or_routed {
+            Some(p) => p,
+            None => build_native_or_chatgpt_provider(&self.config)?,
+        };
 
         let cfg = CircuitConfig {
             fail_threshold: self.config.provider_chain.failure_threshold as usize,
@@ -2819,6 +2821,94 @@ fn build_script_dispatcher_registry(
     reg
 }
 
+/// Build the primary provider for the built-in (non-injected, non-plugin-routed)
+/// path.
+///
+/// All variants except `OpenAIChatGpt` go straight through
+/// `wcore_providers::create_native_provider`. The `OpenAIChatGpt` variant is
+/// special-cased HERE rather than in the factory because it needs an
+/// OAuth-backed async bearer source whose token store (`OAuthStorage`) lives in
+/// `wcore-agent` — `wcore-providers` must not depend on `wcore-agent` (layering;
+/// same isolation the audit enforces for plugins). We build a
+/// [`crate::oauth::chatgpt::ChatGptTokenManager`], wrap it in an
+/// [`wcore_providers::AsyncBearerSource`] closure that calls `mgr.get()` on each
+/// `stream()`, and hand it to [`wcore_providers::OpenAIChatGptProvider`].
+///
+/// Returns the BARE provider (no resilience wrap), mirroring
+/// `wcore_providers::create_native_provider`. Callers that need the
+/// circuit-breaker wrap use [`create_provider_with_oauth`] (the
+/// `create_provider` analogue) or wrap themselves (bootstrap does, with a
+/// protocol reporter + fallback chain). `pub` so the CLI rebind path
+/// (`/provider`, `/profile`, disk re-resolve) can construct the chatgpt
+/// provider at runtime instead of hitting the `create_native_provider` panic.
+///
+/// Generic by design: every non-OAuth provider flows through the factory
+/// unchanged, so a future `xai-oauth` adds one more `matches!` arm here
+/// without touching the call sites.
+pub fn build_native_or_chatgpt_provider(config: &Config) -> anyhow::Result<Arc<dyn LlmProvider>> {
+    use wcore_config::config::ProviderType;
+
+    if matches!(config.provider, ProviderType::OpenAIChatGpt) {
+        let storage = crate::oauth::OAuthStorage::from_home()
+            .map_err(|e| anyhow::anyhow!("chatgpt oauth storage: {e}"))?;
+        let mgr = Arc::new(crate::oauth::chatgpt::ChatGptTokenManager::new(storage));
+        let bearer: wcore_providers::AsyncBearerSource = {
+            let mgr = mgr.clone();
+            Arc::new(move || {
+                let mgr = mgr.clone();
+                Box::pin(async move {
+                    let (access_token, account_id) = mgr
+                        .get()
+                        .await
+                        .map_err(wcore_providers::ProviderError::Connection)?;
+                    Ok(wcore_providers::BearerCreds {
+                        access_token,
+                        account_id,
+                    })
+                })
+            })
+        };
+        Ok(Arc::new(wcore_providers::OpenAIChatGptProvider::new(
+            bearer,
+            config.compat.clone(),
+            config.debug.clone(),
+        )))
+    } else {
+        Ok(wcore_providers::create_native_provider(config))
+    }
+}
+
+/// OAuth-aware analogue of [`wcore_providers::create_provider`].
+///
+/// Builds the inner provider via [`build_native_or_chatgpt_provider`] (so the
+/// `OpenAIChatGpt` OAuth case is handled instead of panicking in the factory),
+/// then wraps it in a [`ResilientProvider`] with the SAME configuration
+/// `create_provider` applies: an empty fallback chain and a
+/// [`NoOpCircuitReporter`], with circuit thresholds read from
+/// `config.provider_chain`. For every non-OAuth provider the result is
+/// byte-for-byte what `create_provider` returned — the only difference is the
+/// chatgpt arm no longer hits the `create_native_provider` panic.
+///
+/// This is the entry point the CLI runtime rebind path
+/// (`/provider`, `/profile`, post-onboarding + disk re-resolve) calls in place
+/// of `wcore_providers::create_provider`, so switching to `openai-chatgpt` at
+/// runtime constructs a working OAuth-backed provider.
+pub fn create_provider_with_oauth(config: &Config) -> anyhow::Result<Arc<dyn LlmProvider>> {
+    let inner = build_native_or_chatgpt_provider(config)?;
+    let cfg = CircuitConfig {
+        fail_threshold: config.provider_chain.failure_threshold as usize,
+        window: Duration::from_secs(config.provider_chain.recovery_timeout_secs),
+        cooldown: Duration::from_secs(config.provider_chain.recovery_timeout_secs),
+    };
+    Ok(Arc::new(ResilientProvider::new(
+        config.provider_label.clone(),
+        inner,
+        Vec::new(),
+        cfg,
+        Arc::new(wcore_providers::NoOpCircuitReporter),
+    )))
+}
+
 /// Rank 20: build the fallback provider chain fed to `ResilientProvider`.
 ///
 /// Each `provider_chain.fallback_models` entry is turned into a concrete
@@ -2978,5 +3068,171 @@ mod tests {
             env: HashMap::new(),
         };
         assert!(!declarative_mcp_server_is_reachable(&spec));
+    }
+
+    /// Task 5.1: the OAuth bearer closure bootstrap builds for the chatgpt
+    /// provider must pull the seeded access token + account id out of a live
+    /// `ChatGptTokenManager`. We can't point `build_native_or_chatgpt_provider`
+    /// at a tempdir store (it reads `~/.wayland` via `from_home`), so this
+    /// exercises the EXACT closure shape that helper constructs over a
+    /// tempdir-seeded `OAuthStorage`, proving the seeded creds flow through.
+    #[tokio::test]
+    async fn chatgpt_bearer_closure_returns_seeded_creds() {
+        use crate::oauth::chatgpt::{ChatGptTokenManager, PROVIDER};
+        use crate::oauth::{OAuthStorage, OAuthTokens};
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        // A 3-segment JWT whose payload carries the ChatGPT account id.
+        let payload = serde_json::json!({
+            "https://api.openai.com/auth": { "chatgpt_account_id": "acct_boot" }
+        });
+        let seg = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
+        let access_token = format!("hdr.{seg}.sig");
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let storage = OAuthStorage::at_root(tmp.path().join("oauth")).unwrap();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        storage
+            .store(
+                PROVIDER,
+                &OAuthTokens {
+                    access_token: access_token.clone(),
+                    refresh_token: Some("rt".into()),
+                    expires_at_unix_secs: Some(now + 3600),
+                    token_type: "Bearer".into(),
+                    scope: None,
+                    id_token: None,
+                },
+            )
+            .unwrap();
+
+        let mgr = Arc::new(ChatGptTokenManager::new(storage));
+        let bearer: wcore_providers::AsyncBearerSource = {
+            let mgr = mgr.clone();
+            Arc::new(move || {
+                let mgr = mgr.clone();
+                Box::pin(async move {
+                    let (access_token, account_id) = mgr
+                        .get()
+                        .await
+                        .map_err(wcore_providers::ProviderError::Connection)?;
+                    Ok(wcore_providers::BearerCreds {
+                        access_token,
+                        account_id,
+                    })
+                })
+            })
+        };
+
+        let creds = bearer().await.expect("bearer closure resolves");
+        assert_eq!(creds.access_token, access_token);
+        assert_eq!(creds.account_id, "acct_boot");
+    }
+
+    /// A non-OAuth provider routed through the runtime builders must produce a
+    /// real provider — proving `create_provider_with_oauth` is a drop-in for
+    /// `wcore_providers::create_provider` on the common path, and the bare
+    /// `build_native_or_chatgpt_provider` returns the right native provider.
+    #[test]
+    fn create_provider_with_oauth_builds_native_provider() {
+        use wcore_config::compat::ProviderCompat;
+        use wcore_config::config::ProviderType;
+
+        let config = Config {
+            provider_label: "openai".into(),
+            provider: ProviderType::OpenAI,
+            api_key: "sk-test".into(),
+            base_url: "http://localhost:0".into(),
+            model: "gpt-test".into(),
+            compat: ProviderCompat::openai_defaults(),
+            ..Default::default()
+        };
+        // The bare inner build exposes the real provider's alias (the outer
+        // ResilientProvider wrap is opaque, so we assert on the inner here).
+        let inner = build_native_or_chatgpt_provider(&config).expect("native inner build");
+        assert_eq!(inner.alias_key(), "openai");
+        // And the wrapped builder (the create_provider analogue) must succeed
+        // on the same config without panicking.
+        let _wrapped = create_provider_with_oauth(&config).expect("wrapped build");
+    }
+
+    /// FIX 1 regression: building the `openai-chatgpt` provider through the
+    /// runtime builder must NOT hit the `create_native_provider` panic — the
+    /// exact path the `/provider openai-chatgpt` rebind now takes. We seed a
+    /// tempdir-rooted `~/.wayland` token (via HOME) so `OAuthStorage::from_home`
+    /// resolves into the tempdir, then assert the build returns `Ok` (a working
+    /// provider Arc) rather than panicking. Serial + HOME-scoped because
+    /// `from_home` is not otherwise redirectable.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn create_provider_with_oauth_builds_chatgpt_without_panicking() {
+        use crate::oauth::chatgpt::PROVIDER;
+        use crate::oauth::{OAuthStorage, OAuthTokens};
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        use std::time::{SystemTime, UNIX_EPOCH};
+        use wcore_config::compat::ProviderCompat;
+        use wcore_config::config::ProviderType;
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Point HOME at the tempdir so `from_home` writes under it, not the
+        // real home. Restore the prior value before returning.
+        let saved = std::env::var_os("HOME");
+        // SAFETY: serial test; HOME reverted before exit.
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        // Seed a valid token so the store the provider's bearer source reads is
+        // present (the build itself does not load it, but this mirrors a real
+        // signed-in user).
+        let payload = serde_json::json!({
+            "https://api.openai.com/auth": { "chatgpt_account_id": "acct_rebind" }
+        });
+        let seg = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
+        let access_token = format!("hdr.{seg}.sig");
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let store = OAuthStorage::from_home().expect("home store");
+        store
+            .store(
+                PROVIDER,
+                &OAuthTokens {
+                    access_token,
+                    refresh_token: Some("rt".into()),
+                    expires_at_unix_secs: Some(now + 3600),
+                    token_type: "Bearer".into(),
+                    scope: None,
+                    id_token: None,
+                },
+            )
+            .expect("seed token");
+
+        let config = Config {
+            provider_label: "openai-chatgpt".into(),
+            provider: ProviderType::OpenAIChatGpt,
+            model: "gpt-5.5".into(),
+            compat: ProviderCompat::chatgpt_defaults(),
+            ..Default::default()
+        };
+        // The bare inner build is the arm that previously panicked in
+        // `create_native_provider`; it must now succeed and expose the chatgpt
+        // alias. The wrapped builder (the rebind entry point) must likewise
+        // return Ok rather than panicking.
+        let inner = build_native_or_chatgpt_provider(&config);
+        let wrapped = create_provider_with_oauth(&config);
+
+        match saved {
+            Some(v) => unsafe { std::env::set_var("HOME", v) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+
+        let inner = inner.expect("chatgpt inner build must not panic and must succeed");
+        assert_eq!(inner.alias_key(), "openai-chatgpt");
+        wrapped.expect("chatgpt wrapped build must not panic and must succeed");
     }
 }

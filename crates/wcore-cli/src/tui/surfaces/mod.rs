@@ -40,6 +40,7 @@ mod agent_transcript; // v0.9.3
 mod config;
 mod diagnostics;
 mod marketplace; // Lane F2 — the /plugins marketplace overlay
+mod model_picker; // arrow-key /model + /provider pickers
 mod onboarding;
 mod palette;
 mod plan_review;
@@ -84,6 +85,12 @@ pub enum SurfaceId {
     /// workflows inferred from the `"workflow:"` `parent_call_id` prefix,
     /// drilling into each workflow's nodes/sub-agents.
     Workflows,
+    /// Arrow-key `/model` picker overlay. Summoned by bare `/model`, dismissed
+    /// with Esc. Not a tab.
+    ModelPicker,
+    /// Arrow-key `/provider` picker overlay. Summoned by bare `/provider`,
+    /// dismissed with Esc. Not a tab.
+    ProviderPicker,
 }
 
 impl SurfaceId {
@@ -118,6 +125,8 @@ impl SurfaceId {
             SurfaceId::AgentNav => "Agents",
             SurfaceId::AgentTranscript => "Agent",
             SurfaceId::Workflows => "Workflows",
+            SurfaceId::ModelPicker => "Model",
+            SurfaceId::ProviderPicker => "Provider",
         }
     }
 
@@ -552,6 +561,17 @@ impl Router {
     /// binding. Returns the user-facing confirmation (or a "skipped" line when
     /// the resolve failed, e.g. the provider has no configured API key).
     fn apply_provider_swap(&mut self, app: &mut App, name: &str) -> String {
+        // Precheck: an OAuth-backed provider needs a stored login before a swap
+        // can succeed — building it without one yields a provider that errors
+        // on the first turn. Refuse the swap (leaving the engine untouched)
+        // with an actionable hint when not signed in. Non-OAuth providers
+        // return `None` here and fall through to the normal swap.
+        if oauth_provider_signed_in(name) == Some(false) {
+            return format!(
+                "Not signed in to ChatGPT. Run `wayland-core auth login chatgpt` \
+                 first, then retry /provider {name}."
+            );
+        }
         // Drive the live swap first and capture the OWNED outcome, so the
         // `&self` borrow of the engine ends before the `self`/`app` mutations
         // below (NLL would otherwise see the engine borrow span the writes).
@@ -1799,17 +1819,26 @@ impl Router {
                         }
                     }
                     "/provider" => {
-                        // D022: bare `/provider` lists the known providers with
-                        // the current one marked; `/provider <name>` LIVE-swaps
-                        // the engine to that provider (re-resolves config with
-                        // the provider override + rebinds — no restart). The
-                        // status-bar provider label mirrors the new binding.
+                        // D022: bare `/provider` opens the arrow-key picker
+                        // overlay (the current provider marked ●); `/provider
+                        // <name>` LIVE-swaps the engine to that provider
+                        // (re-resolves config with the provider override +
+                        // rebinds — no restart). The status-bar provider label
+                        // mirrors the new binding.
                         let arg = line
                             .split_whitespace()
                             .nth(1)
                             .map(|s| s.to_ascii_lowercase());
                         match arg {
-                            None => push_system(app, render_provider(&app.config.provider, None)),
+                            // Bare `/provider` opens the arrow-key picker overlay
+                            // (was a text listing). `/provider <name>` keeps the
+                            // direct live-swap shortcut.
+                            None => {
+                                let _ = self.apply(
+                                    SurfaceAction::OpenOverlay(SurfaceId::ProviderPicker),
+                                    app,
+                                );
+                            }
                             Some(name) if !provider_is_known(&name) => push_system(
                                 app,
                                 render_provider(&app.config.provider, Some(name.as_str())),
@@ -1948,33 +1977,81 @@ impl Router {
                         }
                     }
                     "/model" => {
-                        // Bare `/model` lists the LIVE model library for the
-                        // active provider (active one marked ●); `/model <name>`
-                        // switches live. Stays within the current provider —
-                        // cross-provider switches go through /setup + config.
+                        // Bare `/model` opens the arrow-key picker overlay (static
+                        // catalog, instant); `/model <id>` switches the model live
+                        // within the current provider; `/model <provider> <role>`
+                        // (the picker's cross-provider form) swaps the provider
+                        // through `apply_provider_swap` first, then sets the model.
                         let provider = app.config.provider.clone();
-                        match line.split_whitespace().nth(1) {
-                            None => {
-                                // D008: fetch the LIVE library via the engine
-                                // bridge (async — arrives later as an `Info`
-                                // turn). Fall back to the static alias catalog
-                                // only when no engine is attached (UI-only boot
-                                // / tests), so the picker is never empty.
-                                match self.engine.as_ref() {
-                                    Some(engine) => {
-                                        engine.list_models();
-                                        push_system(
-                                            app,
-                                            format!("Fetching models from {provider}…"),
-                                        );
-                                    }
-                                    None => push_system(
-                                        app,
-                                        render_model_list(&provider, &app.config.model),
-                                    ),
+                        let mut args = line.split_whitespace().skip(1);
+                        match (args.next(), args.next()) {
+                            // Bare `/model` opens the arrow-key picker overlay
+                            // (cache-first, instant). It also kicks a best-effort
+                            // background refresh of the live model cache for
+                            // stale/missing connected providers — write-through,
+                            // so the NEXT open shows the freshly fetched data.
+                            (None, _) => {
+                                kick_model_catalog_refresh();
+                                let _ = self
+                                    .apply(SurfaceAction::OpenOverlay(SurfaceId::ModelPicker), app);
+                            }
+                            // `/model refresh` — force a live re-fetch of every
+                            // connected provider's model list, bypassing the 24h
+                            // TTL. Fire-and-forget (write-through cache): reopen
+                            // `/model` once it finishes to see the fresh lists.
+                            (Some(sub), None) if sub.eq_ignore_ascii_case("refresh") => {
+                                push_system(
+                                    app,
+                                    "Refreshing model lists for connected providers… reopen /model in a moment."
+                                        .to_string(),
+                                );
+                                if tokio::runtime::Handle::try_current().is_ok() {
+                                    tokio::spawn(async {
+                                        if let Ok(base) = wcore_config::config::Config::resolve(
+                                            &wcore_config::config::CliArgs::default(),
+                                        ) {
+                                            wcore_providers::model_catalog::refresh_connected_force(&base).await;
+                                        }
+                                    });
                                 }
                             }
-                            Some(arg) => {
+                            // Two-arg `/model <provider> <role>` — the cross-
+                            // provider form the model picker emits. Swap the
+                            // provider FIRST through `apply_provider_swap` (which
+                            // carries the OAuth precheck and, when not signed in,
+                            // surfaces the login hint and leaves the engine
+                            // untouched), then set the chosen model. A swap that
+                            // failed (login required / no key) aborts before the
+                            // model set so we never set a model on a provider that
+                            // didn't actually bind.
+                            (Some(target_provider), Some(role))
+                                if provider_is_known(&target_provider.to_ascii_lowercase())
+                                    && !target_provider.eq_ignore_ascii_case(&provider) =>
+                            {
+                                let target = target_provider.to_ascii_lowercase();
+                                let swap_msg = self.apply_provider_swap(app, &target);
+                                push_system(app, swap_msg);
+                                // Only set the model if the swap actually landed
+                                // (the live provider now matches the target).
+                                if app.config.provider == target {
+                                    let (resolved, label) = resolve_model_choice(&target, role);
+                                    app.config.model = resolved.clone();
+                                    self.model_pinned = Some(resolved.clone());
+                                    if let Some(engine) = self.engine.as_ref() {
+                                        engine.set_model(resolved.clone());
+                                    }
+                                    push_system(
+                                        app,
+                                        format!(
+                                            "Model → {label} ({resolved}). Takes effect on your next message."
+                                        ),
+                                    );
+                                }
+                            }
+                            // Single-arg `/model <id-or-role>` (or a two-arg form
+                            // whose first token is not a known provider): set the
+                            // model within the current provider, unchanged.
+                            (Some(arg), _) => {
                                 let (resolved, label) = resolve_model_choice(&provider, arg);
                                 app.config.model = resolved.clone();
                                 // D014: record the explicit pick as authoritative
@@ -2407,15 +2484,90 @@ fn render_resume(sessions: &[wcore_agent::session::SessionMeta], arg: Option<&st
     out
 }
 
-/// Render `/provider`. Bare lists the known providers (active marked `●`);
-/// `/provider <name>` states the honest consequence — a provider switch
-/// re-auths + reloads compat, so it's a restart, not a live swap. The catalog
-/// is `wcore_types::model_aliases::known_providers` (single source of truth).
+/// Render the `/provider` fallback copy. Bare `/provider` now opens the
+/// arrow-key picker overlay, so this is reached only for the unknown-provider
+/// "did you mean" miss and a defensive known-provider fallback that points at
+/// the live `/provider <name>` swap verb. The catalog is
+/// `wcore_types::model_aliases::known_providers` (single source of truth).
 /// D022: true when `name` (lowercased) is in the known-providers catalog —
 /// the gate the `/provider <name>` dispatch checks before attempting a live
 /// swap, so an unknown name renders the "did you mean" listing instead.
 fn provider_is_known(name: &str) -> bool {
     wcore_types::model_aliases::known_providers().contains(&name)
+}
+
+/// Providers whose credentials come from an OAuth login (a stored token), not
+/// an API key. Switching to one before the user has run `auth login` builds a
+/// provider that errors on the first turn, so the `/provider` swap prechecks
+/// login status for these. Extensible: a future `xai-oauth` adds one entry.
+/// `name` is already lowercased by the caller.
+fn provider_is_oauth(name: &str) -> bool {
+    matches!(name, "openai-chatgpt" | "chatgpt")
+}
+
+/// For an OAuth provider, report whether a stored login exists (sync, no
+/// network/refresh). Returns `None` for non-OAuth providers (no precheck
+/// applies) and `Some(bool)` for OAuth providers (`true` = signed in). Reads
+/// the same stored token the provider's bearer source would, via the
+/// single-source [`wcore_agent::oauth::chatgpt_login_status`] helper.
+fn oauth_provider_signed_in(name: &str) -> Option<bool> {
+    if !provider_is_oauth(name) {
+        return None;
+    }
+    // Today every OAuth provider is ChatGPT-backed; a future provider routes
+    // on `name` here. A storage open/read error is treated as "not signed in"
+    // — the swap is refused rather than risking a first-turn auth failure.
+    let signed_in = wcore_agent::oauth::OAuthStorage::from_home()
+        .ok()
+        .and_then(|s| wcore_agent::oauth::chatgpt_login_status(&s).ok().flatten())
+        .map(|status| status.signed_in)
+        .unwrap_or(false);
+    Some(signed_in)
+}
+
+/// Whether a built-in provider is ready to use right now, decided synchronously
+/// with no network or engine. Used by the `/provider` picker to separate
+/// usable providers from ones that would error on the first turn for lack of a
+/// credential. Mirrors the same three credential classes the engine's
+/// `resolve_api_key` (wcore-config) distinguishes:
+/// - **OAuth** (`openai-chatgpt`): ready when the stored login token file
+///   (`~/.wayland/oauth/chatgpt.json`) exists.
+/// - **Ambient cloud** (`bedrock`, `vertex`): always ready — they authenticate
+///   with AWS/GCP ambient credentials and carry no API key (their
+///   `resolve_api_key` arms return an empty string by design).
+/// - **API key** (`anthropic`, `openai`, `gemini`): ready when the provider's
+///   key resolves non-empty via the config/store/env chain.
+///
+/// An unknown name is reported `NeedsKey` (conservative — the picker only ever
+/// passes [`wcore_types::model_aliases::known_providers`] names). `name` is the
+/// lowercased provider slug.
+///
+/// Thin wrapper over [`wcore_config::config::provider_connected`] — the single
+/// source of truth for the three credential classes (OAuth login file, ambient
+/// cloud, API key resolved via the config/store/env chain). The CLI no longer
+/// duplicates the per-provider env-var arms; it parses the slug to a
+/// `ProviderType` and asks the config layer.
+fn provider_connection_status(name: &str) -> ProviderConnection {
+    let connected = wcore_config::config::provider_type_from_slug(name)
+        .map(wcore_config::config::provider_connected)
+        .unwrap_or(false);
+    if connected {
+        ProviderConnection::Connected
+    } else {
+        ProviderConnection::NeedsKey
+    }
+}
+
+/// Sync connection verdict for a built-in provider — see
+/// [`provider_connection_status`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderConnection {
+    /// A usable credential is present (API key set, ambient cloud creds, or a
+    /// stored OAuth login). The picker offers it as a live swap.
+    Connected,
+    /// No usable credential — switching would error on the first turn. The
+    /// picker de-emphasises it and routes Enter to the key-add flow instead.
+    NeedsKey,
 }
 
 fn render_provider(active: &str, arg: Option<&str>) -> String {
@@ -2424,11 +2576,13 @@ fn render_provider(active: &str, arg: Option<&str>) -> String {
     if let Some(name) = arg {
         let n = name.to_ascii_lowercase();
         if known.contains(&n.as_str()) {
+            // Known-provider swaps are live now (the dispatch routes them
+            // through `apply_provider_swap`); this branch is only reached as a
+            // defensive fallback, so it points at the live verb rather than the
+            // stale "that's a restart" advice.
             return format!(
-                "Switching to `{n}` re-authenticates and reloads provider compat — that's a \
-                 restart, not a live swap. Do it with /setup, or relaunch with a profile:\n  \
-                 wayland-core --profile <name>\n(Use /model to switch models within the current \
-                 provider — no restart.)"
+                "`{n}` is a known provider — run `/provider {n}` to switch to it live. \
+                 `/model` switches models within the current provider."
             );
         }
         return format!(
@@ -2436,12 +2590,12 @@ fn render_provider(active: &str, arg: Option<&str>) -> String {
             known.join(", ")
         );
     }
-    let mut out = String::from("Providers (● = current) — switch via /setup or --profile:\n");
+    let mut out = String::from("Providers (● = current) — switch live with /provider <name>:\n");
     for p in known {
         let mark = if *p == active { "●" } else { "○" };
         out.push_str(&format!("  {mark} {p}\n"));
     }
-    out.push_str("\n/model switches models within the current provider (no restart).");
+    out.push_str("\n/model switches models within the current provider — applied live.");
     out
 }
 
@@ -2601,30 +2755,38 @@ fn resolve_model_choice(provider: &str, arg: &str) -> (String, String) {
     (arg.to_string(), arg.to_string())
 }
 
-/// Render the `/model` (no-arg) listing for a provider: each preset model with
-/// the active one marked `●`, or a sensible fallback when the provider has no
-/// presets / none is configured. Pure so it is unit-testable without a Router.
-fn render_model_list(provider: &str, active_model: &str) -> String {
-    if provider.is_empty() {
-        return "No provider is configured yet. Run /setup to connect one.".to_string();
+/// Kick a best-effort background refresh of the live model-list cache for every
+/// connected provider whose snapshot is stale or missing.
+///
+/// Fire-and-forget: the spawned task re-resolves a base `Config` (the same
+/// boot-equivalent `Config::resolve(CliArgs::default())` the engine bootstraps
+/// from) and calls [`wcore_providers::model_catalog::refresh_connected`], which
+/// writes the cache through. v1 semantics are write-through-cache, so the
+/// *current* `/model` open renders whatever is already cached and the *next*
+/// open picks up the freshly fetched data — no live re-render. Every failure
+/// (a config-resolve error, a provider HTTP/auth error, a cache-write error) is
+/// swallowed: `refresh_connected` is internally best-effort and `list_models`
+/// never errors (it floors to the alias catalog), so the worst case leaves the
+/// existing cache untouched. A no-op when `WAYLAND_MODEL_DISCOVERY=off`
+/// (`refresh_connected` checks the flag itself).
+fn kick_model_catalog_refresh() {
+    // Only spawn when a Tokio runtime is actually present. The live TUI always
+    // runs inside one (the dispatch path already drives `engine.index_repomap`
+    // / `engine.compact`, which spawn the same way), but the no-engine render
+    // tests drive `/model` synchronously with no runtime — guard so the bare
+    // `/model` open never panics there.
+    if tokio::runtime::Handle::try_current().is_err() {
+        return;
     }
-    let models = wcore_types::model_aliases::models_for_provider(provider);
-    if models.is_empty() {
-        return format!(
-            "Provider `{provider}` has no preset models — type `/model <id>` to set one directly.\nCurrent model: {active_model}"
-        );
-    }
-    let mut s = format!("Models for {provider} (● = current) — type `/model <name>` to switch:\n");
-    for (short, resolved) in models {
-        let mark = if *resolved == active_model || *short == active_model {
-            "●"
-        } else {
-            "○"
-        };
-        let role = short.split_once(':').map(|x| x.1).unwrap_or(short);
-        s.push_str(&format!("  {mark} {role}  ({resolved})\n"));
-    }
-    s
+    tokio::spawn(async {
+        // Re-resolving here (not on the synchronous open path) keeps the picker
+        // instant. A resolve failure simply skips this round's refresh.
+        if let Ok(base) =
+            wcore_config::config::Config::resolve(&wcore_config::config::CliArgs::default())
+        {
+            wcore_providers::model_catalog::refresh_connected(&base).await;
+        }
+    });
 }
 
 /// Parse a `/mode <arg>` token into a session mode. Accepts the canonical
@@ -2709,6 +2871,10 @@ fn make_surface(id: SurfaceId) -> Box<dyn Surface> {
         SurfaceId::AgentNav => Box::new(agent_nav::AgentNavSurface::default()),
         SurfaceId::AgentTranscript => Box::new(agent_transcript::AgentTranscriptSurface::default()),
         SurfaceId::Workflows => Box::new(WorkflowsSurface::new()),
+        // The pickers seed their selection from `App::config` in `on_enter`
+        // (make_surface has no `App`), so a bare construction is fine here.
+        SurfaceId::ModelPicker => Box::new(model_picker::ModelPickerSurface::new("", "")),
+        SurfaceId::ProviderPicker => Box::new(model_picker::ProviderPickerSurface::new("")),
     }
 }
 
@@ -3304,21 +3470,20 @@ mod tests {
     }
 
     #[test]
-    fn model_command_lists_then_switches_live_g2() {
+    fn model_command_opens_picker_then_switches_live_g2() {
         use wcore_types::model_aliases::{ANTHROPIC_OPUS, ANTHROPIC_SONNET};
-        // No engine attached (tests) — bare /model falls back GRACEFULLY to the
-        // static alias catalog instead of erroring or rendering blank.
+        // Bare /model now opens the arrow-key picker overlay (static catalog,
+        // instant) instead of pushing an inline text listing.
         let mut app = App::new();
         app.config.provider = "anthropic".into();
         app.config.model = ANTHROPIC_SONNET.to_string();
         let mut router = Router::new(&app);
         router.apply(SurfaceAction::Command("/model".to_string()), &mut app);
-        let listed = format!("{:?}", app.session.turns.last().unwrap().elements);
-        assert!(
-            listed.contains("opus") && listed.contains("sonnet") && listed.contains("haiku"),
-            "no-engine fallback must list the provider's alias models: {listed}"
+        assert_eq!(
+            app.overlay,
+            Some(SurfaceId::ModelPicker),
+            "bare /model must open the model picker overlay"
         );
-        assert!(listed.contains('●'), "the active model must be marked");
 
         // `/model opus` switches live — the status-bar view (app.config.model)
         // flips to the resolved opus id immediately AND the pick is recorded as
@@ -4015,18 +4180,27 @@ mod tests {
     }
 
     #[test]
-    fn provider_listing_marks_active_and_explains_switch_cost_g7() {
+    fn provider_listing_marks_active_and_points_at_live_swap_g7() {
         // Bare list: active provider marked ●, others ○, drawn from the
         // model_aliases catalog (not hardcoded here).
         let list = render_provider("anthropic", None);
         assert!(list.contains("● anthropic"), "active not marked: {list}");
         assert!(list.contains("○ openai"));
         assert!(list.contains("/model switches models"));
+        // Known-provider swaps are live now — no stale "restart" advice.
+        assert!(
+            !list.contains("restart"),
+            "stale restart copy leaked: {list}"
+        );
 
-        // `/provider <known>`: honest "this is a restart, not a live swap".
+        // `/provider <known>` fallback copy points at the live `/provider`
+        // verb, not the old restart/--profile workaround.
         let switch = render_provider("anthropic", Some("openai"));
-        assert!(switch.contains("restart, not a live swap"), "got: {switch}");
-        assert!(switch.contains("--profile"));
+        assert!(switch.contains("live"), "got: {switch}");
+        assert!(
+            !switch.contains("restart, not a live swap"),
+            "got: {switch}"
+        );
 
         // Unknown provider: honest miss listing the known set.
         let miss = render_provider("anthropic", Some("nonesuch"));
@@ -4282,6 +4456,46 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn provider_swap_refuses_chatgpt_when_not_signed_in() {
+        // FIX 2: switching to the OAuth-backed `openai-chatgpt` provider with no
+        // stored login must be REFUSED (not swapped) with an actionable hint —
+        // otherwise the rebind builds a provider that errors on the first turn.
+        // HOME is pointed at an empty tempdir so `chatgpt_login_status` reads no
+        // token (deterministically "not signed in") regardless of the real home.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let saved = std::env::var_os("HOME");
+        // SAFETY: serial test; HOME reverted before exit.
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+
+        let mut app = App::new();
+        app.config.provider = "anthropic".into();
+        let mut router = router_with_inventory(&app, vec![], None);
+        router.apply(
+            SurfaceAction::Command("/provider openai-chatgpt".into()),
+            &mut app,
+        );
+        let last = app.session.turns.last().unwrap().text();
+
+        match saved {
+            Some(v) => unsafe { std::env::set_var("HOME", v) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+
+        assert!(
+            last.contains("Not signed in to ChatGPT"),
+            "an OAuth provider with no login must be refused, not swapped: {last}"
+        );
+        assert!(
+            last.contains("auth login chatgpt"),
+            "the refusal must point at the login command: {last}"
+        );
+        // The provider must NOT have been swapped.
+        assert_eq!(app.config.provider, "anthropic");
+    }
+
     #[test]
     fn profile_load_attempts_a_live_load_not_a_relaunch_string_d021() {
         // D021: `/profile <name>` must DRIVE the live profile-load path. For an
@@ -4516,26 +4730,39 @@ mod tests {
     }
 
     #[test]
-    fn provider_and_profile_dispatch_to_real_handlers_not_the_llm_g7() {
+    fn profile_dispatches_to_real_handler_not_the_llm_g7() {
         use crate::tui::app::TurnRole;
-        // Both were stubs. Through the real dispatch (no engine needed — they
-        // read config/ConfigView), each pushes a SYSTEM turn with its own
-        // copy, proving the arm ran rather than forwarding to the LLM.
-        for (cmd, marker) in [
-            ("/provider", "Providers (●"), // header only the real handler emits
-            ("/profile", "profile"),
-        ] {
-            let mut app = App::new();
-            let mut router = Router::new(&app);
-            router.apply(SurfaceAction::Command(cmd.into()), &mut app);
-            assert_eq!(app.session.turns.len(), 1, "{cmd} pushed no turn");
-            assert_eq!(app.session.turns[0].role, TurnRole::System, "{cmd}");
-            assert!(
-                app.session.turns[0].text().contains(marker),
-                "{cmd} did not reach its real handler (got: {})",
-                app.session.turns[0].text()
-            );
-        }
+        // `/profile` was a stub. Through the real dispatch (no engine needed —
+        // it reads config), it pushes a SYSTEM turn with its own copy, proving
+        // the arm ran rather than forwarding to the LLM.
+        let mut app = App::new();
+        let mut router = Router::new(&app);
+        router.apply(SurfaceAction::Command("/profile".into()), &mut app);
+        assert_eq!(app.session.turns.len(), 1, "/profile pushed no turn");
+        assert_eq!(app.session.turns[0].role, TurnRole::System);
+        assert!(
+            app.session.turns[0].text().contains("profile"),
+            "/profile did not reach its real handler (got: {})",
+            app.session.turns[0].text()
+        );
+    }
+
+    #[test]
+    fn bare_provider_opens_the_picker_overlay_g7() {
+        // Bare `/provider` now opens the arrow-key picker overlay instead of
+        // pushing an inline text listing.
+        let mut app = App::new();
+        let mut router = Router::new(&app);
+        router.apply(SurfaceAction::Command("/provider".into()), &mut app);
+        assert_eq!(
+            app.overlay,
+            Some(SurfaceId::ProviderPicker),
+            "bare /provider must open the provider picker overlay"
+        );
+        assert!(
+            app.session.turns.is_empty(),
+            "opening the picker must not push a system turn"
+        );
     }
 
     #[test]

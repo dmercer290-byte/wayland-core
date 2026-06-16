@@ -7,7 +7,7 @@
 //! host are allowed by posture (the `Ask` verdict), so the allowlist only needs
 //! to cover exfil-shaped first-party traffic (provider/tool-backend APIs).
 
-use wcore_config::config::Config;
+use wcore_config::config::{Config, ProviderType};
 
 use super::classify::{AllowList, is_shared_platform};
 
@@ -79,6 +79,19 @@ pub fn build_allowlist(config: &Config) -> AllowList {
         {
             allow.allow_domain(&reg);
         }
+    }
+
+    // C1 — "Sign in with ChatGPT" routes inference through the Codex backend at
+    // `chatgpt.com/backend-api/codex/responses`, which is NOT in WELL_KNOWN_DOMAINS.
+    // Without this, every POST to the Codex backend is classified Exfil→Deny and
+    // the provider is dead-on-arrival under `[security] enabled = true`. Add it
+    // explicitly off the provider TYPE (not just the base_url host) so a user who
+    // overrides base_url, or an empty base_url, still has the Codex host allowed.
+    // `chatgpt.com` is not a shared-platform suffix, so apex-allowing it covers
+    // the `chatgpt.com` host and its subdomains (incl. the OAuth token endpoint
+    // is on `auth.openai.com`, covered separately by the openai.com well-known).
+    if config.provider == ProviderType::OpenAIChatGpt {
+        allow.allow_domain("chatgpt.com");
     }
 
     // Operator additions.
@@ -189,6 +202,61 @@ mod tests {
             classify(&Method::GET, &u("https://myapp.workers.dev/api"), &allow),
             EgressVerdict::Allow
         );
+    }
+
+    #[test]
+    fn chatgpt_provider_allows_codex_backend() {
+        // C1: with the chatgpt provider active, a POST to the Codex backend must
+        // be allowed even though chatgpt.com is not a well-known domain.
+        let mut c = Config {
+            provider: ProviderType::OpenAIChatGpt,
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            ..Config::default()
+        };
+        c.security.egress_allow = vec![];
+        let allow = build_allowlist(&c);
+        assert_eq!(
+            classify(
+                &Method::POST,
+                &u("https://chatgpt.com/backend-api/codex/responses"),
+                &allow
+            ),
+            EgressVerdict::Allow
+        );
+    }
+
+    #[test]
+    fn chatgpt_codex_allowed_even_when_base_url_overridden() {
+        // The allow is keyed off the provider TYPE, so a user who overrides
+        // base_url (or leaves it empty) still reaches the Codex backend.
+        let allow = build_allowlist(&Config {
+            provider: ProviderType::OpenAIChatGpt,
+            base_url: String::new(),
+            ..Config::default()
+        });
+        assert_eq!(
+            classify(
+                &Method::POST,
+                &u("https://chatgpt.com/backend-api/codex/responses"),
+                &allow
+            ),
+            EgressVerdict::Allow
+        );
+    }
+
+    #[test]
+    fn non_chatgpt_provider_does_not_allow_chatgpt_host() {
+        // The Codex allow is provider-scoped: a different active provider must
+        // NOT silently open chatgpt.com.
+        let allow = build_allowlist(&cfg("https://api.openai.com", &[]));
+        assert!(matches!(
+            classify(
+                &Method::POST,
+                &u("https://chatgpt.com/backend-api/codex/responses"),
+                &allow
+            ),
+            EgressVerdict::Exfil { .. }
+        ));
     }
 
     #[test]

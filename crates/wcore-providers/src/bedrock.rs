@@ -20,7 +20,8 @@ use wcore_types::message::{FinishReason, StopReason, TokenUsage};
 use super::anthropic_shared;
 use crate::retry::{DEFAULT_MAX_RETRIES, with_retry};
 use crate::{
-    LlmProvider, ProviderError, dump_request_body, dump_response_chunk, reset_response_dump,
+    LlmProvider, ModelInfo, ProviderError, alias_models, dump_request_body, dump_response_chunk,
+    reset_response_dump,
 };
 use wcore_config::compat::{self, ProviderCompat};
 use wcore_config::debug::DebugConfig;
@@ -190,6 +191,19 @@ impl BedrockProvider {
             "https://bedrock-runtime.{}.amazonaws.com/model/{}/invoke",
             self.region, model
         )
+    }
+
+    /// Control-plane `ListFoundationModels` URL. Unlike the runtime endpoints
+    /// (`bedrock-runtime.{region}`), model discovery lives on the control-plane
+    /// host `bedrock.{region}.amazonaws.com`. We filter to on-demand TEXT models
+    /// — the only ones the chat `/model` picker can drive. `endpoint_override`
+    /// (tests) takes precedence so a wiremock server can stand in for AWS.
+    fn build_list_models_url(&self) -> String {
+        let query = "foundation-models?byOutputModality=TEXT&byInferenceType=ON_DEMAND";
+        if let Some(base) = &self.endpoint_override {
+            return format!("{}/{}", base.trim_end_matches('/'), query);
+        }
+        format!("https://bedrock.{}.amazonaws.com/{}", self.region, query)
     }
 
     fn resolve_credentials(&self) -> Result<Credentials, ProviderError> {
@@ -630,6 +644,113 @@ impl LlmProvider for BedrockProvider {
 
         Ok(rx)
     }
+
+    fn alias_key(&self) -> &str {
+        "bedrock"
+    }
+
+    /// Live model discovery via the Bedrock control-plane `ListFoundationModels`
+    /// API. The runtime endpoints sit on `bedrock-runtime.{region}`, but the
+    /// model catalog lives on the control-plane host `bedrock.{region}` — both
+    /// authenticate with the same SigV4 `bedrock` service name, so the existing
+    /// [`sign_request`] signs this GET correctly. On any failure (no AWS
+    /// credentials, HTTP, parse, empty) we fall back to the static alias catalog
+    /// — `/model` must never hard-fail.
+    async fn list_models(&self) -> anyhow::Result<Vec<ModelInfo>> {
+        // No credentials → fall back rather than erroring (most users without
+        // AWS configured still expect the static alias list in the picker).
+        let credentials = match self.resolve_credentials() {
+            Ok(c) => c,
+            Err(_) => return Ok(alias_models(self.alias_key())),
+        };
+
+        let live = async {
+            let url = self.build_list_models_url();
+            // A GET with no body: empty headers, empty payload. `sign_request`
+            // adds the SigV4 `Authorization`/`x-amz-*` headers (and the
+            // empty-body SHA-256 checksum).
+            let headers = HeaderMap::new();
+            let signed_headers = self.sign_request("GET", &url, &headers, b"", &credentials)?;
+
+            // FIX 3: bound the request so a hung control-plane endpoint cannot
+            // freeze the `/model` picker (the streaming client carries no
+            // request-level wall-clock cap by design).
+            let response = self
+                .client
+                .get(&url)
+                .timeout(crate::http_client::LIST_MODELS_TIMEOUT)
+                .headers(signed_headers)
+                .send()
+                .await?;
+            if !response.status().is_success() {
+                anyhow::bail!("models endpoint returned HTTP {}", response.status());
+            }
+            let body = response.text().await?;
+            parse_bedrock_models(&body)
+        }
+        .await;
+
+        match live {
+            Ok(models) if !models.is_empty() => Ok(models),
+            _ => Ok(alias_models(self.alias_key())),
+        }
+    }
+}
+
+/// Parse a Bedrock `ListFoundationModels` response body into [`ModelInfo`]s.
+/// The documented shape is
+/// `{"modelSummaries":[{"modelId":"anthropic.claude-...","modelName":"Claude ...",
+/// "inferenceTypesSupported":["ON_DEMAND"],"responseStreamingSupported":true}]}`.
+///
+/// - `modelId` is the id; `modelName` is the label (falls back to the id when
+///   absent or empty).
+/// - Only entries advertising `ON_DEMAND` in `inferenceTypesSupported` AND
+///   `responseStreamingSupported: true` are kept — the chat picker can only
+///   drive on-demand, streamable models. When `inferenceTypesSupported` is
+///   absent we keep the entry (the server-side `byInferenceType=ON_DEMAND`
+///   query already filtered) but still require streaming support.
+fn parse_bedrock_models(body: &str) -> anyhow::Result<Vec<ModelInfo>> {
+    let json: Value = serde_json::from_str(body)?;
+    let summaries = json
+        .get("modelSummaries")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("models response missing `modelSummaries` array"))?;
+    let parsed = summaries
+        .iter()
+        .filter(|entry| {
+            // Require streaming support (the chat path streams).
+            let streams = entry
+                .get("responseStreamingSupported")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            // If the field is present it must contain ON_DEMAND; if absent the
+            // server-side query already constrained inference type.
+            let on_demand = match entry
+                .get("inferenceTypesSupported")
+                .and_then(Value::as_array)
+            {
+                Some(types) => types.iter().any(|t| t.as_str() == Some("ON_DEMAND")),
+                None => true,
+            };
+            streams && on_demand
+        })
+        .filter_map(|entry| {
+            let id = entry
+                .get("modelId")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())?;
+            let display = entry
+                .get("modelName")
+                .and_then(Value::as_str)
+                .filter(|n| !n.is_empty())
+                .unwrap_or(id);
+            Some(ModelInfo {
+                id: id.to_string(),
+                display: display.to_string(),
+            })
+        })
+        .collect();
+    Ok(parsed)
 }
 
 /// Maximum size the AWS event-stream reassembly buffer may reach before the
@@ -1265,6 +1386,149 @@ mod tests {
     use super::*;
     use crate::anthropic_shared::{StreamState, parse_sse_data};
     use wcore_types::llm::LlmEvent;
+
+    // -----------------------------------------------------------------------
+    // live /model library — ListFoundationModels parse + fallback
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_bedrock_models_uses_model_id_and_name() {
+        let body = r#"{"modelSummaries":[
+            {"modelId":"anthropic.claude-3-5-sonnet-20241022-v2:0",
+             "modelName":"Claude 3.5 Sonnet v2",
+             "inferenceTypesSupported":["ON_DEMAND"],
+             "responseStreamingSupported":true},
+            {"modelId":"anthropic.claude-3-haiku-20240307-v1:0",
+             "modelName":"Claude 3 Haiku",
+             "inferenceTypesSupported":["ON_DEMAND"],
+             "responseStreamingSupported":true}
+        ]}"#;
+        let models = parse_bedrock_models(body).expect("valid body parses");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "anthropic.claude-3-5-sonnet-20241022-v2:0");
+        assert_eq!(models[0].display, "Claude 3.5 Sonnet v2");
+        assert_eq!(models[1].id, "anthropic.claude-3-haiku-20240307-v1:0");
+    }
+
+    #[test]
+    fn parse_bedrock_models_falls_back_to_id_when_no_name() {
+        let body = r#"{"modelSummaries":[
+            {"modelId":"anthropic.claude-3-haiku-20240307-v1:0",
+             "inferenceTypesSupported":["ON_DEMAND"],
+             "responseStreamingSupported":true}
+        ]}"#;
+        let models = parse_bedrock_models(body).expect("parses");
+        assert_eq!(models.len(), 1);
+        // No modelName → label mirrors the modelId.
+        assert_eq!(models[0].display, "anthropic.claude-3-haiku-20240307-v1:0");
+    }
+
+    #[test]
+    fn parse_bedrock_models_filters_non_on_demand_and_non_streaming() {
+        let body = r#"{"modelSummaries":[
+            {"modelId":"anthropic.claude-on-demand-v1:0","modelName":"OnDemand",
+             "inferenceTypesSupported":["ON_DEMAND"],"responseStreamingSupported":true},
+            {"modelId":"anthropic.claude-provisioned-v1:0","modelName":"Provisioned",
+             "inferenceTypesSupported":["PROVISIONED"],"responseStreamingSupported":true},
+            {"modelId":"cohere.embed-v3","modelName":"Embed",
+             "inferenceTypesSupported":["ON_DEMAND"],"responseStreamingSupported":false}
+        ]}"#;
+        let models = parse_bedrock_models(body).expect("parses");
+        // Only the ON_DEMAND + streaming entry survives; PROVISIONED-only and
+        // non-streaming entries are dropped (the chat picker can't drive them).
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "anthropic.claude-on-demand-v1:0");
+    }
+
+    #[test]
+    fn parse_bedrock_models_skips_invalid_ids_and_errors_on_no_summaries() {
+        let body = r#"{"modelSummaries":[
+            {"modelId":"","inferenceTypesSupported":["ON_DEMAND"],"responseStreamingSupported":true},
+            {"inferenceTypesSupported":["ON_DEMAND"],"responseStreamingSupported":true},
+            {"modelId":"anthropic.claude-3-haiku-20240307-v1:0",
+             "inferenceTypesSupported":["ON_DEMAND"],"responseStreamingSupported":true}
+        ]}"#;
+        let models = parse_bedrock_models(body).expect("parses");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "anthropic.claude-3-haiku-20240307-v1:0");
+
+        // Missing `modelSummaries` array → Err so the caller uses the fallback.
+        assert!(parse_bedrock_models(r#"{"error":"nope"}"#).is_err());
+        assert!(parse_bedrock_models("garbage").is_err());
+    }
+
+    /// INVARIANT: a `ListFoundationModels` endpoint that 500s must NOT surface
+    /// an error — the provider floors to the static `bedrock` alias catalog so
+    /// the `/model` picker never hard-fails. We point the provider at a wiremock
+    /// server (via `endpoint_override`) that always 500s and assert the returned
+    /// list equals the alias floor.
+    #[tokio::test]
+    async fn list_models_falls_back_to_alias_on_http_error() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let provider = BedrockProvider::new_with_endpoint_override(
+            "us-east-1",
+            AwsCredentials::Explicit {
+                access_key_id: "AKIA_TEST".into(),
+                secret_access_key: "secret".into(),
+                session_token: None,
+            },
+            false,
+            ProviderCompat::default(),
+            DebugConfig::default(),
+            &server.uri(),
+        );
+        let models = provider.list_models().await.expect("never errors");
+        assert_eq!(
+            models,
+            alias_models("bedrock"),
+            "a 500 must floor to the static bedrock alias catalog"
+        );
+        assert!(!models.is_empty(), "the bedrock alias catalog is non-empty");
+    }
+
+    /// A 200 with a valid `ListFoundationModels` body yields the live, parsed
+    /// catalog (not the alias floor) — proving the happy path is wired through
+    /// `list_models` end-to-end (SigV4 signing of the empty-body GET included).
+    #[tokio::test]
+    async fn list_models_returns_live_catalog_on_success() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let body = r#"{"modelSummaries":[
+            {"modelId":"anthropic.claude-4-sonnet-v9:0","modelName":"Claude 4 Sonnet",
+             "inferenceTypesSupported":["ON_DEMAND"],"responseStreamingSupported":true}
+        ]}"#;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(body))
+            .mount(&server)
+            .await;
+
+        let provider = BedrockProvider::new_with_endpoint_override(
+            "us-east-1",
+            AwsCredentials::Explicit {
+                access_key_id: "AKIA_TEST".into(),
+                secret_access_key: "secret".into(),
+                session_token: None,
+            },
+            false,
+            ProviderCompat::default(),
+            DebugConfig::default(),
+            &server.uri(),
+        );
+        let models = provider.list_models().await.expect("never errors");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "anthropic.claude-4-sonnet-v9:0");
+        assert_eq!(models[0].display, "Claude 4 Sonnet");
+    }
 
     // -----------------------------------------------------------------------
     // H-8 / rel-panic-66 — AWS event-stream frame validation

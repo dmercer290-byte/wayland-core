@@ -55,6 +55,8 @@ live-gemini    = []
 wiremock.workspace   = true
 tokio-test.workspace = true
 criterion.workspace  = true
+tempfile.workspace   = true
+serial_test.workspace = true
 
 [[bench]]
 name    = "parse_sse_chunk_bench"

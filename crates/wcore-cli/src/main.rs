@@ -559,6 +559,14 @@ fn open_tui_log_file() -> std::io::Result<std::fs::File> {
 }
 
 fn main() -> anyhow::Result<ExitCode> {
+    // Load ~/.wayland/.env (or $WAYLAND_HOME/.env) into the process environment
+    // before ANY threads spawn. The Config TUI writes provider keys there
+    // (surfaces/config.rs save); without this they never reach credential
+    // resolution on the next launch. main() is single-threaded at this point —
+    // the Tokio runtime is built later, on the entry thread — so set_var is
+    // sound here. Existing exported vars win (never clobbered).
+    wcore_config::env_file::load_wayland_env_file();
+
     // Windows defaults the main-thread stack to 1 MiB. wcore-cli's root future
     // (this large `async` entry plus the full clap command tree built by
     // `Cli::parse`) exceeds it and the process aborts with STATUS_STACK_OVERFLOW
@@ -924,9 +932,12 @@ async fn run() -> anyhow::Result<ExitCode> {
                 }
                 Ok(ExitCode::SUCCESS)
             }
-            // CLI surface: `auth` manages provider API keys directly in
-            // the global config.toml — list / add / remove.
-            TopCmd::Auth { cmd } => match wcore_cli::auth::run(cmd) {
+            // CLI surface: `auth` manages provider API keys (list / add /
+            // remove) and subscription OAuth logins (login / logout / status)
+            // for the global config.toml + token store. Awaited on the
+            // existing runtime — the OAuth verbs are async (a nested runtime
+            // would panic).
+            TopCmd::Auth { cmd } => match wcore_cli::auth::run(cmd).await {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
                     eprintln!("wayland-core auth: {e:#}");
@@ -1509,6 +1520,30 @@ async fn run_tui_mode(
     force: bool,
 ) -> anyhow::Result<()> {
     use wcore_cli::tui;
+
+    // Eager model-cache warm: fetch live model lists for connected providers at
+    // startup so the FIRST `/model` open is already fresh — the lazy on-open
+    // refresh only helps the *next* open. Run it on a DEDICATED OS thread with
+    // its own current-thread runtime, NOT a `tokio::spawn` on the engine
+    // runtime: a slow or blocked engine boot (e.g. a host with strict egress
+    // filtering that stalls a boot-time connect) must not starve the warm, and
+    // the warm must not compete with boot for the engine's worker threads.
+    // Uses the already-resolved `config` (cloned before it moves into the
+    // bootstrap) so there is no redundant re-resolution. Best-effort: a thread-
+    // spawn or HTTP failure simply leaves the cache as-is.
+    {
+        let warm_cfg = config.clone();
+        let _ = std::thread::Builder::new()
+            .name("model-warm".into())
+            .spawn(move || {
+                if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    rt.block_on(wcore_providers::model_catalog::refresh_connected(&warm_cfg));
+                }
+            });
+    }
 
     // The status-bar snapshot is taken from the resolved config before
     // it is moved into the bootstrap. `--force` is reflected on the view

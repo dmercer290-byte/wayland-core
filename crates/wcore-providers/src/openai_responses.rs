@@ -328,9 +328,11 @@ pub(crate) fn is_terminal_error_frame(data: &str) -> bool {
 /// Parse one Responses SSE `data:` frame into zero or more [`LlmEvent`]s.
 ///
 /// Returns a terminal event (`Done` or `Error`) only for `response.completed`,
-/// `response.failed`, and `error` frames — the caller treats those as the end
-/// of the stream and enforces truncation-detection (error if the byte stream
-/// closes without one), mirroring the chat path.
+/// `response.done`, `response.incomplete`, `response.failed`, and `error`
+/// frames — the caller treats those as the end of the stream and enforces
+/// truncation-detection (error if the byte stream closes without one),
+/// mirroring the chat path. `response.done` / `response.incomplete` are the
+/// ChatGPT Codex backend's terminal-success / truncated frames.
 pub(crate) fn parse_responses_event(data: &str, state: &mut ResponsesStreamState) -> Vec<LlmEvent> {
     let mut events = Vec::new();
 
@@ -354,7 +356,12 @@ pub(crate) fn parse_responses_event(data: &str, state: &mut ResponsesStreamState
 
     match event_type {
         // --- text -----------------------------------------------------------
-        "response.output_text.delta" => {
+        // `response.refusal.delta` carries a model refusal as text deltas; the
+        // Codex backend emits it instead of `output_text.delta` for a refused
+        // turn. Surface it as text so the refusal reaches the user instead of
+        // streaming empty (additive — the plain-OpenAI path simply never emits
+        // this frame).
+        "response.output_text.delta" | "response.refusal.delta" => {
             if let Some(delta) = json.get("delta").and_then(Value::as_str)
                 && !delta.is_empty()
             {
@@ -440,7 +447,14 @@ pub(crate) fn parse_responses_event(data: &str, state: &mut ResponsesStreamState
         }
 
         // --- terminal: success ---------------------------------------------
-        "response.completed" => {
+        // `response.done` is the ChatGPT **Codex** backend's terminal-success
+        // frame (OpenClaw normalizes both `response.completed` and
+        // `response.done` to the same end-of-turn). It carries the same
+        // `response` object (status + usage), so it routes through the identical
+        // path. Additive: the plain-OpenAI Responses path never emits
+        // `response.done`, so the existing `response.completed` behavior is
+        // unchanged.
+        "response.completed" | "response.done" => {
             let response = json.get("response");
             update_usage(state, response);
             let status = response
@@ -451,6 +465,28 @@ pub(crate) fn parse_responses_event(data: &str, state: &mut ResponsesStreamState
             events.push(LlmEvent::Done {
                 stop_reason,
                 finish_reason,
+                usage: TokenUsage {
+                    input_tokens: state.input_tokens,
+                    output_tokens: state.output_tokens,
+                    cache_creation_tokens: 0,
+                    cache_read_tokens: state.cache_read_tokens,
+                },
+            });
+        }
+
+        // --- terminal: truncated -------------------------------------------
+        // `response.incomplete` is a Codex terminal frame for a turn that ran
+        // out of output budget. Treat it as a clean end-of-turn capped by
+        // length (`StopReason::MaxTokens`), pulling usage from the same
+        // `response` object. Additive: the plain-OpenAI path signals truncation
+        // via `response.completed` with `status:"incomplete"` (handled above)
+        // and never emits this frame.
+        "response.incomplete" => {
+            let response = json.get("response");
+            update_usage(state, response);
+            events.push(LlmEvent::Done {
+                stop_reason: StopReason::MaxTokens,
+                finish_reason: FinishReason::Length,
                 usage: TokenUsage {
                     input_tokens: state.input_tokens,
                     output_tokens: state.output_tokens,
@@ -911,5 +947,102 @@ mod tests {
         let mut state = ResponsesStreamState::new();
         let events = parse_responses_event("not json", &mut state);
         assert!(events.is_empty());
+    }
+
+    // --- Codex terminal-frame aliases (D1) -------------------------------
+
+    /// `response.done` is the Codex terminal-success frame and must produce a
+    /// `Done` exactly like `response.completed` (same status/usage handling).
+    #[test]
+    fn parse_response_done_is_terminal_like_completed() {
+        let mut state = ResponsesStreamState::new();
+        let mut got: Vec<LlmEvent> = Vec::new();
+        got.extend(parse_responses_event(
+            r#"{"type":"response.output_text.delta","delta":"hi"}"#,
+            &mut state,
+        ));
+        got.extend(parse_responses_event(
+            r#"{"type":"response.done","response":{"status":"completed","usage":{"input_tokens":7,"output_tokens":3,"input_tokens_details":{"cached_tokens":2}}}}"#,
+            &mut state,
+        ));
+        assert!(matches!(got[0], LlmEvent::TextDelta(_)));
+        match &got[1] {
+            LlmEvent::Done {
+                stop_reason,
+                finish_reason,
+                usage,
+            } => {
+                assert_eq!(*stop_reason, StopReason::EndTurn);
+                assert_eq!(*finish_reason, FinishReason::Stop);
+                // cached subtracted: 7 - 2 = 5; cache_read = 2.
+                assert_eq!(usage.input_tokens, 5);
+                assert_eq!(usage.cache_read_tokens, 2);
+                assert_eq!(usage.output_tokens, 3);
+            }
+            other => panic!("expected Done, got {other:?}"),
+        }
+    }
+
+    /// `response.done` after a tool call still upgrades the stop reason to
+    /// `ToolUse` so the agent loop continues (parity with `response.completed`).
+    #[test]
+    fn parse_response_done_after_tool_call_is_tool_use() {
+        let mut state = ResponsesStreamState::new();
+        let mut got: Vec<LlmEvent> = Vec::new();
+        for f in [
+            r#"{"type":"response.output_item.added","item":{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"}}"#,
+            r#"{"type":"response.output_item.done","item":{"type":"function_call","call_id":"c1","name":"read"}}"#,
+            r#"{"type":"response.done","response":{"status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}"#,
+        ] {
+            got.extend(parse_responses_event(f, &mut state));
+        }
+        assert!(matches!(got[0], LlmEvent::ToolUse { .. }));
+        match &got[1] {
+            LlmEvent::Done { stop_reason, .. } => {
+                assert_eq!(*stop_reason, StopReason::ToolUse);
+            }
+            other => panic!("expected Done, got {other:?}"),
+        }
+    }
+
+    /// `response.incomplete` is a Codex terminal frame for a length-truncated
+    /// turn → `Done` with `StopReason::MaxTokens` / `FinishReason::Length`.
+    #[test]
+    fn parse_response_incomplete_is_max_tokens_done() {
+        let mut state = ResponsesStreamState::new();
+        let events = parse_responses_event(
+            r#"{"type":"response.incomplete","response":{"status":"incomplete","usage":{"input_tokens":9,"output_tokens":4}}}"#,
+            &mut state,
+        );
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            LlmEvent::Done {
+                stop_reason,
+                finish_reason,
+                usage,
+            } => {
+                assert_eq!(*stop_reason, StopReason::MaxTokens);
+                assert_eq!(*finish_reason, FinishReason::Length);
+                assert_eq!(usage.input_tokens, 9);
+                assert_eq!(usage.output_tokens, 4);
+            }
+            other => panic!("expected Done, got {other:?}"),
+        }
+    }
+
+    /// A Codex refusal streams via `response.refusal.delta` and must surface as
+    /// text (not an empty turn).
+    #[test]
+    fn parse_refusal_delta_is_text() {
+        let mut state = ResponsesStreamState::new();
+        let events = parse_responses_event(
+            r#"{"type":"response.refusal.delta","delta":"I can't help with that."}"#,
+            &mut state,
+        );
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            LlmEvent::TextDelta(t) => assert_eq!(t, "I can't help with that."),
+            other => panic!("expected TextDelta, got {other:?}"),
+        }
     }
 }

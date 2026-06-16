@@ -37,7 +37,8 @@ use wcore_types::tool::{ToolDef, truncate_deferred_description};
 use crate::key_rotation::{KeyPool, split_keys};
 use crate::retry::builder_send_with_retry;
 use crate::{
-    LlmProvider, ProviderError, dump_request_body, dump_response_chunk, reset_response_dump,
+    LlmProvider, ModelInfo, ProviderError, alias_models, dump_request_body, dump_response_chunk,
+    reset_response_dump,
 };
 use wcore_config::compat::ProviderCompat;
 use wcore_config::debug::DebugConfig;
@@ -575,6 +576,102 @@ impl LlmProvider for GeminiProvider {
 
         Ok(rx)
     }
+
+    fn alias_key(&self) -> &str {
+        "gemini"
+    }
+
+    /// Live model discovery via the Generative Language API `GET
+    /// /v1beta/models` endpoint. On any HTTP/parse failure we fall back to the
+    /// static alias catalog — `/model` must never hard-fail.
+    async fn list_models(&self) -> anyhow::Result<Vec<ModelInfo>> {
+        let url = format!("{}/v1beta/models", self.base_url.trim_end_matches('/'));
+        // H-2 / secrets-26: the API key rides in the `x-goog-api-key` header,
+        // NOT the `?key=` query string, so it cannot leak into a URL-bearing
+        // error, the `[retry]` trace, or across a 302. `build_headers` is the
+        // single place that auth shape lives. A malformed/absent credential
+        // can't produce a header — fall back to the alias catalog.
+        let headers = match self.select_key().and_then(|key| self.build_headers(&key)) {
+            Ok(h) => h,
+            Err(_) => return Ok(alias_models(self.alias_key())),
+        };
+
+        let live = async {
+            // FIX 3: bound the request so a hung models endpoint cannot freeze
+            // the `/model` picker indefinitely (the streaming client carries no
+            // request-level wall-clock cap by design).
+            let response = self
+                .client
+                .get(&url)
+                .timeout(crate::http_client::LIST_MODELS_TIMEOUT)
+                .headers(headers)
+                .send()
+                .await?;
+            if !response.status().is_success() {
+                anyhow::bail!("models endpoint returned HTTP {}", response.status());
+            }
+            let body = response.text().await?;
+            parse_gemini_models(&body)
+        }
+        .await;
+
+        match live {
+            Ok(models) if !models.is_empty() => Ok(models),
+            _ => Ok(alias_models(self.alias_key())),
+        }
+    }
+}
+
+/// Parse a Generative Language API `GET /v1beta/models` response body into
+/// [`ModelInfo`]s. The documented shape is
+/// `{"models":[{"name":"models/gemini-2.5-pro","displayName":"Gemini 2.5 Pro",
+/// "supportedGenerationMethods":["generateContent", ...]}]}`.
+///
+/// - The `models/` prefix is stripped from `name` to form the id.
+/// - `displayName` is the label when present, otherwise the label mirrors the
+///   stripped id.
+/// - Only entries whose `supportedGenerationMethods` includes
+///   `generateContent` are kept — this drops embedding-only and other
+///   non-chat models that the `/model` picker cannot use.
+fn parse_gemini_models(body: &str) -> anyhow::Result<Vec<ModelInfo>> {
+    let json: Value = serde_json::from_str(body)?;
+    let models = json
+        .get("models")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("models response missing `models` array"))?;
+    let parsed = models
+        .iter()
+        .filter(|entry| {
+            entry
+                .get("supportedGenerationMethods")
+                .and_then(Value::as_array)
+                .is_some_and(|methods| {
+                    methods
+                        .iter()
+                        .any(|m| m.as_str() == Some("generateContent"))
+                })
+        })
+        .filter_map(|entry| {
+            let name = entry
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|n| !n.is_empty())?;
+            let id = name.strip_prefix("models/").unwrap_or(name);
+            if id.is_empty() {
+                return None;
+            }
+            let display = entry
+                .get("displayName")
+                .and_then(Value::as_str)
+                .filter(|d| !d.is_empty())
+                .unwrap_or(id);
+            Some(ModelInfo {
+                id: id.to_string(),
+                display: display.to_string(),
+            })
+        })
+        .collect();
+    Ok(parsed)
 }
 
 /// Streaming-state accumulator for a single Gemini response.
@@ -1682,5 +1779,122 @@ mod tests {
             matches!(terminal, Err(())),
             "a stream that closes before any finishReason must still error"
         );
+    }
+
+    // --- live /model library — /v1beta/models parse -----------------------
+
+    #[test]
+    fn parse_gemini_models_strips_prefix_and_uses_display_name() {
+        let body = r#"{"models":[
+            {"name":"models/gemini-2.5-pro","displayName":"Gemini 2.5 Pro",
+             "supportedGenerationMethods":["generateContent","countTokens"]},
+            {"name":"models/gemini-2.5-flash","displayName":"Gemini 2.5 Flash",
+             "supportedGenerationMethods":["generateContent"]}
+        ]}"#;
+        let models = parse_gemini_models(body).expect("valid body parses");
+        assert_eq!(models.len(), 2);
+        // `models/` prefix stripped for the id; displayName used for the label.
+        assert_eq!(models[0].id, "gemini-2.5-pro");
+        assert_eq!(models[0].display, "Gemini 2.5 Pro");
+        assert_eq!(models[1].id, "gemini-2.5-flash");
+    }
+
+    #[test]
+    fn parse_gemini_models_falls_back_to_id_when_no_display_name() {
+        let body = r#"{"models":[
+            {"name":"models/gemini-2.5-flash-lite",
+             "supportedGenerationMethods":["generateContent"]}
+        ]}"#;
+        let models = parse_gemini_models(body).expect("parses");
+        assert_eq!(models.len(), 1);
+        // No displayName → label mirrors the stripped id.
+        assert_eq!(models[0].display, "gemini-2.5-flash-lite");
+    }
+
+    #[test]
+    fn parse_gemini_models_filters_out_embedding_only_models() {
+        // `text-embedding-004` only supports `embedContent` — it must be
+        // dropped because the `/model` picker cannot drive it.
+        let body = r#"{"models":[
+            {"name":"models/gemini-2.5-pro","displayName":"Gemini 2.5 Pro",
+             "supportedGenerationMethods":["generateContent"]},
+            {"name":"models/text-embedding-004","displayName":"Text Embedding 004",
+             "supportedGenerationMethods":["embedContent"]},
+            {"name":"models/embedding-gecko","displayName":"Gecko",
+             "supportedGenerationMethods":[]}
+        ]}"#;
+        let models = parse_gemini_models(body).expect("parses");
+        assert_eq!(models.len(), 1, "only generateContent models survive");
+        assert_eq!(models[0].id, "gemini-2.5-pro");
+    }
+
+    #[test]
+    fn parse_gemini_models_skips_invalid_names_and_errors_on_no_models_array() {
+        let body = r#"{"models":[
+            {"name":"","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/","supportedGenerationMethods":["generateContent"]},
+            {"supportedGenerationMethods":["generateContent"]},
+            {"name":"models/gemini-2.5-pro","supportedGenerationMethods":["generateContent"]}
+        ]}"#;
+        let models = parse_gemini_models(body).expect("parses");
+        // Empty name, bare `models/` (empty after strip), and missing name are
+        // all skipped — only the valid entry survives.
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gemini-2.5-pro");
+
+        // Missing `models` array → Err so the caller uses the alias fallback.
+        assert!(parse_gemini_models(r#"{"error":"nope"}"#).is_err());
+        assert!(parse_gemini_models("garbage").is_err());
+    }
+
+    /// INVARIANT: a models endpoint that 500s must NOT surface an error — the
+    /// provider floors to the static `gemini` alias catalog so the `/model`
+    /// picker never hard-fails. We point the provider at a wiremock server that
+    /// always 500s and assert the returned list equals the alias floor.
+    #[tokio::test]
+    async fn list_models_falls_back_to_alias_on_http_error() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let provider =
+            GeminiProvider::new("test-key", &server.uri(), compat(), DebugConfig::default());
+        let models = provider.list_models().await.expect("never errors");
+        assert_eq!(
+            models,
+            alias_models("gemini"),
+            "a 500 must floor to the static gemini alias catalog"
+        );
+        assert!(!models.is_empty(), "the gemini alias catalog is non-empty");
+    }
+
+    /// A 200 with a valid body yields the live, parsed catalog (not the alias
+    /// floor) — proving the happy path is wired through `list_models`.
+    #[tokio::test]
+    async fn list_models_returns_live_catalog_on_success() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let body = r#"{"models":[
+            {"name":"models/gemini-9.0-pro","displayName":"Gemini 9.0 Pro",
+             "supportedGenerationMethods":["generateContent"]}
+        ]}"#;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(body))
+            .mount(&server)
+            .await;
+
+        let provider =
+            GeminiProvider::new("test-key", &server.uri(), compat(), DebugConfig::default());
+        let models = provider.list_models().await.expect("never errors");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gemini-9.0-pro");
+        assert_eq!(models[0].display, "Gemini 9.0 Pro");
     }
 }

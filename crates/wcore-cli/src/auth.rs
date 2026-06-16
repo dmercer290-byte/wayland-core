@@ -19,13 +19,16 @@
 //! untouched, and only the targeted `[providers.<slug>]` table is
 //! added / changed / removed.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::Subcommand;
 use toml::value::Table;
 
 use crate::provider_keys::{
     Detected, Provider, ValidationOutcome, detect_provider, validate_key_blocking,
 };
+
+use wcore_agent::oauth::chatgpt;
+use wcore_agent::oauth::{OAuthStorage, OAuthTokens};
 
 #[derive(Subcommand, Debug)]
 pub enum AuthCmd {
@@ -53,16 +56,63 @@ pub enum AuthCmd {
         /// Provider slug to remove (`anthropic`, `openai`, …).
         provider: String,
     },
+
+    /// Sign in to a subscription provider via OAuth in the browser.
+    ///
+    /// Currently only `chatgpt` (aliases: `openai-chatgpt`) is wired: it
+    /// runs the loopback PKCE flow against OpenAI's Codex client and stores
+    /// the tokens encrypted under `~/.wayland/oauth/chatgpt.json`.
+    Login {
+        /// Subscription provider to sign in to (`chatgpt`).
+        provider: String,
+        /// Skip the browser flow and import an existing Codex CLI login from
+        /// `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`) instead.
+        #[arg(long)]
+        import_codex: bool,
+        /// Use the headless device-code flow (no browser, no loopback): print
+        /// a URL + code to enter on any device. Best for remote/SSH sessions.
+        #[arg(long)]
+        device: bool,
+    },
+
+    /// Sign out (delete stored OAuth tokens) for a subscription provider.
+    Logout {
+        /// Subscription provider to sign out of (`chatgpt`).
+        provider: String,
+    },
+
+    /// Show OAuth login status (provider, plan, token expiry).
+    Status,
 }
 
 /// Production entry point — operates on the global `config.toml`.
-pub fn run(cmd: AuthCmd) -> Result<()> {
-    let path = wcore_config::config::global_config_path();
-    run_with_path(cmd, &path)
+///
+/// Async because the OAuth verbs (`login`/`logout`/`status`) run network
+/// round-trips and MUST be awaited on the existing `#[tokio::main]` runtime
+/// — spinning a nested `Runtime::new().block_on(..)` here panics (revision
+/// B). The API-key CRUD verbs delegate to the synchronous [`run_with_path`].
+pub async fn run(cmd: AuthCmd) -> Result<()> {
+    match cmd {
+        AuthCmd::Login {
+            provider,
+            import_codex,
+            device,
+        } => login_cmd(&provider, import_codex, device).await,
+        AuthCmd::Logout { provider } => logout_cmd(&provider).await,
+        AuthCmd::Status => status_cmd().await,
+        // API-key CRUD is synchronous and file-only.
+        other => {
+            let path = wcore_config::config::global_config_path();
+            run_with_path(other, &path)
+        }
+    }
 }
 
-/// Test-friendly entry point — accepts an explicit config path so unit
-/// tests drive the same CRUD against a tempdir-backed file.
+/// Test-friendly entry point for the synchronous API-key CRUD verbs —
+/// accepts an explicit config path so unit tests drive the same CRUD against
+/// a tempdir-backed file. The OAuth verbs are handled by [`run`] (they need
+/// the async runtime + the home-rooted token store), so routing one here is
+/// a programmer error.
 pub fn run_with_path(cmd: AuthCmd, config_path: &std::path::Path) -> Result<()> {
     match cmd {
         AuthCmd::List => list_cmd(config_path),
@@ -72,6 +122,9 @@ pub fn run_with_path(cmd: AuthCmd, config_path: &std::path::Path) -> Result<()> 
             no_validate,
         } => add_cmd(&provider, &key, no_validate, config_path),
         AuthCmd::Remove { provider } => remove_cmd(&provider, config_path),
+        AuthCmd::Login { .. } | AuthCmd::Logout { .. } | AuthCmd::Status => {
+            bail!("OAuth verbs (login/logout/status) must be dispatched through the async `run`")
+        }
     }
 }
 
@@ -272,6 +325,279 @@ fn remove_cmd(provider_arg: &str, config_path: &std::path::Path) -> Result<()> {
     save_doc(&doc, config_path)?;
     println!("Removed API key for {} ({slug}).", provider.label());
     Ok(())
+}
+
+// ── OAuth verbs: login / logout / status (chatgpt) ────────────────────────
+
+/// Normalize the `provider` argument for the OAuth verbs. Only ChatGPT is
+/// wired today; `chatgpt` and `openai-chatgpt` both resolve to it.
+fn resolve_oauth_provider(arg: &str) -> Result<&'static str> {
+    match arg.trim().to_ascii_lowercase().as_str() {
+        "chatgpt" | "openai-chatgpt" | "openai_chatgpt" => Ok(chatgpt::PROVIDER),
+        other => bail!(
+            "unknown OAuth provider '{other}'. The only wired subscription login is \
+             `chatgpt` (alias `openai-chatgpt`)."
+        ),
+    }
+}
+
+/// `wayland-core auth login chatgpt [--import-codex] [--device]`.
+///
+/// Routing (first match wins):
+/// - `--import-codex`: import an existing Codex CLI login
+///   (`$CODEX_HOME/auth.json`) — no browser, no network.
+/// - `--device`: the headless device-code flow (print a URL + code to enter
+///   on any device) — no browser, no loopback. Best for remote/SSH.
+/// - otherwise: the interactive loopback PKCE flow (opens a browser).
+async fn login_cmd(provider_arg: &str, import_codex: bool, device: bool) -> Result<()> {
+    resolve_oauth_provider(provider_arg)?;
+    if import_codex {
+        return import_codex_login();
+    }
+    if device {
+        return login_chatgpt_device().await;
+    }
+    login_chatgpt().await
+}
+
+/// Import a ChatGPT login from the Codex CLI's `auth.json` and store it under
+/// our own OAuth store. Shared by `--import-codex` and the auto-import
+/// fallback in `status`/`login`. Returns the decoded plan for the success
+/// line.
+fn import_codex_login() -> Result<()> {
+    let storage = OAuthStorage::from_home().map_err(|e| anyhow!("opening token store: {e}"))?;
+    let tokens = chatgpt::import_codex_cli_tokens()
+        .map_err(|e| anyhow!("importing Codex CLI login: {e}"))?;
+    storage
+        .store(chatgpt::PROVIDER, &tokens)
+        .map_err(|e| anyhow!("persisting imported tokens: {e}"))?;
+    let plan = chatgpt::decode_codex_claims(&tokens.access_token)
+        .ok()
+        .and_then(|c| c.plan_type)
+        .unwrap_or_else(|| "unknown".to_string());
+    println!(
+        "Imported ChatGPT login from the Codex CLI (plan: {plan}). Use `--provider openai-chatgpt`."
+    );
+    Ok(())
+}
+
+/// `wayland-core auth logout chatgpt`.
+///
+/// C5: removing the on-disk token is not enough — also unlink any
+/// `*.json.tmp` orphan left by an interrupted atomic write. A live
+/// `ChatGptTokenManager` cache cannot be reached from this short-lived CLI
+/// process (there is no live engine), so there is nothing in-memory to clear
+/// here; the manager built at the next engine start re-reads the (now
+/// missing) file. NotFound on the token file is treated as already-logged-out.
+async fn logout_cmd(provider_arg: &str) -> Result<()> {
+    let provider = resolve_oauth_provider(provider_arg)?;
+    let storage = OAuthStorage::from_home().map_err(|e| anyhow!("opening token store: {e}"))?;
+    let path = storage.path_for(provider);
+
+    let removed = match std::fs::remove_file(&path) {
+        Ok(()) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => return Err(anyhow!("removing {}: {e}", path.display())),
+    };
+
+    // Unlink any orphaned temp file from an interrupted atomic write so a
+    // stale half-written token cannot resurrect a logged-out session.
+    let tmp = path.with_extension("json.tmp");
+    if let Err(e) = std::fs::remove_file(&tmp)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        // Best-effort: a leftover tmp that can't be removed is not fatal to a
+        // logout whose real token file is gone.
+        tracing::warn!(error = %e, path = %tmp.display(), "could not remove orphaned oauth tmp file");
+    }
+
+    if removed {
+        println!("Signed out of ChatGPT. The stored OAuth token was removed.");
+    } else {
+        println!("Already signed out of ChatGPT (no stored token).");
+    }
+    Ok(())
+}
+
+/// `wayland-core auth status`.
+///
+/// Loads the stored ChatGPT token, decodes the access-token claims, and
+/// prints signed-in + plan + expiry, or a not-signed-in line. When no wayland
+/// token exists it tries a Codex CLI import once before reporting logged-out.
+async fn status_cmd() -> Result<()> {
+    let storage = OAuthStorage::from_home().map_err(|e| anyhow!("opening token store: {e}"))?;
+
+    let tokens = match storage
+        .load(chatgpt::PROVIDER)
+        .map_err(|e| anyhow!("reading token store: {e}"))?
+    {
+        Some(t) => Some(t),
+        None => {
+            // Auto-try a Codex CLI import so a user who logged in via Codex
+            // sees signed-in status without an explicit import step.
+            match chatgpt::import_codex_cli_tokens() {
+                Ok(t) => {
+                    let _ = storage.store(chatgpt::PROVIDER, &t);
+                    println!("(imported an existing ChatGPT login from the Codex CLI)");
+                    Some(t)
+                }
+                Err(_) => None,
+            }
+        }
+    };
+
+    let Some(tokens) = tokens else {
+        println!("ChatGPT: not signed in. Run `wayland-core auth login chatgpt`.");
+        return Ok(());
+    };
+
+    print_status_line(&tokens);
+    Ok(())
+}
+
+/// Render the signed-in status line from a token bundle. Split out so the
+/// claim-decode + expiry formatting is unit-testable without a token store.
+/// The plan/expiry decode is delegated to
+/// [`chatgpt::ChatGptLoginStatus::from_tokens`] so this renderer and the
+/// `/provider` precheck + `/config` status row all read the same source.
+fn print_status_line(tokens: &OAuthTokens) {
+    let status = chatgpt::ChatGptLoginStatus::from_tokens(tokens);
+    let plan = status.plan.unwrap_or_else(|| "unknown".to_string());
+    let expiry = match status.expires_at_unix_secs {
+        Some(exp) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            if exp > now {
+                let mins = (exp - now) / 60;
+                format!("access token valid for ~{mins} min")
+            } else {
+                "access token expired (will refresh on next use)".to_string()
+            }
+        }
+        None => "expiry unknown".to_string(),
+    };
+    println!("ChatGPT: signed in (plan: {plan}); {expiry}.");
+}
+
+/// Drive the interactive loopback PKCE round-trip and store the tokens.
+/// Mirrors `tui::auth::run_google_meet_connect` but for the ChatGPT Codex
+/// flow. Gated behind `remote-registry` because the token exchange uses
+/// `wcore_egress::EgressClient` (the same gate the google-meet runner uses).
+#[cfg(feature = "remote-registry")]
+async fn login_chatgpt() -> Result<()> {
+    use wcore_agent::oauth::PkceChallenge;
+
+    let flow = chatgpt::build_chatgpt_flow();
+
+    // 1. Bind the loopback listener (fixed Codex port 1455, dual-stack for
+    //    the `localhost` redirect host) and derive the real redirect_uri.
+    let (redirect_uri, listener) = flow.bind_callback_listener().await.map_err(|e| {
+        anyhow!(
+            "could not bind the local callback listener on port {}: {e}. \
+             If another process holds the port, close it and retry.",
+            chatgpt::CALLBACK_PORT
+        )
+    })?;
+
+    // 2. Build the authorize URL against the bound redirect_uri.
+    let (auth_url, state, pkce) = flow.build_authorize_url(&redirect_uri);
+
+    // 3. Open the browser; a launch failure still leaves a copyable URL.
+    let opened = open::that_detached(&auth_url).is_ok();
+    if opened {
+        println!("Opening your browser to sign in to ChatGPT…");
+    } else {
+        println!("Could not open a browser automatically. Open this URL to authorize:\n{auth_url}");
+    }
+
+    // 4. Wait for the redirect, validating the CSRF state inside.
+    let code = flow.wait_for_code(listener, &state).await.map_err(|e| {
+        if opened {
+            anyhow!("ChatGPT authorization did not complete: {e}")
+        } else {
+            anyhow!(
+                "ChatGPT authorization did not complete: {e}\n\nAuthorize manually:\n{auth_url}"
+            )
+        }
+    })?;
+
+    // 5. Exchange the code (+ PKCE verifier) for tokens.
+    let client = wcore_egress::EgressClient::tool();
+    let verifier = pkce.as_ref().map(|p: &PkceChallenge| p.verifier.as_str());
+    let tokens = flow
+        .exchange_code(&client, &code, &redirect_uri, verifier)
+        .await
+        .map_err(|e| anyhow!("ChatGPT token exchange failed: {e}"))?;
+
+    // Hard-fail if the access token carries no ChatGPT account id — without
+    // it the Codex backend rejects every request.
+    chatgpt::decode_codex_claims(&tokens.access_token)
+        .map_err(|e| anyhow!("ChatGPT login returned a token without an account id: {e}"))?;
+
+    // 6. Persist the bundle to `~/.wayland/oauth/chatgpt.json`.
+    let storage = OAuthStorage::from_home().map_err(|e| anyhow!("opening token store: {e}"))?;
+    storage
+        .store(chatgpt::PROVIDER, &tokens)
+        .map_err(|e| anyhow!("persisting the tokens failed: {e}"))?;
+
+    println!("Signed in to ChatGPT. Use `--provider openai-chatgpt`.");
+    Ok(())
+}
+
+/// Stripped-build variant: with `remote-registry` (and `wcore-egress`)
+/// compiled out, the token exchange cannot run. Point the user at the
+/// network-backed build or the Codex import path.
+#[cfg(not(feature = "remote-registry"))]
+#[allow(clippy::unused_async)] // signature must match the remote-registry variant the caller awaits
+async fn login_chatgpt() -> Result<()> {
+    bail!(
+        "ChatGPT login needs the network-backed build (the `remote-registry` feature); \
+         this binary was built without it. If you have the Codex CLI installed, run \
+         `wayland-core auth login chatgpt --import-codex` instead."
+    )
+}
+
+/// Drive the headless device-code round-trip and store the tokens. No browser,
+/// no loopback listener — the user opens the printed URL on any device and
+/// types the printed code. Gated behind `remote-registry` like
+/// [`login_chatgpt`] because the device flow uses `wcore_egress::EgressClient`.
+#[cfg(feature = "remote-registry")]
+async fn login_chatgpt_device() -> Result<()> {
+    let client = wcore_egress::EgressClient::tool();
+
+    // Runs steps 1-4 (request code, print, poll, exchange) and returns tokens.
+    let tokens = chatgpt::login_device_code(&client)
+        .await
+        .map_err(|e| anyhow!("ChatGPT device-code sign-in failed: {e}"))?;
+
+    // Hard-fail if the access token carries no ChatGPT account id — without it
+    // the Codex backend rejects every request.
+    chatgpt::decode_codex_claims(&tokens.access_token)
+        .map_err(|e| anyhow!("ChatGPT login returned a token without an account id: {e}"))?;
+
+    // Persist the bundle to `~/.wayland/oauth/chatgpt.json`.
+    let storage = OAuthStorage::from_home().map_err(|e| anyhow!("opening token store: {e}"))?;
+    storage
+        .store(chatgpt::PROVIDER, &tokens)
+        .map_err(|e| anyhow!("persisting the tokens failed: {e}"))?;
+
+    println!("Signed in to ChatGPT. Use `--provider openai-chatgpt`.");
+    Ok(())
+}
+
+/// Stripped-build variant: with `remote-registry` (and `wcore-egress`)
+/// compiled out, the device-code exchange cannot run. Point the user at the
+/// network-backed build or the Codex import path.
+#[cfg(not(feature = "remote-registry"))]
+#[allow(clippy::unused_async)] // signature must match the remote-registry variant the caller awaits
+async fn login_chatgpt_device() -> Result<()> {
+    bail!(
+        "ChatGPT device-code login needs the network-backed build (the `remote-registry` \
+         feature); this binary was built without it. If you have the Codex CLI installed, run \
+         `wayland-core auth login chatgpt --import-codex` instead."
+    )
 }
 
 #[cfg(test)]
@@ -492,5 +818,136 @@ mod tests {
             masked.chars().all(|c| c == '•'),
             "short key leaked: {masked}"
         );
+    }
+
+    // ── Task 5.2: OAuth verbs (login / logout / status) ──────────────
+
+    #[test]
+    fn resolve_oauth_provider_accepts_chatgpt_aliases() {
+        assert_eq!(
+            resolve_oauth_provider("chatgpt").unwrap(),
+            chatgpt::PROVIDER
+        );
+        assert_eq!(
+            resolve_oauth_provider("openai-chatgpt").unwrap(),
+            chatgpt::PROVIDER
+        );
+        assert_eq!(
+            resolve_oauth_provider("OpenAI-ChatGPT").unwrap(),
+            chatgpt::PROVIDER
+        );
+    }
+
+    #[test]
+    fn resolve_oauth_provider_rejects_unknown() {
+        let err = resolve_oauth_provider("anthropic").unwrap_err();
+        assert!(err.to_string().contains("unknown OAuth provider"), "{err}");
+    }
+
+    /// The sync CRUD entry point must refuse the OAuth verbs — they require
+    /// the async runtime + the home-rooted token store and are routed through
+    /// the async `run`.
+    #[test]
+    fn run_with_path_refuses_oauth_verbs() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let err = run_with_path(AuthCmd::Status, &path).unwrap_err();
+        assert!(err.to_string().contains("async"), "{err}");
+        let err = run_with_path(
+            AuthCmd::Logout {
+                provider: "chatgpt".into(),
+            },
+            &path,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("async"), "{err}");
+    }
+
+    /// A 3-segment JWT whose payload carries the account id + plan, so the
+    /// status line decode resolves a real plan.
+    fn jwt_with_plan(account_id: &str, plan: &str) -> String {
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        let payload = serde_json::json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": account_id,
+                "chatgpt_plan_type": plan,
+            }
+        });
+        let seg = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
+        format!("hdr.{seg}.sig")
+    }
+
+    /// `print_status_line` does not panic and the decoded plan + a future
+    /// expiry are reflected. (It prints to stdout; we assert it runs cleanly
+    /// over a well-formed token — the decode/expiry math is the logic under
+    /// test.)
+    #[test]
+    fn print_status_line_handles_signed_in_token() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let tokens = OAuthTokens {
+            access_token: jwt_with_plan("acct_s", "pro"),
+            refresh_token: Some("rt".into()),
+            expires_at_unix_secs: Some(now + 3600),
+            token_type: "Bearer".into(),
+            scope: None,
+            id_token: None,
+        };
+        // The plan must be extractable from the access token.
+        let plan = chatgpt::decode_codex_claims(&tokens.access_token)
+            .unwrap()
+            .plan_type;
+        assert_eq!(plan.as_deref(), Some("pro"));
+        // Smoke: rendering the line must not panic.
+        print_status_line(&tokens);
+    }
+
+    /// Login with `--import-codex` round-trips a fake `$CODEX_HOME/auth.json`
+    /// through the importer. We drive `chatgpt::import_codex_cli_tokens`
+    /// directly (the CLI wrapper only adds the home-rooted store, which is not
+    /// test-injectable) to prove the verb's import path is correctly wired to
+    /// a real Codex auth shape.
+    #[test]
+    #[serial_test::serial]
+    fn import_codex_verb_reads_codex_auth_json() {
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("codex");
+        std::fs::create_dir_all(&home).unwrap();
+        let exp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+            + 3600;
+        let payload = serde_json::json!({
+            "exp": exp,
+            "https://api.openai.com/auth": { "chatgpt_account_id": "acct_imp" }
+        });
+        let access = format!(
+            "hdr.{}.sig",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap())
+        );
+        std::fs::write(
+            home.join("auth.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "tokens": { "access_token": access, "refresh_token": "rt-c" }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let saved = std::env::var_os("CODEX_HOME");
+        unsafe { std::env::set_var("CODEX_HOME", &home) };
+        let result = chatgpt::import_codex_cli_tokens();
+        match saved {
+            Some(v) => unsafe { std::env::set_var("CODEX_HOME", v) },
+            None => unsafe { std::env::remove_var("CODEX_HOME") },
+        }
+
+        let tokens = result.expect("import");
+        assert_eq!(tokens.access_token, access);
+        assert_eq!(tokens.refresh_token.as_deref(), Some("rt-c"));
     }
 }

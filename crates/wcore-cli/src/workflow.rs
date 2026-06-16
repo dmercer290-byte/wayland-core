@@ -186,7 +186,11 @@ async fn run_workflow(name: &str) -> anyhow::Result<()> {
     // parent process already installed it.
     wcore_agent::egress::install_egress_policy(&config);
 
-    let provider = wcore_providers::create_provider(&config);
+    // OAuth-aware construction: a config pinned to `openai-chatgpt` (or a
+    // future `*-oauth` provider) must build its bearer-source-backed provider
+    // here instead of hitting the `create_native_provider` panic. For every
+    // other provider this is byte-for-byte `wcore_providers::create_provider`.
+    let provider = wcore_agent::bootstrap::create_provider_with_oauth(&config)?;
 
     // Attach an `AgentBus` so the workflow's sub-agents emit the same
     // Spawned/Completed/Errored lifecycle telemetry the main agent loop does
