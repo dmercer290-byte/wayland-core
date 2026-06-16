@@ -33,6 +33,7 @@ pub mod openai_compat;
 pub mod openai_compatible;
 pub mod openai_responses;
 pub mod openrouter;
+pub mod paste_detect;
 pub mod perplexity;
 pub mod qwen;
 pub mod registry;

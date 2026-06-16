@@ -89,9 +89,15 @@ pub async fn validate_key(base: &Config, slug: &str, api_key: &str) -> Validatio
     validate_with(base, slug, api_key, create_provider).await
 }
 
-/// Core of [`validate_key`], generic over how the provider is built so tests can
-/// inject a fake provider without a network call.
-async fn validate_with<F>(base: &Config, slug: &str, api_key: &str, build: F) -> ValidationOutcome
+/// Core of [`validate_key`], generic over how the provider is built so the
+/// paste-detect orchestrator and tests can inject a fake provider without a
+/// network call.
+pub(crate) async fn validate_with<F>(
+    base: &Config,
+    slug: &str,
+    api_key: &str,
+    build: F,
+) -> ValidationOutcome
 where
     F: FnOnce(&Config) -> Arc<dyn LlmProvider>,
 {
