@@ -364,7 +364,9 @@ fn import_codex_login() -> Result<()> {
         .ok()
         .and_then(|c| c.plan_type)
         .unwrap_or_else(|| "unknown".to_string());
-    println!("Imported ChatGPT login from the Codex CLI (plan: {plan}). Use `--provider openai-chatgpt`.");
+    println!(
+        "Imported ChatGPT login from the Codex CLI (plan: {plan}). Use `--provider openai-chatgpt`."
+    );
     Ok(())
 }
 
@@ -503,7 +505,9 @@ async fn login_chatgpt() -> Result<()> {
         if opened {
             anyhow!("ChatGPT authorization did not complete: {e}")
         } else {
-            anyhow!("ChatGPT authorization did not complete: {e}\n\nAuthorize manually:\n{auth_url}")
+            anyhow!(
+                "ChatGPT authorization did not complete: {e}\n\nAuthorize manually:\n{auth_url}"
+            )
         }
     })?;
 
@@ -767,7 +771,10 @@ mod tests {
 
     #[test]
     fn resolve_oauth_provider_accepts_chatgpt_aliases() {
-        assert_eq!(resolve_oauth_provider("chatgpt").unwrap(), chatgpt::PROVIDER);
+        assert_eq!(
+            resolve_oauth_provider("chatgpt").unwrap(),
+            chatgpt::PROVIDER
+        );
         assert_eq!(
             resolve_oauth_provider("openai-chatgpt").unwrap(),
             chatgpt::PROVIDER

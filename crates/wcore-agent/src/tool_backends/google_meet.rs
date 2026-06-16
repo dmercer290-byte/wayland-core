@@ -248,7 +248,10 @@ impl HttpGoogleMeetBackend {
                     scope: raw.get("scope").and_then(Value::as_str).map(str::to_string),
                     // Google's token-refresh response does not include an
                     // id_token; carry None.
-                    id_token: raw.get("id_token").and_then(Value::as_str).map(str::to_string),
+                    id_token: raw
+                        .get("id_token")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
                 })
             })
             .await

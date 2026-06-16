@@ -319,7 +319,10 @@ mod tests {
         // we cannot replay the sealed reasoning item — doing so 400s turn 2 of
         // a tool loop (`missing_following_item`). Lock that decision in.
         let body = provider().build_codex_body(&request_with_tools(vec![]));
-        assert!(body.get("include").is_none(), "include must be absent: {body}");
+        assert!(
+            body.get("include").is_none(),
+            "include must be absent: {body}"
+        );
     }
 
     #[test]

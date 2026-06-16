@@ -97,7 +97,10 @@ async fn chatgpt_stream_text_then_done() {
     )
     .with_base_url(server.uri());
 
-    let rx = provider.stream(&make_request()).await.expect("stream opens");
+    let rx = provider
+        .stream(&make_request())
+        .await
+        .expect("stream opens");
     let events = collect_events(rx).await;
 
     assert_eq!(events.len(), 2, "events: {events:?}");
@@ -144,9 +147,7 @@ async fn chatgpt_stream_response_done_alias_closes_cleanly() {
 
     // No trailing Error event (a truncation would append one).
     assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, LlmEvent::Error(_))),
+        !events.iter().any(|e| matches!(e, LlmEvent::Error(_))),
         "stream must close cleanly on response.done: {events:?}"
     );
     assert!(matches!(events.last(), Some(LlmEvent::Done { .. })));

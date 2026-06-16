@@ -24,9 +24,7 @@ pub mod flow;
 pub mod pkce;
 pub mod storage;
 
-pub use chatgpt::{
-    build_chatgpt_flow, decode_codex_claims, ChatGptTokenManager, CodexClaims,
-};
+pub use chatgpt::{ChatGptTokenManager, CodexClaims, build_chatgpt_flow, decode_codex_claims};
 pub use flow::{OAuthFlow, OAuthTokens, RedirectStrategy, RefreshError, SingleFlightRefresh};
 pub use pkce::{PkceChallenge, PkceMode};
 pub use storage::{OAuthStorage, OAuthStorageError};

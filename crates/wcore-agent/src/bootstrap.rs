@@ -3037,7 +3037,7 @@ mod tests {
     async fn chatgpt_bearer_closure_returns_seeded_creds() {
         use crate::oauth::chatgpt::{ChatGptTokenManager, PROVIDER};
         use crate::oauth::{OAuthStorage, OAuthTokens};
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
         use std::time::{SystemTime, UNIX_EPOCH};
 
         // A 3-segment JWT whose payload carries the ChatGPT account id.

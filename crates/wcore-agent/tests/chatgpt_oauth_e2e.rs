@@ -24,15 +24,17 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::json;
 use tempfile::TempDir;
 
 use wcore_agent::oauth::chatgpt::{
     AUTHORIZE_URL, CALLBACK_HOST, CALLBACK_PATH, CALLBACK_PORT, CLIENT_ID, PROVIDER, SCOPES,
 };
-use wcore_agent::oauth::{ChatGptTokenManager, OAuthFlow, OAuthStorage, OAuthTokens, RedirectStrategy};
+use wcore_agent::oauth::{
+    ChatGptTokenManager, OAuthFlow, OAuthStorage, OAuthTokens, RedirectStrategy,
+};
 
 use wcore_config::compat::ProviderCompat;
 use wcore_config::debug::DebugConfig;
@@ -97,10 +99,7 @@ fn bearer_over_manager(mgr: Arc<ChatGptTokenManager>) -> AsyncBearerSource {
     Arc::new(move || {
         let mgr = mgr.clone();
         Box::pin(async move {
-            let (access_token, account_id) = mgr
-                .get()
-                .await
-                .map_err(ProviderError::Connection)?;
+            let (access_token, account_id) = mgr.get().await.map_err(ProviderError::Connection)?;
             Ok(BearerCreds {
                 access_token,
                 account_id,
@@ -189,13 +188,19 @@ async fn end_to_end_fresh_token_streams_codex_turn() {
     let tmp = TempDir::new().unwrap();
     let storage = OAuthStorage::at_root(tmp.path().join("oauth")).unwrap();
     storage
-        .store(PROVIDER, &token(&jwt, Some("rt-fresh"), Some(now_secs() + 3600)))
+        .store(
+            PROVIDER,
+            &token(&jwt, Some("rt-fresh"), Some(now_secs() + 3600)),
+        )
         .unwrap();
 
     let mgr = Arc::new(ChatGptTokenManager::new(storage));
     let provider = provider_against(codex.uri(), bearer_over_manager(mgr));
 
-    let rx = provider.stream(&make_request()).await.expect("stream opens");
+    let rx = provider
+        .stream(&make_request())
+        .await
+        .expect("stream opens");
     let events = collect_events(rx).await;
 
     assert_eq!(events.len(), 2, "events: {events:?}");
@@ -244,7 +249,10 @@ async fn end_to_end_expired_token_refreshes_then_streams() {
     let sse_body = build_responses_sse(&[delta, completed]);
     Mock::given(method("POST"))
         .and(path("/responses"))
-        .and(header("authorization", format!("Bearer {refreshed_jwt}").as_str()))
+        .and(header(
+            "authorization",
+            format!("Bearer {refreshed_jwt}").as_str(),
+        ))
         .and(header("chatgpt-account-id", "acct_e2e_refreshed"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .expect(1)
@@ -274,7 +282,10 @@ async fn end_to_end_expired_token_refreshes_then_streams() {
         matches!(&events[0], LlmEvent::TextDelta(t) if t == "after refresh"),
         "events: {events:?}"
     );
-    assert!(matches!(events.last(), Some(LlmEvent::Done { .. })), "events: {events:?}");
+    assert!(
+        matches!(events.last(), Some(LlmEvent::Done { .. })),
+        "events: {events:?}"
+    );
 
     // The rotated single-use refresh token must have been persisted (C4).
     let on_disk = OAuthStorage::at_root(tmp.path().join("oauth"))
@@ -308,7 +319,11 @@ async fn end_to_end_response_done_terminal_closes_cleanly() {
     storage
         .store(
             PROVIDER,
-            &token(&jwt_with_account("acct_done"), Some("rt"), Some(now_secs() + 3600)),
+            &token(
+                &jwt_with_account("acct_done"),
+                Some("rt"),
+                Some(now_secs() + 3600),
+            ),
         )
         .unwrap();
 

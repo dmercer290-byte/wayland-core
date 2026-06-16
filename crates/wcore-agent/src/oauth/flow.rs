@@ -1252,8 +1252,7 @@ mod tests {
             ("id_token_add_organizations".into(), "true".into()),
             ("originator".into(), "wayland".into()),
         ]);
-        let (url, _state, _pkce) =
-            flow.build_authorize_url("http://localhost:1455/auth/callback");
+        let (url, _state, _pkce) = flow.build_authorize_url("http://localhost:1455/auth/callback");
         assert!(url.contains("id_token_add_organizations=true"), "url={url}");
         assert!(url.contains("originator=wayland"), "url={url}");
         assert!(url.contains("code_challenge_method=S256"));
@@ -1270,8 +1269,7 @@ mod tests {
     fn authorize_url_has_no_extra_params_by_default() {
         // Default empty vec → no behaviour change for existing callers.
         let flow = sample_flow();
-        let (url, _state, _pkce) =
-            flow.build_authorize_url("http://127.0.0.1:0/callback");
+        let (url, _state, _pkce) = flow.build_authorize_url("http://127.0.0.1:0/callback");
         assert!(!url.contains("originator="));
         assert!(!url.contains("id_token_add_organizations"));
     }
@@ -1288,8 +1286,7 @@ mod tests {
             vec![],
         )
         .with_redirect_uri_parts("localhost", "/auth/callback");
-        let (redirect_uri, listener) =
-            flow.bind_callback_listener().await.expect("bind");
+        let (redirect_uri, listener) = flow.bind_callback_listener().await.expect("bind");
         assert!(
             redirect_uri.starts_with("http://localhost:"),
             "uri={redirect_uri}"
@@ -1309,8 +1306,7 @@ mod tests {
         let flow = sample_flow();
         assert_eq!(flow.redirect_host, "127.0.0.1");
         assert_eq!(flow.callback_path, "/callback");
-        let (redirect_uri, listener) =
-            flow.bind_callback_listener().await.expect("bind");
+        let (redirect_uri, listener) = flow.bind_callback_listener().await.expect("bind");
         assert!(
             redirect_uri.starts_with("http://127.0.0.1:"),
             "default host must stay 127.0.0.1: {redirect_uri}"
@@ -1330,13 +1326,9 @@ mod tests {
     async fn dual_stack_localhost_accepts_both_ipv4_and_ipv6_callbacks() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-        async fn fire_and_collect(
-            flow: &OAuthFlow,
-            connect_addr: std::net::SocketAddr,
-        ) -> String {
+        async fn fire_and_collect(flow: &OAuthFlow, connect_addr: std::net::SocketAddr) -> String {
             let state = new_state_token();
-            let (_redirect_uri, listener) =
-                flow.bind_callback_listener().await.expect("bind");
+            let (_redirect_uri, listener) = flow.bind_callback_listener().await.expect("bind");
             let port = listener.local_addr().unwrap().port();
             let target = std::net::SocketAddr::new(connect_addr.ip(), port);
             let state_for_client = state.clone();
@@ -1369,8 +1361,7 @@ mod tests {
         .with_listener_idle_timeout(Duration::from_secs(5));
 
         // IPv4 loopback callback.
-        let v4_code =
-            fire_and_collect(&flow, "127.0.0.1:0".parse().unwrap()).await;
+        let v4_code = fire_and_collect(&flow, "127.0.0.1:0".parse().unwrap()).await;
         assert_eq!(v4_code, "dual-127.0.0.1");
 
         // IPv6 loopback callback — the family the default IPv4-only bind

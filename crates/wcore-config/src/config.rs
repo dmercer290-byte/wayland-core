@@ -1166,9 +1166,7 @@ impl Config {
                 // ChatGPT Codex backend — NOT api.openai.com. The provider
                 // appends `/responses` to this base. Mirrors
                 // `wcore_providers::openai_chatgpt::CODEX_BASE_URL`.
-                ProviderType::OpenAIChatGpt => {
-                    "https://chatgpt.com/backend-api/codex".into()
-                }
+                ProviderType::OpenAIChatGpt => "https://chatgpt.com/backend-api/codex".into(),
             });
 
         let raw_model = cli

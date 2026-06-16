@@ -299,7 +299,10 @@ pub fn models_for_provider(provider: &str) -> &'static [(&'static str, &'static 
             ("openai-chatgpt:5.4", OPENAI_CODEX_GPT54),
             ("openai-chatgpt:5.4-codex", OPENAI_CODEX_GPT54_CODEX),
             ("openai-chatgpt:5.3-codex", OPENAI_CODEX_GPT53_CODEX),
-            ("openai-chatgpt:5.3-codex-spark", OPENAI_CODEX_GPT53_CODEX_SPARK),
+            (
+                "openai-chatgpt:5.3-codex-spark",
+                OPENAI_CODEX_GPT53_CODEX_SPARK,
+            ),
         ],
         _ => &[],
     }

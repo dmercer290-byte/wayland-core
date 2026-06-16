@@ -84,14 +84,15 @@ pub struct CodexClaims {
 /// namespace claim. Errors if the segment is absent, not base64url, not JSON,
 /// or carries no `chatgpt_account_id`.
 pub fn decode_codex_claims(access_token: &str) -> Result<CodexClaims, String> {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     let seg = access_token.split('.').nth(1).ok_or("not a JWT")?;
     let bytes = URL_SAFE_NO_PAD
         .decode(seg)
         .map_err(|e| format!("b64: {e}"))?;
-    let v: serde_json::Value =
-        serde_json::from_slice(&bytes).map_err(|e| format!("json: {e}"))?;
-    let auth = v.get("https://api.openai.com/auth").ok_or("no auth claim")?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("json: {e}"))?;
+    let auth = v
+        .get("https://api.openai.com/auth")
+        .ok_or("no auth claim")?;
     let account_id = auth
         .get("chatgpt_account_id")
         .and_then(|x| x.as_str())
@@ -113,7 +114,7 @@ pub fn decode_codex_claims(access_token: &str) -> Result<CodexClaims, String> {
 /// Returns `None` when the segment is absent / not base64url / not JSON / has
 /// no numeric `exp`.
 fn decode_jwt_exp(token: &str) -> Option<u64> {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     let seg = token.split('.').nth(1)?;
     let bytes = URL_SAFE_NO_PAD.decode(seg).ok()?;
     let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
@@ -158,8 +159,8 @@ pub fn import_codex_cli_tokens() -> Result<OAuthTokens, String> {
     // env-supplied; defense-in-depth otherwise.
     check_codex_auth_perms(&real_auth, from_env)?;
 
-    let bytes = std::fs::read(&real_auth)
-        .map_err(|e| format!("reading {}: {e}", real_auth.display()))?;
+    let bytes =
+        std::fs::read(&real_auth).map_err(|e| format!("reading {}: {e}", real_auth.display()))?;
     let doc: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|e| format!("parsing Codex auth.json: {e}"))?;
 
@@ -451,8 +452,14 @@ impl ChatGptTokenManager {
                         .and_then(|v| v.as_str())
                         .unwrap_or("Bearer")
                         .to_string(),
-                    scope: raw.get("scope").and_then(|v| v.as_str()).map(str::to_string),
-                    id_token: raw.get("id_token").and_then(|v| v.as_str()).map(str::to_string),
+                    scope: raw
+                        .get("scope")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    id_token: raw
+                        .get("id_token")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
                 })
             })
             .await;
@@ -541,8 +548,7 @@ mod tests {
             flow.redirect_strategy,
             RedirectStrategy::FixedPort(1455)
         ));
-        let (url, _state, _pkce) =
-            flow.build_authorize_url("http://localhost:1455/auth/callback");
+        let (url, _state, _pkce) = flow.build_authorize_url("http://localhost:1455/auth/callback");
         assert!(url.contains("id_token_add_organizations=true"), "url={url}");
         assert!(url.contains("codex_cli_simplified_flow=true"), "url={url}");
         assert!(url.contains("originator=wayland"), "url={url}");
@@ -553,7 +559,7 @@ mod tests {
     /// A 3-segment JWT whose payload decodes to the given account id. Built
     /// from a JSON string base64url-encoded so the fixtures stay readable.
     fn jwt_with_account(account_id: &str) -> String {
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
         let payload = serde_json::json!({
             "https://api.openai.com/auth": { "chatgpt_account_id": account_id }
         });
@@ -591,7 +597,9 @@ mod tests {
         let at = jwt_with_account("acct_fresh");
         // Point token_url at an address that would fail if hit, proving no
         // refresh occurs for a fresh token.
-        mgr.flow = Arc::new(build_chatgpt_flow_with_token_url("http://127.0.0.1:1/never"));
+        mgr.flow = Arc::new(build_chatgpt_flow_with_token_url(
+            "http://127.0.0.1:1/never",
+        ));
         mgr.storage
             .store(PROVIDER, &token(&at, Some("rt"), Some(far_future())))
             .unwrap();
@@ -626,7 +634,10 @@ mod tests {
         )));
         // Stored token already expired → forces refresh.
         mgr.storage
-            .store(PROVIDER, &token(&jwt_with_account("acct_old"), Some("rt-OLD"), Some(0)))
+            .store(
+                PROVIDER,
+                &token(&jwt_with_account("acct_old"), Some("rt-OLD"), Some(0)),
+            )
             .unwrap();
 
         let (access, account) = mgr.get().await.expect("get");
@@ -663,7 +674,10 @@ mod tests {
             server.uri()
         )));
         mgr.storage
-            .store(PROVIDER, &token(&jwt_with_account("acct_old"), Some("rt-KEEP"), Some(0)))
+            .store(
+                PROVIDER,
+                &token(&jwt_with_account("acct_old"), Some("rt-KEEP"), Some(0)),
+            )
             .unwrap();
 
         let (_access, _account) = mgr.get().await.expect("get");
@@ -727,7 +741,10 @@ mod tests {
         )));
         // Hard-expired (exp = 0) + 429 → must error, never hand back a dead token.
         mgr.storage
-            .store(PROVIDER, &token(&jwt_with_account("acct_dead"), Some("rt"), Some(0)))
+            .store(
+                PROVIDER,
+                &token(&jwt_with_account("acct_dead"), Some("rt"), Some(0)),
+            )
             .unwrap();
 
         let err = mgr.get().await.unwrap_err();
@@ -747,7 +764,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mgr = manager_at(tmp.path().join("oauth"));
         mgr.storage
-            .store(PROVIDER, &token(&jwt_with_account("acct_c"), Some("rt"), Some(far_future())))
+            .store(
+                PROVIDER,
+                &token(&jwt_with_account("acct_c"), Some("rt"), Some(far_future())),
+            )
             .unwrap();
         // Prime the in-memory cache.
         let _ = mgr.get().await.expect("get");
@@ -779,7 +799,7 @@ mod tests {
     /// A 3-segment JWT carrying both the ChatGPT account-id namespace claim
     /// and a top-level `exp`, so the import path can derive expiry from it.
     fn jwt_with_account_and_exp(account_id: &str, exp: u64) -> String {
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
         let payload = serde_json::json!({
             "exp": exp,
             "https://api.openai.com/auth": { "chatgpt_account_id": account_id }
@@ -837,7 +857,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn rejects_codex_token_without_account_id() {
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
         let tmp = TempDir::new().unwrap();
         let home = tmp.path().join("codex");
         // access_token payload {"foo":"bar"} — no chatgpt_account_id.
