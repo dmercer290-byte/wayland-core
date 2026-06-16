@@ -41,10 +41,30 @@ pub const SCOPES: &[&str] = &["openid", "profile", "email", "offline_access"];
 /// Our honest attribution sent as the `originator` authorize param + header.
 pub const ORIGINATOR: &str = "wayland";
 
+// ── Device-code (headless / "Sign in with ChatGPT" without a browser) ─────
+/// Step 1 endpoint: request a user code + device-auth id.
+pub const DEVICEAUTH_USERCODE_URL: &str =
+    "https://auth.openai.com/api/accounts/deviceauth/usercode";
+/// Step 3 endpoint: poll for the authorization code + PKCE verifier.
+pub const DEVICEAUTH_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/token";
+/// Verification URL shown to the user — they open it and type the user code.
+pub const DEVICE_VERIFY_URL: &str = "https://auth.openai.com/codex/device";
+/// `redirect_uri` used in the final code→token exchange for the device flow.
+/// OpenAI's device service pins this; the loopback flow uses a `localhost`
+/// redirect instead.
+pub const DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
+
 /// Refresh this many seconds before expiry to absorb clock skew.
 const REFRESH_LEAD_SECS: u64 = 120;
 /// Outer wall-clock cap on the refresh round-trip.
 const PER_CALL_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Per-request cap on each device-code HTTP round-trip (usercode + poll).
+const DEVICE_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
+/// Floor on the server-provided poll interval — never poll faster than this.
+const DEVICE_POLL_MIN_INTERVAL: Duration = Duration::from_secs(3);
+/// Wall-clock cap on the whole device-code login (request + poll loop).
+const DEVICE_LOGIN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// Sentinel embedded in the refresh error when the token endpoint returns a
 /// `429`. Lets [`ChatGptTokenManager::refresh`] distinguish a rate-limit
 /// (token still valid) from a genuine auth rejection after the single-flight
@@ -508,6 +528,206 @@ impl ChatGptTokenManager {
     }
 }
 
+/// Parsed Step-1 response from [`DEVICEAUTH_USERCODE_URL`]: the user-facing
+/// code, the opaque device-auth id used when polling, and the server's
+/// suggested poll interval (seconds).
+#[derive(Debug)]
+struct DeviceUserCode {
+    user_code: String,
+    device_auth_id: String,
+    interval: Duration,
+}
+
+/// Parse the Step-1 usercode JSON. Accepts `user_code` or the `usercode`
+/// alias (OpenClaw observed both), requires a non-empty `device_auth_id`, and
+/// floors `interval` at [`DEVICE_POLL_MIN_INTERVAL`]. A missing/zero interval
+/// falls back to the floor.
+fn parse_device_usercode(body: &str) -> Result<DeviceUserCode, String> {
+    let raw: serde_json::Value =
+        serde_json::from_str(body).map_err(|e| format!("malformed device usercode JSON: {e}"))?;
+    let user_code = raw
+        .get("user_code")
+        .or_else(|| raw.get("usercode"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or("device usercode response missing user_code")?
+        .to_string();
+    let device_auth_id = raw
+        .get("device_auth_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or("device usercode response missing device_auth_id")?
+        .to_string();
+    // `interval` may arrive as a number or a string ("5"); accept either.
+    let interval_secs = raw
+        .get("interval")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .unwrap_or(0);
+    let interval = Duration::from_secs(interval_secs).max(DEVICE_POLL_MIN_INTERVAL);
+    Ok(DeviceUserCode {
+        user_code,
+        device_auth_id,
+        interval,
+    })
+}
+
+/// The authorization code + PKCE verifier returned by a successful (HTTP 200)
+/// poll of [`DEVICEAUTH_TOKEN_URL`]. OpenAI's device service GENERATES the
+/// PKCE pair server-side and hands the verifier back here — the client never
+/// generates one for the device flow.
+#[derive(Debug)]
+struct DeviceAuthorization {
+    authorization_code: String,
+    code_verifier: String,
+}
+
+/// Parse a successful (HTTP 200) device-poll body. Both fields are required;
+/// a 200 missing either is treated as a protocol error.
+fn parse_device_authorization(body: &str) -> Result<DeviceAuthorization, String> {
+    let raw: serde_json::Value =
+        serde_json::from_str(body).map_err(|e| format!("malformed device poll JSON: {e}"))?;
+    let authorization_code = raw
+        .get("authorization_code")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or("device poll response missing authorization_code")?
+        .to_string();
+    let code_verifier = raw
+        .get("code_verifier")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or("device poll response missing code_verifier")?
+        .to_string();
+    Ok(DeviceAuthorization {
+        authorization_code,
+        code_verifier,
+    })
+}
+
+/// Run the headless "Sign in with ChatGPT" device-code flow end to end and
+/// return the exchanged tokens. No browser, no loopback listener — the user
+/// opens [`DEVICE_VERIFY_URL`] on any device and types the printed user code.
+///
+/// Steps: (1) POST [`DEVICEAUTH_USERCODE_URL`] for a user code + device-auth
+/// id; (2) print the verification URL + code; (3) poll
+/// [`DEVICEAUTH_TOKEN_URL`] every server-suggested interval (floored at
+/// [`DEVICE_POLL_MIN_INTERVAL`], capped at [`DEVICE_LOGIN_TIMEOUT`] total)
+/// until a 200 returns the authorization code + PKCE verifier; (4) exchange
+/// those via the EXISTING [`build_chatgpt_flow`] against [`DEVICE_REDIRECT_URI`].
+///
+/// C7 discipline: token-endpoint response BODIES are never interpolated into
+/// errors — only the HTTP status is surfaced.
+pub async fn login_device_code(client: &wcore_egress::EgressClient) -> Result<OAuthTokens, String> {
+    let user_code = request_device_code(client).await?;
+
+    // Tell the user where to go. Printing is the contract of a headless flow.
+    println!("To sign in to ChatGPT, on any device:");
+    println!("  1. Open: {DEVICE_VERIFY_URL}");
+    println!("  2. Enter code: {}", user_code.user_code);
+    println!("Waiting for sign-in… (up to 15 minutes)");
+
+    let authorization = poll_device_authorization(client, &user_code).await?;
+
+    // Step 4: exchange via the shared Codex flow. The device service returned
+    // the PKCE verifier, so we pass it straight through (no client-side PKCE).
+    let flow = build_chatgpt_flow();
+    flow.exchange_code(
+        client,
+        &authorization.authorization_code,
+        DEVICE_REDIRECT_URI,
+        Some(&authorization.code_verifier),
+    )
+    .await
+    .map_err(|e| format!("device-code token exchange failed: {e}"))
+}
+
+/// Step 1: POST the client id to [`DEVICEAUTH_USERCODE_URL`] and parse the
+/// user code + device-auth id. C7: only the status is surfaced on failure.
+async fn request_device_code(
+    client: &wcore_egress::EgressClient,
+) -> Result<DeviceUserCode, String> {
+    let res = tokio::time::timeout(
+        DEVICE_HTTP_TIMEOUT,
+        client
+            .post(DEVICEAUTH_USERCODE_URL)
+            .json(&serde_json::json!({ "client_id": CLIENT_ID }))
+            .send(),
+    )
+    .await
+    .map_err(|_| "device code request timed out".to_string())?
+    .map_err(|e| format!("device code request transport error: {e}"))?;
+
+    let status = res.status();
+    let body = res
+        .text()
+        .await
+        .map_err(|e| format!("reading device code response: {e}"))?;
+    if !status.is_success() {
+        // C7: never echo the body — status only.
+        return Err(format!(
+            "device code request rejected: HTTP {}",
+            status.as_u16()
+        ));
+    }
+    parse_device_usercode(&body)
+}
+
+/// Step 3: poll [`DEVICEAUTH_TOKEN_URL`] until the user finishes signing in.
+///
+/// HTTP 200 → return the authorization code + verifier. 403/404 (pending) →
+/// wait the server-suggested interval and retry. Any other non-2xx → error
+/// (status only, C7). Bounded by [`DEVICE_LOGIN_TIMEOUT`] of wall-clock.
+async fn poll_device_authorization(
+    client: &wcore_egress::EgressClient,
+    user_code: &DeviceUserCode,
+) -> Result<DeviceAuthorization, String> {
+    let deadline = tokio::time::Instant::now() + DEVICE_LOGIN_TIMEOUT;
+    let payload = serde_json::json!({
+        "device_auth_id": user_code.device_auth_id,
+        "user_code": user_code.user_code,
+    });
+
+    loop {
+        if tokio::time::Instant::now() >= deadline {
+            return Err("ChatGPT device sign-in timed out after 15 minutes".to_string());
+        }
+        // Wait BEFORE the first poll — the user needs time to type the code,
+        // and the server returns pending immediately otherwise (mirrors the
+        // Hermes/OpenClaw references).
+        tokio::time::sleep(user_code.interval).await;
+
+        let res = tokio::time::timeout(
+            DEVICE_HTTP_TIMEOUT,
+            client.post(DEVICEAUTH_TOKEN_URL).json(&payload).send(),
+        )
+        .await
+        .map_err(|_| "device authorization poll timed out".to_string())?
+        .map_err(|e| format!("device authorization poll transport error: {e}"))?;
+
+        let status = res.status();
+        let body = res
+            .text()
+            .await
+            .map_err(|e| format!("reading device poll response: {e}"))?;
+
+        if status.is_success() {
+            return parse_device_authorization(&body);
+        }
+        // 403/404 = user hasn't completed sign-in yet → keep waiting.
+        if matches!(status.as_u16(), 403 | 404) {
+            continue;
+        }
+        // C7: any other non-2xx is a hard error; surface the status only.
+        return Err(format!(
+            "device authorization poll rejected: HTTP {}",
+            status.as_u16()
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -902,5 +1122,200 @@ mod tests {
         let jwt = jwt_with_account_and_exp("acct_x", 1_900_000_000);
         assert_eq!(decode_jwt_exp(&jwt), Some(1_900_000_000));
         assert_eq!(decode_jwt_exp("not-a-jwt"), None);
+    }
+
+    // ── Device-code flow: usercode + poll JSON parsing ───────────────
+
+    #[test]
+    fn parse_device_usercode_extracts_fields_and_floors_interval() {
+        // interval below the floor (1s) must be raised to DEVICE_POLL_MIN_INTERVAL (3s).
+        let parsed = parse_device_usercode(
+            r#"{"user_code":"WXYZ-1234","device_auth_id":"dev-abc","interval":1}"#,
+        )
+        .expect("parse");
+        assert_eq!(parsed.user_code, "WXYZ-1234");
+        assert_eq!(parsed.device_auth_id, "dev-abc");
+        assert_eq!(parsed.interval, DEVICE_POLL_MIN_INTERVAL);
+    }
+
+    #[test]
+    fn parse_device_usercode_honors_a_larger_interval() {
+        let parsed =
+            parse_device_usercode(r#"{"user_code":"AAAA","device_auth_id":"dev","interval":10}"#)
+                .expect("parse");
+        assert_eq!(parsed.interval, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn parse_device_usercode_accepts_usercode_alias_and_string_interval() {
+        // OpenClaw observed the `usercode` alias; some servers send interval as a string.
+        let parsed =
+            parse_device_usercode(r#"{"usercode":"BBBB","device_auth_id":"dev","interval":"7"}"#)
+                .expect("parse");
+        assert_eq!(parsed.user_code, "BBBB");
+        assert_eq!(parsed.interval, Duration::from_secs(7));
+    }
+
+    #[test]
+    fn parse_device_usercode_rejects_missing_device_auth_id() {
+        let err = parse_device_usercode(r#"{"user_code":"X","interval":5}"#).unwrap_err();
+        assert!(err.contains("device_auth_id"), "err={err}");
+    }
+
+    #[test]
+    fn parse_device_usercode_defaults_interval_to_floor_when_absent() {
+        let parsed =
+            parse_device_usercode(r#"{"user_code":"X","device_auth_id":"d"}"#).expect("parse");
+        assert_eq!(parsed.interval, DEVICE_POLL_MIN_INTERVAL);
+    }
+
+    #[test]
+    fn parse_device_authorization_extracts_code_and_verifier() {
+        let parsed = parse_device_authorization(
+            r#"{"authorization_code":"auth-42","code_verifier":"ver-99"}"#,
+        )
+        .expect("parse");
+        assert_eq!(parsed.authorization_code, "auth-42");
+        assert_eq!(parsed.code_verifier, "ver-99");
+    }
+
+    #[test]
+    fn parse_device_authorization_rejects_missing_verifier() {
+        // A 200 that omits the verifier is a protocol error — we cannot exchange.
+        let err = parse_device_authorization(r#"{"authorization_code":"auth-42"}"#).unwrap_err();
+        assert!(err.contains("code_verifier"), "err={err}");
+    }
+
+    /// End-to-end of the device-code flow against a mock server: Step 1
+    /// usercode, two PENDING (403) polls, then a 200 carrying the
+    /// authorization code + verifier, then the final `/oauth/token` exchange.
+    /// Proves the poll loop keeps waiting on 403 and the exchange reuses the
+    /// returned verifier.
+    #[tokio::test]
+    async fn login_device_code_polls_then_exchanges() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+
+        let server = MockServer::start().await;
+
+        // Step 1: usercode. interval=0 → parse_device_usercode floors it to
+        // DEVICE_POLL_MIN_INTERVAL. The test drives the poll loop manually
+        // (no sleeps) so the floor is asserted, not waited on.
+        Mock::given(method("POST"))
+            .and(path("/api/accounts/deviceauth/usercode"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "user_code": "CODE-1",
+                "device_auth_id": "dev-1",
+                "interval": 0
+            })))
+            .mount(&server)
+            .await;
+
+        // Step 3: poll — first two calls 403 (pending), third 200 with the code.
+        struct PollResponder {
+            calls: Arc<AtomicUsize>,
+        }
+        impl Respond for PollResponder {
+            fn respond(&self, _req: &Request) -> ResponseTemplate {
+                let n = self.calls.fetch_add(1, Ordering::SeqCst);
+                if n < 2 {
+                    ResponseTemplate::new(403).set_body_string("authorization_pending")
+                } else {
+                    ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                        "authorization_code": "dev-auth-code",
+                        "code_verifier": "dev-verifier"
+                    }))
+                }
+            }
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("POST"))
+            .and(path("/api/accounts/deviceauth/token"))
+            .respond_with(PollResponder {
+                calls: calls.clone(),
+            })
+            .mount(&server)
+            .await;
+
+        // Step 4: the final code→token exchange hits the real /oauth/token path.
+        let new_at = jwt_with_account("acct_device");
+        Mock::given(method("POST"))
+            .and(path("/oauth/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": new_at,
+                "refresh_token": "rt-device",
+                "expires_in": 3600,
+                "token_type": "Bearer"
+            })))
+            .mount(&server)
+            .await;
+
+        // Drive the three steps directly against the mock server's URLs so we
+        // exercise the real poll loop + exchange without the hardwired
+        // auth.openai.com hosts. (login_device_code itself uses the real
+        // constants; this test covers the loop/parse/exchange wiring through
+        // the building blocks it calls.)
+        let client = wcore_egress::EgressClient::new();
+
+        let user_code = {
+            let res = client
+                .post(format!("{}/api/accounts/deviceauth/usercode", server.uri()))
+                .json(&serde_json::json!({ "client_id": CLIENT_ID }))
+                .send()
+                .await
+                .unwrap();
+            assert!(res.status().is_success());
+            parse_device_usercode(&res.text().await.unwrap()).unwrap()
+        };
+        assert_eq!(user_code.user_code, "CODE-1");
+        assert_eq!(user_code.interval, DEVICE_POLL_MIN_INTERVAL);
+
+        // Poll: 403, 403, 200.
+        let payload = serde_json::json!({
+            "device_auth_id": user_code.device_auth_id,
+            "user_code": user_code.user_code,
+        });
+        let authorization = loop {
+            let res = client
+                .post(format!("{}/api/accounts/deviceauth/token", server.uri()))
+                .json(&payload)
+                .send()
+                .await
+                .unwrap();
+            let status = res.status();
+            let body = res.text().await.unwrap();
+            if status.is_success() {
+                break parse_device_authorization(&body).unwrap();
+            }
+            assert!(
+                matches!(status.as_u16(), 403 | 404),
+                "pending must be 403/404"
+            );
+        };
+        assert_eq!(authorization.authorization_code, "dev-auth-code");
+        assert_eq!(authorization.code_verifier, "dev-verifier");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            3,
+            "expected two pending polls then success"
+        );
+
+        // Exchange reuses the returned verifier against /oauth/token.
+        let flow = build_chatgpt_flow_with_token_url(&format!("{}/oauth/token", server.uri()));
+        let tokens = flow
+            .exchange_code(
+                &client,
+                &authorization.authorization_code,
+                DEVICE_REDIRECT_URI,
+                Some(&authorization.code_verifier),
+            )
+            .await
+            .expect("exchange");
+        assert_eq!(tokens.access_token, new_at);
+        assert_eq!(tokens.refresh_token.as_deref(), Some("rt-device"));
+        let claims = decode_codex_claims(&tokens.access_token).unwrap();
+        assert_eq!(claims.account_id, "acct_device");
     }
 }

@@ -69,6 +69,10 @@ pub enum AuthCmd {
         /// `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`) instead.
         #[arg(long)]
         import_codex: bool,
+        /// Use the headless device-code flow (no browser, no loopback): print
+        /// a URL + code to enter on any device. Best for remote/SSH sessions.
+        #[arg(long)]
+        device: bool,
     },
 
     /// Sign out (delete stored OAuth tokens) for a subscription provider.
@@ -92,7 +96,8 @@ pub async fn run(cmd: AuthCmd) -> Result<()> {
         AuthCmd::Login {
             provider,
             import_codex,
-        } => login_cmd(&provider, import_codex).await,
+            device,
+        } => login_cmd(&provider, import_codex, device).await,
         AuthCmd::Logout { provider } => logout_cmd(&provider).await,
         AuthCmd::Status => status_cmd().await,
         // API-key CRUD is synchronous and file-only.
@@ -336,15 +341,21 @@ fn resolve_oauth_provider(arg: &str) -> Result<&'static str> {
     }
 }
 
-/// `wayland-core auth login chatgpt [--import-codex]`.
+/// `wayland-core auth login chatgpt [--import-codex] [--device]`.
 ///
-/// Without `--import-codex` this runs the interactive loopback PKCE flow
-/// (browser). With it, the token is imported from an existing Codex CLI login
-/// (`$CODEX_HOME/auth.json`) — no browser, no network.
-async fn login_cmd(provider_arg: &str, import_codex: bool) -> Result<()> {
+/// Routing (first match wins):
+/// - `--import-codex`: import an existing Codex CLI login
+///   (`$CODEX_HOME/auth.json`) — no browser, no network.
+/// - `--device`: the headless device-code flow (print a URL + code to enter
+///   on any device) — no browser, no loopback. Best for remote/SSH.
+/// - otherwise: the interactive loopback PKCE flow (opens a browser).
+async fn login_cmd(provider_arg: &str, import_codex: bool, device: bool) -> Result<()> {
     resolve_oauth_provider(provider_arg)?;
     if import_codex {
         return import_codex_login();
+    }
+    if device {
+        return login_chatgpt_device().await;
     }
     login_chatgpt().await
 }
@@ -543,6 +554,47 @@ async fn login_chatgpt() -> Result<()> {
     bail!(
         "ChatGPT login needs the network-backed build (the `remote-registry` feature); \
          this binary was built without it. If you have the Codex CLI installed, run \
+         `wayland-core auth login chatgpt --import-codex` instead."
+    )
+}
+
+/// Drive the headless device-code round-trip and store the tokens. No browser,
+/// no loopback listener — the user opens the printed URL on any device and
+/// types the printed code. Gated behind `remote-registry` like
+/// [`login_chatgpt`] because the device flow uses `wcore_egress::EgressClient`.
+#[cfg(feature = "remote-registry")]
+async fn login_chatgpt_device() -> Result<()> {
+    let client = wcore_egress::EgressClient::tool();
+
+    // Runs steps 1-4 (request code, print, poll, exchange) and returns tokens.
+    let tokens = chatgpt::login_device_code(&client)
+        .await
+        .map_err(|e| anyhow!("ChatGPT device-code sign-in failed: {e}"))?;
+
+    // Hard-fail if the access token carries no ChatGPT account id — without it
+    // the Codex backend rejects every request.
+    chatgpt::decode_codex_claims(&tokens.access_token)
+        .map_err(|e| anyhow!("ChatGPT login returned a token without an account id: {e}"))?;
+
+    // Persist the bundle to `~/.wayland/oauth/chatgpt.json`.
+    let storage = OAuthStorage::from_home().map_err(|e| anyhow!("opening token store: {e}"))?;
+    storage
+        .store(chatgpt::PROVIDER, &tokens)
+        .map_err(|e| anyhow!("persisting the tokens failed: {e}"))?;
+
+    println!("Signed in to ChatGPT. Use `--provider openai-chatgpt`.");
+    Ok(())
+}
+
+/// Stripped-build variant: with `remote-registry` (and `wcore-egress`)
+/// compiled out, the device-code exchange cannot run. Point the user at the
+/// network-backed build or the Codex import path.
+#[cfg(not(feature = "remote-registry"))]
+#[allow(clippy::unused_async)] // signature must match the remote-registry variant the caller awaits
+async fn login_chatgpt_device() -> Result<()> {
+    bail!(
+        "ChatGPT device-code login needs the network-backed build (the `remote-registry` \
+         feature); this binary was built without it. If you have the Codex CLI installed, run \
          `wayland-core auth login chatgpt --import-codex` instead."
     )
 }
