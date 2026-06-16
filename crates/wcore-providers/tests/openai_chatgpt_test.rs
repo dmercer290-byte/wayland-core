@@ -6,7 +6,6 @@
 
 use std::sync::Arc;
 
-use serde_json::json;
 use wcore_config::compat::ProviderCompat;
 use wcore_config::debug::DebugConfig;
 use wcore_providers::openai_chatgpt::{AsyncBearerSource, BearerCreds};
