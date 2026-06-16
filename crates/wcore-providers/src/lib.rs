@@ -19,6 +19,7 @@ pub mod gemini;
 pub mod groq;
 pub mod http_client;
 pub mod key_rotation;
+pub mod key_validation;
 // litellm, lmstudio, vllm: deleted per DECISIONS.md §D3 (Sean, 2026-05-23).
 // These were framework-shaped local-inference adapters shipped as code but
 // never wired to ProviderType arms. Revivable as plugins if needed.

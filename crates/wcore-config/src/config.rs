@@ -1330,6 +1330,24 @@ impl Config {
             ..self.clone()
         }
     }
+
+    /// Like [`for_provider_discovery`](Self::for_provider_discovery), but binds
+    /// an explicitly-supplied `api_key` instead of resolving one from storage or
+    /// the environment. This is the seam for the `/config` paste-to-detect flow:
+    /// it lets the engine probe a *just-pasted* key against a candidate provider
+    /// (via `list_models`) before the key is ever written to disk. The provider
+    /// identity, base URL, and compat preset are stamped from `provider`; the
+    /// model is irrelevant to `list_models` and is left as `self.model`.
+    pub fn for_key_validation(&self, provider: ProviderType, api_key: &str) -> Self {
+        Self {
+            provider,
+            provider_label: provider_type_slug(provider).to_string(),
+            api_key: api_key.to_string(),
+            base_url: default_base_url_for(provider),
+            compat: compat_defaults_for(provider),
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
