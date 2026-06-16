@@ -159,6 +159,10 @@ plan_directory = ".wayland-core/plans"
 
 > **Note**: `bedrock` and `vertex` providers use their own cloud credentials and do not require a traditional API key. See [Providers & Auth](providers.md).
 
+> **Sign in with ChatGPT**: instead of an OpenAI API key you can authenticate
+> with your ChatGPT subscription via `wayland-core auth login chatgpt`, then run
+> with `--provider openai-chatgpt`. See [Sign in with ChatGPT](providers.md#sign-in-with-chatgpt).
+
 ### Custom Provider Alias
 
 If a backend is compatible with a built-in provider's protocol, you can declare an alias under `providers.<alias>`:
