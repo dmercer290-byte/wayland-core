@@ -924,9 +924,12 @@ async fn run() -> anyhow::Result<ExitCode> {
                 }
                 Ok(ExitCode::SUCCESS)
             }
-            // CLI surface: `auth` manages provider API keys directly in
-            // the global config.toml — list / add / remove.
-            TopCmd::Auth { cmd } => match wcore_cli::auth::run(cmd) {
+            // CLI surface: `auth` manages provider API keys (list / add /
+            // remove) and subscription OAuth logins (login / logout / status)
+            // for the global config.toml + token store. Awaited on the
+            // existing runtime — the OAuth verbs are async (a nested runtime
+            // would panic).
+            TopCmd::Auth { cmd } => match wcore_cli::auth::run(cmd).await {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
                     eprintln!("wayland-core auth: {e:#}");
