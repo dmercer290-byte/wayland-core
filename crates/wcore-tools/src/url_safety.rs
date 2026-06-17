@@ -370,7 +370,9 @@ fn is_safe_url_with_opts(url: &str, resolve: Resolver, allow_loopback: bool) -> 
         return false;
     }
 
-    !addrs.into_iter().any(|ip| is_blocked_ip_with(ip, allow_loopback))
+    !addrs
+        .into_iter()
+        .any(|ip| is_blocked_ip_with(ip, allow_loopback))
 }
 
 /// Build the SSRF-resistant `reqwest` redirect policy shared by every
@@ -461,7 +463,12 @@ fn ssrf_safe_socket_addrs_with_opts(
         };
     }
     let addrs = resolve(host);
-    if addrs.is_empty() || addrs.iter().copied().any(|ip| is_blocked_ip_with(ip, allow_loopback)) {
+    if addrs.is_empty()
+        || addrs
+            .iter()
+            .copied()
+            .any(|ip| is_blocked_ip_with(ip, allow_loopback))
+    {
         return Vec::new();
     }
     addrs.into_iter().map(|ip| SocketAddr::new(ip, 0)).collect()
@@ -569,25 +576,61 @@ mod tests {
             fake_resolver,
             true
         ));
-        assert!(is_safe_url_with_opts("http://127.0.0.1/", fake_resolver, true));
+        assert!(is_safe_url_with_opts(
+            "http://127.0.0.1/",
+            fake_resolver,
+            true
+        ));
         // A hostname that resolves to loopback is allowed too (covers localhost
         // and IPv6 `::1` via the resolver path). `myhost.local` -> 127.0.0.1.
-        assert!(is_safe_url_with_opts("http://myhost.local/", fake_resolver, true));
+        assert!(is_safe_url_with_opts(
+            "http://myhost.local/",
+            fake_resolver,
+            true
+        ));
         // Note: a *bracketed* IPv6 literal (`http://[::1]/`) is parsed with the
         // brackets retained and so routes through the resolver rather than the
         // literal-IP fast path — a pre-existing behavior of `extract_hostname`,
         // unchanged here. Use a hostname (e.g. `localhost`) for IPv6 loopback.
 
         // Non-loopback ranges remain blocked even with allow_loopback=true.
-        assert!(!is_safe_url_with_opts("http://169.254.169.254/", fake_resolver, true));
-        assert!(!is_safe_url_with_opts("http://10.0.0.5/", fake_resolver, true));
-        assert!(!is_safe_url_with_opts("http://192.168.1.1/", fake_resolver, true));
-        assert!(!is_safe_url_with_opts("http://172.16.0.1/", fake_resolver, true));
-        assert!(!is_safe_url_with_opts("http://100.64.0.1/", fake_resolver, true));
+        assert!(!is_safe_url_with_opts(
+            "http://169.254.169.254/",
+            fake_resolver,
+            true
+        ));
+        assert!(!is_safe_url_with_opts(
+            "http://10.0.0.5/",
+            fake_resolver,
+            true
+        ));
+        assert!(!is_safe_url_with_opts(
+            "http://192.168.1.1/",
+            fake_resolver,
+            true
+        ));
+        assert!(!is_safe_url_with_opts(
+            "http://172.16.0.1/",
+            fake_resolver,
+            true
+        ));
+        assert!(!is_safe_url_with_opts(
+            "http://100.64.0.1/",
+            fake_resolver,
+            true
+        ));
         // intranet.local resolves to 10.0.0.5 — still blocked.
-        assert!(!is_safe_url_with_opts("http://intranet.local/", fake_resolver, true));
+        assert!(!is_safe_url_with_opts(
+            "http://intranet.local/",
+            fake_resolver,
+            true
+        ));
         // Public still fine.
-        assert!(is_safe_url_with_opts("https://example.com/", fake_resolver, true));
+        assert!(is_safe_url_with_opts(
+            "https://example.com/",
+            fake_resolver,
+            true
+        ));
 
         // The DEFAULT path (allow_loopback=false) still blocks loopback.
         assert!(!is_safe_url_with("http://127.0.0.1/", fake_resolver));
