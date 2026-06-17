@@ -934,14 +934,27 @@ impl AgentBootstrap {
 
         let mut mcp_managers: Vec<Arc<McpManager>> = Vec::new();
         let mcp_manager = if !self.config.mcp.servers.is_empty() {
-            match McpManager::connect_all(&self.config.mcp.servers).await {
+            // Slice 3, Piece 2 — resolve any `${cred:KEY}` header references
+            // against the credentials store at the connect boundary, on a clone.
+            // The long-lived `self.config` keeps the literal `${cred:...}` so the
+            // token never round-trips back to config.toml. If the store can't be
+            // opened, connect with the literals (each referencing server then
+            // fails its own connect, in isolation).
+            let resolved_servers = match self.config.open_credentials_store() {
+                Ok(store) => wcore_config::mcp_cred_refs::resolve_servers_for_connect(
+                    &self.config.mcp.servers,
+                    &*store,
+                ),
+                Err(_) => self.config.mcp.servers.clone(),
+            };
+            match McpManager::connect_all(&resolved_servers).await {
                 Ok(mgr) => {
                     let mgr = Arc::new(mgr);
                     wcore_mcp::tool_proxy::register_mcp_tools(
                         &mut registry,
                         &mgr,
                         &builtin_names,
-                        &self.config.mcp.servers,
+                        &resolved_servers,
                     );
                     mcp_managers.push(mgr.clone());
                     Some(mgr)
