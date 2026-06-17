@@ -210,8 +210,6 @@ pub struct App {
     pub active_agent_transcript_id: Option<String>,
     /// v0.9.3 — one-shot onboarding state for first-spawn hint.
     pub onboarding_state: crate::tui::onboarding::OnboardingState,
-    /// v0.9.4 — turn index of the reasoning block focused for Tab+Enter expand.
-    pub focused_reasoning_turn_idx: Option<usize>,
     /// v0.9.2 W10: monotonic revision bumped once per value-changing
     /// `transient` write (a no-op `set` does NOT bump it). A `Store`
     /// subscriber installed in [`App::with_initial_surface`] increments this
@@ -340,7 +338,6 @@ impl App {
             agent_last_event: HashMap::new(),
             active_agent_transcript_id: None,
             onboarding_state: crate::tui::onboarding::OnboardingState::default(),
-            focused_reasoning_turn_idx: None,
             transient_rev,
             // D019: no snapshots taken yet — the store is built lazily on the
             // first turn that ends with touched files.
@@ -545,7 +542,6 @@ impl App {
         self.surface_stack.clear();
         self.active_agent_transcript_id = None;
         self.reasoning_expanded.clear();
-        self.focused_reasoning_turn_idx = None;
         // ForgeFlows-Live Phase 2: drop inferred workflows on /new alongside
         // the sub-agent state they are grouped from.
         self.workflows.clear();
@@ -1411,7 +1407,7 @@ mod tests {
 
         let mut app = App::new();
 
-        // Populate all six fields that reset_agents must clear.
+        // Populate the fields that reset_agents must clear.
         app.agent_last_event
             .insert("spawn:test".to_string(), Instant::now());
         app.agent_glow
@@ -1422,7 +1418,6 @@ mod tests {
         });
         app.active_agent_transcript_id = Some("spawn:test".to_string());
         app.reasoning_expanded.insert(0, true);
-        app.focused_reasoning_turn_idx = Some(0);
 
         // Set a sentinel on onboarding_state to verify it is NOT reset.
         app.onboarding_state.first_spawn_seen = Some(Instant::now());
@@ -1448,10 +1443,6 @@ mod tests {
         assert!(
             app.reasoning_expanded.is_empty(),
             "reset_agents must clear reasoning_expanded"
-        );
-        assert!(
-            app.focused_reasoning_turn_idx.is_none(),
-            "reset_agents must clear focused_reasoning_turn_idx"
         );
         // onboarding_state must survive the reset (once-per-session hint).
         assert!(

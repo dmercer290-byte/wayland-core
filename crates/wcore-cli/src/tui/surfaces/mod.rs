@@ -6059,12 +6059,12 @@ mod tests {
         );
     }
 
-    /// D039/D042: on the Workspace, a bare Tab with a reasoning rail present
-    /// advances the reasoning focus and must NOT switch tabs. Driven through
-    /// the Router; `app.session.turns` carries a Thinking block so the
-    /// Workspace's `owns_tab` reports `true`.
+    /// FIX-7: on the Workspace, a bare Tab switches tabs even when the
+    /// transcript already has a reasoning turn. The old behavior claimed Tab
+    /// for an (invisible) reasoning-focus step whenever any Thinking block
+    /// existed, silently breaking the documented "Tab next tab".
     #[test]
-    fn router_tab_steps_reasoning_rail_does_not_switch_tabs_d042() {
+    fn router_tab_switches_tabs_even_with_a_reasoning_turn_fix7() {
         use crate::tui::app::{TurnRole, TurnView};
         use crate::tui::turn_element::TurnElement;
         let mut app = App::new();
@@ -6078,20 +6078,12 @@ mod tests {
         });
         let mut router = Router::new(&app);
         router.apply(SurfaceAction::Switch(SurfaceId::Workspace), &mut app);
-        assert!(
-            app.focused_reasoning_turn_idx.is_none(),
-            "reasoning focus starts unset"
-        );
+        assert_eq!(app.surface, SurfaceId::Workspace);
         router.handle_key(key(KeyCode::Tab), &mut app);
         assert_eq!(
             app.surface,
-            SurfaceId::Workspace,
-            "Tab with a reasoning rail present must NOT switch tabs"
-        );
-        assert_eq!(
-            app.focused_reasoning_turn_idx,
-            Some(0),
-            "Tab must advance the reasoning focus to the reasoning turn"
+            SurfaceId::TABS[1],
+            "Tab must switch to the next tab even with a reasoning turn present"
         );
     }
 }

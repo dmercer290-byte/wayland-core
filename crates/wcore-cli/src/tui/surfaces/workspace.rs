@@ -688,25 +688,10 @@ impl Surface for WorkspaceSurface {
             return action;
         }
 
-        // v0.9.4 W3b.1 — Tab advances `focused_reasoning_turn_idx` to the next
-        // assistant turn that has a `TurnElement::Thinking` block, wrapping around.
-        //
-        // Precedence order (highest → lowest):
-        //   1. `@`-completion popup open → handled above, Tab consumed there.
-        //   2. Tab here → advance reasoning focus (this block).
-        //
-        // The `@`-completion guard already returned early when the popup was
-        // open, so by the time we reach this point the popup is definitely
-        // closed — the bare Tab is safe to claim for focus navigation.
-        // When no turn has a Thinking block the function is a no-op and Tab
-        // falls through to the composer's `_ =>` handler as before.
-        if key.code == KeyCode::Tab && key.modifiers.is_empty() && Self::has_any_reasoning_turn(app)
-        {
-            Self::advance_focused_reasoning(app);
-            return SurfaceAction::None;
-        }
-        // When no turn has a Thinking block, bare Tab falls through to the
-        // composer's `_ =>` handler unchanged.
+        // FIX-7 — a bare Tab here falls through to the Router's global
+        // tab-switch (the documented "Tab next tab"). The `@`-completion
+        // Tab-accept was handled above; the old reasoning-rail Tab-stepping was
+        // removed (it hijacked Tab whenever any reasoning turn existed).
 
         // `Ctrl+B` toggles the right rail (path map · tools · activity).
         // Hiding it gives the transcript the full body width; a chord, so
@@ -904,23 +889,6 @@ impl Surface for WorkspaceSurface {
             // Submit the composer. A `/…` line is a slash command
             // (routed to the registry); anything else is a message.
             KeyCode::Enter => {
-                // v0.9.4 W3b.2 — when a reasoning turn is focused (Tab
-                // placed focus on it) and the composer is empty, Enter
-                // expands/collapses that turn's reasoning block instead of
-                // submitting. The composer wins over focus-expand whenever
-                // the user has typed anything, so normal message sending is
-                // never blocked.
-                if self.composer.value().is_empty()
-                    && let Some(idx) = app.focused_reasoning_turn_idx
-                {
-                    let entry = app.reasoning_expanded.entry(idx).or_insert(false);
-                    *entry = !*entry;
-                    // Clear focus after the expand/collapse so subsequent
-                    // Enter presses submit (don't repeatedly re-toggle).
-                    app.focused_reasoning_turn_idx = None;
-                    return SurfaceAction::None;
-                }
-
                 let text = self.composer.value().trim().to_string();
                 if text.is_empty() {
                     SurfaceAction::None
@@ -1064,15 +1032,15 @@ impl Surface for WorkspaceSurface {
         self.user_has_scrolled_up = offset > 0;
     }
 
-    /// D039 — the Workspace owns a bare Tab only when an in-surface state
-    /// claims it: an open `@`-completion popup (Tab accepts the highlighted
-    /// candidate) or a reasoning rail to step through (Tab advances the
-    /// focused reasoning turn). With neither, Tab falls through to the
-    /// Router's global tab-switch unchanged. Mirrors the precedence in
-    /// `handle_key` (popup first, then reasoning rail) so the Router yields
-    /// exactly when — and only when — `handle_key` would consume the Tab.
-    fn owns_tab(&self, app: &App) -> bool {
-        self.at_completion.is_some() || Self::has_any_reasoning_turn(app)
+    /// D039 — the Workspace owns a bare Tab only when an open `@`-completion
+    /// popup claims it (Tab accepts the highlighted candidate). Otherwise Tab
+    /// falls through to the Router's global tab-switch — the documented
+    /// "Tab next tab" hint, which must always hold (FIX-2/FIX-7). The earlier
+    /// reasoning-rail Tab-stepping was removed: it claimed Tab whenever ANY
+    /// reasoning turn existed, silently breaking tab-switching after the first
+    /// agent "thinking" turn, and it had no visual focus indicator.
+    fn owns_tab(&self, _app: &App) -> bool {
+        self.at_completion.is_some()
     }
 
     /// D038 — the Workspace always owns `?`: its composer either types `?` as
@@ -1097,63 +1065,6 @@ impl WorkspaceSurface {
             .rev()
             .find(|(_, t)| t.role == crate::tui::app::TurnRole::Assistant)
             .map(|(idx, _)| idx)
-    }
-
-    /// v0.9.4 W3b — return `true` if any turn in the session has at least
-    /// one `TurnElement::Thinking` block. Used to decide whether a bare Tab
-    /// should advance the reasoning focus or fall through to the composer.
-    fn has_any_reasoning_turn(app: &App) -> bool {
-        app.session.turns.iter().any(|t| {
-            t.elements
-                .iter()
-                .any(|e| matches!(e, crate::tui::turn_element::TurnElement::Thinking { .. }))
-        })
-    }
-
-    /// v0.9.4 W3b — advance `app.focused_reasoning_turn_idx` to the next
-    /// turn (by index) that has a `TurnElement::Thinking` block, wrapping
-    /// around after the last such turn.
-    ///
-    /// Enumeration approach: collect the indices of all turns that contain a
-    /// Thinking block, then find the successor of the currently-focused index
-    /// in that list (or start at the first entry if focus is `None`). Wrap at
-    /// the end so the user can cycle through all reasoning turns with repeated
-    /// Tab presses. A session with exactly one reasoning turn always focuses
-    /// that turn regardless of how many times Tab is pressed.
-    fn advance_focused_reasoning(app: &mut App) {
-        // Collect indices of all turns that have at least one Thinking element.
-        let reasoning_indices: Vec<usize> = app
-            .session
-            .turns
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| {
-                t.elements
-                    .iter()
-                    .any(|e| matches!(e, crate::tui::turn_element::TurnElement::Thinking { .. }))
-            })
-            .map(|(i, _)| i)
-            .collect();
-
-        if reasoning_indices.is_empty() {
-            // No reasoning turns — leave focus unchanged (caller guards this).
-            return;
-        }
-
-        let next_idx = match app.focused_reasoning_turn_idx {
-            None => reasoning_indices[0],
-            Some(current) => {
-                // Find the position of `current` in the reasoning-index list and
-                // advance by one, wrapping around.
-                match reasoning_indices.iter().position(|&i| i == current) {
-                    Some(pos) => reasoning_indices[(pos + 1) % reasoning_indices.len()],
-                    // Current focus is no longer a reasoning turn (turn was
-                    // removed) — restart at the first one.
-                    None => reasoning_indices[0],
-                }
-            }
-        };
-        app.focused_reasoning_turn_idx = Some(next_idx);
     }
 
     /// v0.9.2 W11-integ (SPEC §2 #10): parse the AskUserQuestion choice
@@ -2251,17 +2162,12 @@ impl WorkspaceSurface {
                     // D038: the `? keys` hint is now truthful — `?` on an
                     // empty composer opens the live help (here it routes to
                     // /help; on every other surface the Router opens the `?`
-                    // overlay). D039: name the Tab the user actually gets here
-                    // — when a reasoning rail exists Tab steps it, otherwise it
-                    // switches tab.
-                    let tab_hint = if Self::has_any_reasoning_turn(app) {
-                        "Tab reasoning"
-                    } else {
-                        "Tab next tab"
-                    };
+                    // overlay). FIX-7: Tab always switches tabs now (the
+                    // reasoning-rail Tab-stepping was removed), so the hint is
+                    // unconditionally honest.
                     (
                         format!(
-                            "{tab_hint}  ⇧Tab mode  {rail_hint}  PgUp/PgDn scroll  End ↓latest  F4 copy/select  ? keys"
+                            "Tab next tab  ⇧Tab mode  {rail_hint}  PgUp/PgDn scroll  End ↓latest  F4 copy/select  ? keys"
                         ),
                         Style::default().fg(theme.text_muted),
                     )
@@ -2380,48 +2286,86 @@ impl WorkspaceSurface {
 fn render_idle_hero(frame: &mut Frame, area: Rect, theme: &Theme) {
     frame.render_widget(Block::default().style(Style::default().bg(theme.bg)), area);
 
-    // The hero copy is 6 rows (subtitle + blank + 3 prompts + blank-lead).
-    // Reserve it only when the pane can spare the rows AFTER the banner has the
-    // headroom it needs (the banner itself degrades to the tagline alone below
-    // BANNER_ROWS + 2). On a short pane the banner takes the whole area and the
-    // hero copy is dropped rather than crammed.
-    const HERO_ROWS: u16 = 6;
-    let show_hero = area.height >= HERO_ROWS + 8;
+    // FIX-5: the boot screen is the first-run concierge moment. Alongside the
+    // starter prompts it surfaces (a) the paste-to-connect door (`/connect`,
+    // the easiest way to add a provider — previously undiscoverable), and (b)
+    // any ambient cloud credentials already on this machine, so the user sees
+    // "you can use these right now" instead of dead space.
+    let detected = detect_boot_providers();
+
+    // Rows: subtitle + blank + [detected?] + 3 prompts + blank-lead. Reserve
+    // them only when the pane can spare the rows after the banner's headroom;
+    // on a short pane the banner takes the whole area and the copy is dropped.
+    let hero_rows: u16 = if detected.is_empty() { 6 } else { 7 };
+    let show_hero = area.height >= hero_rows + 8;
     if !show_hero {
         wayland_banner(frame, area, theme);
         return;
     }
 
     let [banner_area, hero_area] =
-        Layout::vertical([Constraint::Min(1), Constraint::Length(HERO_ROWS)]).areas(area);
+        Layout::vertical([Constraint::Min(1), Constraint::Length(hero_rows)]).areas(area);
     wayland_banner(frame, banner_area, theme);
 
-    // One factual line describing what Wayland is, then concrete starter
-    // prompts. No em-dashes in user-facing copy (project rule) — the bullet is
-    // a middle dot.
-    let lines: Vec<Line> = vec![
+    // No em-dashes in user-facing copy (project rule) — the bullet is a middle
+    // dot.
+    let mut lines: Vec<Line> = vec![
         Line::from(Span::styled(
             "A terminal AI agent that reads, writes, and runs code in your project.",
             Style::default().fg(theme.text_dim),
         )),
         Line::from(""),
-        Line::from(Span::styled(
-            "Try: explain this codebase",
-            Style::default().fg(theme.text_muted),
-        )),
-        Line::from(Span::styled(
-            "Try: add a test for the function I name",
-            Style::default().fg(theme.text_muted),
-        )),
-        Line::from(Span::styled(
-            "Try: /model to pick a model",
-            Style::default().fg(theme.text_muted),
-        )),
     ];
+    if !detected.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled("Detected: ", Style::default().fg(theme.success)),
+            Span::styled(detected.join(" · "), Style::default().fg(theme.text)),
+            Span::styled(
+                "  ·  /provider to use",
+                Style::default().fg(theme.text_muted),
+            ),
+        ]));
+    }
+    lines.push(Line::from(Span::styled(
+        "Try: explain this codebase",
+        Style::default().fg(theme.text_muted),
+    )));
+    lines.push(Line::from(vec![
+        Span::styled("/connect", Style::default().fg(theme.orange)),
+        Span::styled(
+            " to paste an API key and add a provider",
+            Style::default().fg(theme.text_muted),
+        ),
+    ]));
+    lines.push(Line::from(Span::styled(
+        "Try: /model to pick a model",
+        Style::default().fg(theme.text_muted),
+    )));
+
     let para = Paragraph::new(lines)
         .alignment(Alignment::Center)
         .style(Style::default().bg(theme.bg));
     frame.render_widget(para, hero_area);
+}
+
+/// FIX-5: ambient LLM-provider credentials already present on this machine —
+/// the ones a user can route to immediately without entering a key. Reuses the
+/// single source of truth `provider_connected` (sync, no network): AWS for
+/// Bedrock, GCP ADC for Vertex, and a stored ChatGPT OAuth login. Returns the
+/// human labels of the connected ones, in a stable order.
+fn detect_boot_providers() -> Vec<&'static str> {
+    use wcore_config::config::{ProviderType, provider_connected};
+    let mut found = Vec::new();
+    if provider_connected(ProviderType::Bedrock) {
+        found.push("AWS Bedrock");
+    }
+    if provider_connected(ProviderType::Vertex) {
+        found.push("Google Vertex");
+    }
+    if provider_connected(ProviderType::OpenAIChatGpt) {
+        found.push("ChatGPT login");
+    }
+    found
 }
 
 /// D009: the SETTLED half of the transcript — the completed turns and their
@@ -3923,9 +3867,10 @@ mod tests {
             out.contains("Try: explain this codebase"),
             "idle hero example prompt 1 missing:\n{out}"
         );
+        // FIX-5: the boot screen advertises the paste-to-connect door.
         assert!(
-            out.contains("Try: add a test"),
-            "idle hero example prompt 2 missing:\n{out}"
+            out.contains("/connect") && out.contains("paste an API key"),
+            "idle hero must surface the /connect provider door:\n{out}"
         );
         assert!(
             out.contains("Try: /model"),
@@ -7541,94 +7486,23 @@ mod tests {
         t
     }
 
-    /// Tab advances `focused_reasoning_turn_idx` to the next turn with a
-    /// Thinking block, wrapping around after the last reasoning turn.
+    /// FIX-7 — a reasoning turn in the transcript must NOT make the Workspace
+    /// claim Tab. The old behavior hijacked Tab whenever any Thinking block
+    /// existed (with no visual focus indicator), silently breaking the
+    /// documented "Tab next tab" after the first agent turn. `owns_tab` must
+    /// now be false so the Router's global tab-switch fires.
     #[test]
-    fn tab_advances_focused_reasoning_idx_v094() {
+    fn tab_does_not_get_stolen_by_a_reasoning_turn_fix7() {
         use crate::tui::app::TurnRole;
         let mut app = App::new();
-        // Three turns: user (idx 0, no thinking), assistant with reasoning
-        // (idx 1), assistant with reasoning (idx 2). Only indices 1 and 2
-        // are reasoning turns; Tab must cycle through them.
         app.session.turns.push(plain_turn(TurnRole::User));
         app.session.turns.push(reasoning_turn(TurnRole::Assistant));
-        app.session.turns.push(reasoning_turn(TurnRole::Assistant));
 
-        let mut surface = WorkspaceSurface::new();
-        assert_eq!(
-            app.focused_reasoning_turn_idx, None,
-            "no focus before first Tab"
-        );
-
-        // First Tab → focus lands on the first reasoning turn (idx 1).
-        surface.handle_key(key(KeyCode::Tab), &mut app);
-        assert_eq!(
-            app.focused_reasoning_turn_idx,
-            Some(1),
-            "first Tab must focus the first reasoning turn"
-        );
-
-        // Second Tab → advances to the next reasoning turn (idx 2).
-        surface.handle_key(key(KeyCode::Tab), &mut app);
-        assert_eq!(
-            app.focused_reasoning_turn_idx,
-            Some(2),
-            "second Tab must advance to the second reasoning turn"
-        );
-
-        // Third Tab → wraps around to idx 1.
-        surface.handle_key(key(KeyCode::Tab), &mut app);
-        assert_eq!(
-            app.focused_reasoning_turn_idx,
-            Some(1),
-            "Tab must wrap around to the first reasoning turn after the last"
-        );
-
-        // User turn (idx 0) must never become the focus.
-        assert_ne!(app.focused_reasoning_turn_idx, Some(0));
-    }
-
-    /// Enter with `focused_reasoning_turn_idx == Some(idx)` and an empty
-    /// composer flips `reasoning_expanded[idx]` and clears the focus.
-    #[test]
-    fn enter_expands_focused_reasoning_block_v094() {
-        use crate::tui::app::TurnRole;
-        let mut app = App::new();
-        app.session.turns.push(reasoning_turn(TurnRole::Assistant));
-
-        let mut surface = WorkspaceSurface::new();
-        // Set focus to turn 0 manually (simulating a prior Tab press).
-        app.focused_reasoning_turn_idx = Some(0);
-
-        // Default: absent ⇒ collapsed.
+        let surface = WorkspaceSurface::new();
         assert!(
-            !app.reasoning_expanded.get(&0).copied().unwrap_or(false),
-            "reasoning block must start collapsed"
+            !surface.owns_tab(&app),
+            "a reasoning turn must not make the Workspace claim Tab (FIX-7)"
         );
-
-        // Enter with empty composer + active focus → expand.
-        let action = surface.handle_key(key(KeyCode::Enter), &mut app);
-        assert!(
-            matches!(action, SurfaceAction::None),
-            "expand action must return SurfaceAction::None"
-        );
-        assert_eq!(
-            app.reasoning_expanded.get(&0).copied(),
-            Some(true),
-            "Enter must expand the focused reasoning turn"
-        );
-        // Focus must be cleared after the expand.
-        assert_eq!(
-            app.focused_reasoning_turn_idx, None,
-            "focus must clear after Enter expand"
-        );
-
-        // A second Enter on an empty composer with no focus is a plain
-        // empty-submit no-op (not a toggle).
-        let action2 = surface.handle_key(key(KeyCode::Enter), &mut app);
-        assert!(matches!(action2, SurfaceAction::None));
-        // The map entry is unchanged (no second toggle without focus).
-        assert_eq!(app.reasoning_expanded.get(&0).copied(), Some(true));
     }
 
     /// Ctrl+R still toggles the most-recent assistant turn's reasoning when
@@ -7641,8 +7515,6 @@ mod tests {
         app.session.turns.push(reasoning_turn(TurnRole::Assistant));
 
         let mut surface = WorkspaceSurface::new();
-        // No reasoning focus set.
-        assert_eq!(app.focused_reasoning_turn_idx, None);
 
         // Ctrl+R must flip the most-recent assistant turn (idx 1).
         surface.handle_key(ctrl(KeyCode::Char('r')), &mut app);
@@ -7655,25 +7527,14 @@ mod tests {
         // Second Ctrl+R collapses it.
         surface.handle_key(ctrl(KeyCode::Char('r')), &mut app);
         assert_eq!(app.reasoning_expanded.get(&1).copied(), Some(false));
-
-        // Ctrl+R must not interact with focused_reasoning_turn_idx.
-        assert_eq!(
-            app.focused_reasoning_turn_idx, None,
-            "Ctrl+R must not set focused_reasoning_turn_idx"
-        );
     }
 
-    /// Tab while the `@`-completion popup is open accepts the completion
-    /// candidate — it does NOT advance the reasoning focus.
+    /// Tab while the `@`-completion popup is open accepts the highlighted
+    /// candidate — the one in-surface state that still owns Tab (FIX-7).
     #[test]
     fn tab_still_accepts_slash_completion_v094() {
         let mut app = App::new();
         let mut surface = WorkspaceSurface::new();
-
-        // Seed a reasoning turn so advance_focused_reasoning would normally fire.
-        app.session
-            .turns
-            .push(reasoning_turn(crate::tui::app::TurnRole::Assistant));
 
         // Type `@di` to open the @-completion popup.
         for c in "@di".chars() {
@@ -7683,8 +7544,12 @@ mod tests {
             surface.at_completion.is_some(),
             "typing `@di` must open the @-completion popup"
         );
+        assert!(
+            surface.owns_tab(&app),
+            "an open @-completion popup must claim Tab"
+        );
 
-        // Tab must accept the completion, NOT advance reasoning focus.
+        // Tab must accept the completion.
         surface.handle_key(key(KeyCode::Tab), &mut app);
 
         assert!(
@@ -7695,10 +7560,6 @@ mod tests {
             surface.composer.value(),
             "@diff",
             "Tab must accept the highlighted candidate"
-        );
-        assert_eq!(
-            app.focused_reasoning_turn_idx, None,
-            "Tab must NOT advance reasoning focus when the @-completion popup is open"
         );
     }
 
