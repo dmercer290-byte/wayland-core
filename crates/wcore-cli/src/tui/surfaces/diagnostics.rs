@@ -665,6 +665,11 @@ pub struct DiagnosticsSurface {
     /// Vertical scroll offset for the `/effective` view (the TOML can exceed
     /// the viewport). Clamped on `Up`/`Down`/`PageUp`/`PageDown`.
     effective_scroll: u16,
+    /// S10 — secret-free summaries of the on-disk channel configs (the
+    /// "Integrations ghost" made visible). Scanned from the canonical
+    /// `channels_dir()` on `on_enter` + the `r` key, rendered as the CHANNELS
+    /// section of `/doctor`.
+    channels: Vec<wcore_channels_registry::ChannelSummary>,
 }
 
 impl Default for DiagnosticsSurface {
@@ -691,6 +696,7 @@ impl DiagnosticsSurface {
             config_checks: Vec::new(),
             effective_toml: String::new(),
             effective_scroll: 0,
+            channels: Vec::new(),
         }
     }
 
@@ -707,6 +713,8 @@ impl DiagnosticsSurface {
         self.provider_health = run_provider_health();
         self.tool_status = scan_tool_status();
         self.config_checks = scan_config_health(app);
+        // S10: surface the on-disk channel configs (read-only, secret-free).
+        self.channels = wcore_channels_registry::scan_user_channels();
         self.doctor_collected = true;
     }
 
@@ -1133,7 +1141,49 @@ impl DiagnosticsSurface {
             }
         }
 
-        // ── 6. Recent engine errors ─────────────────────────────────
+        // ── 6. Channels / integrations (S10) ────────────────────────
+        // The on-disk channel configs (`~/.wayland/channels/*.toml`) are
+        // otherwise invisible to the schema-driven `/config` TUI — this is the
+        // "ghost subsystem" made visible. Secret-free: only key names show.
+        lines.push(Line::from(""));
+        push_section_header(&mut lines, t, "CHANNELS");
+        if self.channels.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  none configured",
+                Style::default().fg(t.text_muted),
+            )));
+        } else {
+            for ch in &self.channels {
+                let (state, detail) = if let Some(err) = &ch.parse_error {
+                    (HealthState::Fail, format!("parse error · {err}"))
+                } else if !ch.known_platform {
+                    (
+                        HealthState::Fail,
+                        format!("unknown platform `{}` · won't load", ch.platform),
+                    )
+                } else if !ch.enabled {
+                    (HealthState::Warn, format!("{} · disabled", ch.platform))
+                } else {
+                    let opts = if ch.option_keys.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · opts: {}", ch.option_keys.join(", "))
+                    };
+                    let secrets = if ch.secret_keys.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · secrets: {}", ch.secret_keys.join(", "))
+                    };
+                    (
+                        HealthState::Ok,
+                        format!("{} · enabled{opts}{secrets}", ch.platform),
+                    )
+                };
+                lines.push(status_row(state, &ch.name, &detail, t));
+            }
+        }
+
+        // ── 7. Recent engine errors ─────────────────────────────────
         lines.push(Line::from(""));
         push_section_header(&mut lines, t, "RECENT ERRORS");
         let errors = collect_recent_errors(app);
@@ -1154,7 +1204,7 @@ impl DiagnosticsSurface {
             }
         }
 
-        // ── 7. Token budget ─────────────────────────────────────────
+        // ── 8. Token budget ─────────────────────────────────────────
         lines.push(Line::from(""));
         push_section_header(&mut lines, t, "TOKEN BUDGET");
         let budget = token_budget_view(app);
@@ -2217,6 +2267,50 @@ mod tests {
             egress.detail.contains('1'),
             "egress detail should count the allowlist entry: {}",
             egress.detail
+        );
+    }
+
+    #[test]
+    fn doctor_channels_section_surfaces_status_secret_free() {
+        // S10: the CHANNELS section makes the on-disk channel configs visible —
+        // an enabled known channel shows its option/secret KEY names, an unknown
+        // platform reads "won't load". Injecting summaries keeps the test
+        // hermetic (no FS / no env); `doctor_collected` is forced so the body
+        // renders rather than the "running checks" splash.
+        let mut s = DiagnosticsSurface::new();
+        s.doctor_collected = true;
+        s.channels = vec![
+            wcore_channels_registry::ChannelSummary {
+                name: "myslack".to_string(),
+                platform: "slack".to_string(),
+                enabled: true,
+                known_platform: true,
+                option_keys: vec!["channel".to_string()],
+                secret_keys: vec!["bot_token".to_string()],
+                parse_error: None,
+            },
+            wcore_channels_registry::ChannelSummary {
+                name: "weird".to_string(),
+                platform: "carrierpigeon".to_string(),
+                enabled: true,
+                known_platform: false,
+                option_keys: vec![],
+                secret_keys: vec![],
+                parse_error: None,
+            },
+        ];
+        let app = App::new();
+        let out = render_tall(&mut s, &app);
+        assert!(out.contains("CHANNELS"), "section header missing:\n{out}");
+        assert!(
+            out.contains("myslack") && out.contains("slack"),
+            "known channel missing:\n{out}"
+        );
+        // KEY names are surfaced (never values).
+        assert!(out.contains("bot_token"), "secret key name missing:\n{out}");
+        assert!(
+            out.contains("weird") && out.contains("unknown platform"),
+            "unknown-platform channel must read 'won't load':\n{out}"
         );
     }
 
