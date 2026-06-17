@@ -1257,6 +1257,15 @@ impl Router {
                         app.config.tools_verify_edits = applied.config_view.tools_verify_edits;
                         app.config.budget_max_cost_usd = applied.config_view.budget_max_cost_usd;
                         app.config.budget_max_wall_secs = applied.config_view.budget_max_wall_secs;
+                        // S6 Advanced: mirror the observability/storage/security
+                        // edits too, same reseed reasoning.
+                        app.config.obs_structured_traces =
+                            applied.config_view.obs_structured_traces;
+                        app.config.obs_online_evolution = applied.config_view.obs_online_evolution;
+                        app.config.obs_workflow_live = applied.config_view.obs_workflow_live;
+                        app.config.storage_backend = applied.config_view.storage_backend.clone();
+                        app.config.security_egress_enabled =
+                            applied.config_view.security_egress_enabled;
                         // The live apply succeeded — clear any prior degraded
                         // flag so `/config` shows the honest "now live" copy.
                         app.config_apply_failed = false;

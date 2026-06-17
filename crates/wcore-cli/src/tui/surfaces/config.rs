@@ -227,6 +227,19 @@ struct SettingsModel {
     /// `max_wall_time_secs` — runaway wall-clock guard. Read-out on the
     /// Safety (Stop after) row alongside the turn ceiling.
     budget_max_wall_secs: Option<u64>,
+    // ADVANCED (`[observability]`/`[storage]`/`[security]`) ----------------
+    /// `[observability] structured_traces` — emit structured trace spans.
+    obs_structured_traces: bool,
+    /// `[observability] online_evolution` — the GEPA online-evolution loop.
+    obs_online_evolution: bool,
+    /// `[observability] workflow_live_mode` — live workflow drill-in.
+    obs_workflow_live: bool,
+    /// `[storage.credentials] backend` tag (`plaintext`/`keyring`/
+    /// `encrypted-file`). The radio cycles plaintext↔keyring; encrypted-file
+    /// is read-only (its two paths must not be clobbered).
+    storage_backend: String,
+    /// `[security] enabled` — the egress network guard.
+    security_egress_enabled: bool,
     // EXPERT (provider tuning) --------------------------------------------
     /// The four editable `ProviderCompat` cost-per-token overrides for the
     /// active provider (Expert tier). Each `None` = "no override set".
@@ -265,6 +278,17 @@ impl SettingsModel {
             tools_verify_edits: cv.tools_verify_edits,
             budget_max_cost_usd: cv.budget_max_cost_usd,
             budget_max_wall_secs: cv.budget_max_wall_secs,
+            obs_structured_traces: cv.obs_structured_traces,
+            obs_online_evolution: cv.obs_online_evolution,
+            obs_workflow_live: cv.obs_workflow_live,
+            // `CredentialsBackend::default` is Plaintext, so an absent tag (a
+            // bare `ConfigView::default`, pre-resolve) reads as plaintext.
+            storage_backend: if cv.storage_backend.is_empty() {
+                "plaintext".to_string()
+            } else {
+                cv.storage_backend.clone()
+            },
+            security_egress_enabled: cv.security_egress_enabled,
             compat_costs: cv.compat_costs,
         }
     }
@@ -347,6 +371,69 @@ impl Row {
     }
 }
 
+/// A focusable field in the Advanced tier (S6): observability toggles, the
+/// storage credential-backend radio, the egress guard, and a navigation entry
+/// into the Expert provider-cost pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdvField {
+    Traces,
+    OnlineEvolution,
+    WorkflowLive,
+    CredentialBackend,
+    EgressGuard,
+    ProviderCosts,
+}
+
+impl AdvField {
+    /// Every Advanced field in display order; `adv_focus` indexes this list.
+    const ALL: [AdvField; 6] = [
+        AdvField::Traces,
+        AdvField::OnlineEvolution,
+        AdvField::WorkflowLive,
+        AdvField::CredentialBackend,
+        AdvField::EgressGuard,
+        AdvField::ProviderCosts,
+    ];
+
+    /// The section heading this field renders under.
+    fn section(self) -> &'static str {
+        match self {
+            AdvField::Traces | AdvField::OnlineEvolution | AdvField::WorkflowLive => {
+                "OBSERVABILITY"
+            }
+            AdvField::CredentialBackend => "STORAGE",
+            AdvField::EgressGuard => "SECURITY",
+            AdvField::ProviderCosts => "PROVIDER",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            AdvField::Traces => "Structured traces",
+            AdvField::OnlineEvolution => "Online evolution",
+            AdvField::WorkflowLive => "Workflow live mode",
+            AdvField::CredentialBackend => "Credential store",
+            AdvField::EgressGuard => "Egress guard",
+            AdvField::ProviderCosts => "Provider cost tuning",
+        }
+    }
+
+    fn gloss(self) -> &'static str {
+        match self {
+            AdvField::Traces => "Emit structured trace spans for observability tooling.",
+            AdvField::OnlineEvolution => {
+                "Let Wayland evolve its own prompts in the background (GEPA)."
+            }
+            AdvField::WorkflowLive => "Stream live workflow progress you can drill into.",
+            AdvField::CredentialBackend => {
+                "Where API keys live: the OS keyring or a 0600 plaintext file."
+            }
+            AdvField::EgressGuard => "Restrict outbound network calls to an allowlist.",
+            AdvField::ProviderCosts => "Per-token pricing overrides for the active provider.",
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // The surface
 // ─────────────────────────────────────────────────────────────────────────
@@ -360,6 +447,9 @@ enum Tier {
     Detail,
     /// Tier 3 — the expert pane (the 24 `ProviderCompat` fields).
     Expert,
+    /// Tier A — Advanced: observability / storage / security editors, plus a
+    /// link into the Expert provider-cost pane (S6).
+    Advanced,
     /// Tier P — Tools & Providers list (v0.9.0 W4 E1 Part A).
     Providers,
 }
@@ -382,6 +472,8 @@ pub struct ConfigSurface {
     tier: Tier,
     /// The focused expert field index (Tier 3 only).
     expert_focus: usize,
+    /// The focused Advanced field index (Tier A only); indexes `AdvField::ALL`.
+    adv_focus: usize,
     /// `Some` while a text field is being edited; the edited row plus its
     /// `tui-input` buffer. `None` when no field edit is in flight.
     editor: Option<(Row, Input)>,
@@ -429,6 +521,7 @@ impl ConfigSurface {
             focus: 0,
             tier: Tier::Overview,
             expert_focus: 0,
+            adv_focus: 0,
             editor: None,
             expert_editor: None,
             save_pending: false,
@@ -489,6 +582,11 @@ impl ConfigSurface {
         let plan_first = self.current.plan_first;
         let tools_auto_approve = self.current.tools_auto_approve;
         let budget_cap = self.current.budget_max_cost_usd;
+        let obs_traces = self.current.obs_structured_traces;
+        let obs_evolution = self.current.obs_online_evolution;
+        let obs_workflow_live = self.current.obs_workflow_live;
+        let storage_backend = self.current.storage_backend.clone();
+        let egress_enabled = self.current.security_egress_enabled;
         wcore_config::config::patch_global_config(|f| {
             f.default.max_turns = max_turns;
             f.default.approval_mode = approval_mode;
@@ -506,6 +604,24 @@ impl ConfigSurface {
             // partial-merge writer.
             f.tools.auto_approve = tools_auto_approve;
             f.budget.max_cost_usd = budget_cap;
+            // S6 Advanced: observability toggles, the credential-store backend
+            // (plaintext/keyring only — encrypted-file's paths are left intact),
+            // and the egress guard.
+            f.observability.structured_traces = obs_traces;
+            f.observability.online_evolution = obs_evolution;
+            f.observability.workflow_live_mode = obs_workflow_live;
+            match storage_backend.as_str() {
+                "plaintext" => {
+                    f.storage.credentials.backend =
+                        wcore_config::credentials::CredentialsBackend::Plaintext
+                }
+                "keyring" => {
+                    f.storage.credentials.backend =
+                        wcore_config::credentials::CredentialsBackend::Keyring
+                }
+                _ => {} // encrypted-file or unknown: leave the configured backend
+            }
+            f.security.enabled = egress_enabled;
         })
         .map(|_| ())
         .map_err(|e| format!("{e:#}"))
@@ -573,7 +689,10 @@ impl ConfigSurface {
     /// text edit, depending on the row.
     fn enter_focused(&mut self) {
         match self.focused_row() {
-            Row::Expert => self.tier = Tier::Expert,
+            Row::Expert => {
+                self.tier = Tier::Advanced;
+                self.adv_focus = 0;
+            }
             Row::StopAfter => {
                 // Begin an in-place numeric text edit.
                 let input = Input::new(self.current.stop_after_turns.to_string());
@@ -1482,6 +1601,7 @@ impl Surface for ConfigSurface {
         self.focus = 0;
         self.tier = Tier::Overview;
         self.expert_focus = 0;
+        self.adv_focus = 0;
         self.editor = None;
         self.expert_editor = None;
         self.providers_focus = 0;
@@ -1505,6 +1625,7 @@ impl Surface for ConfigSurface {
                 self.render_detail(frame, area, theme);
             }
             Tier::Expert => self.render_expert(frame, area, theme),
+            Tier::Advanced => self.render_advanced(frame, area, theme),
             Tier::Providers => {
                 self.render_providers(frame, area, theme);
                 if self.credentials_modal.is_some() {
@@ -1564,6 +1685,7 @@ impl Surface for ConfigSurface {
             Tier::Overview => self.handle_overview_key(key),
             Tier::Detail => self.handle_detail_key(key),
             Tier::Expert => self.handle_expert_key(key),
+            Tier::Advanced => self.handle_advanced_key(key),
             Tier::Providers => self.handle_providers_key(key),
         };
         if self.baseline != baseline_before && !self.is_dirty() {
@@ -1604,7 +1726,8 @@ impl ConfigSurface {
                 SurfaceAction::None
             }
             KeyCode::Char('x') => {
-                self.tier = Tier::Expert;
+                self.tier = Tier::Advanced;
+                self.adv_focus = 0;
                 SurfaceAction::None
             }
             KeyCode::Char('p') => {
@@ -1864,7 +1987,7 @@ impl ConfigSurface {
             Span::styled("space ", Style::default().fg(t.orange)),
             Span::styled("toggle  ", Style::default().fg(t.text_dim)),
             Span::styled("x ", Style::default().fg(t.orange)),
-            Span::styled("expert  ", Style::default().fg(t.text_dim)),
+            Span::styled("advanced  ", Style::default().fg(t.text_dim)),
             Span::styled("p ", Style::default().fg(t.orange)),
             Span::styled("providers  ", Style::default().fg(t.text_dim)),
             Span::styled("esc ", Style::default().fg(t.orange)),
@@ -2017,7 +2140,7 @@ impl ConfigSurface {
                 }
             }
             Row::Expert => vec![Span::styled(
-                "x  expert settings (provider tuning, budgets, traces)",
+                "x  advanced settings (traces, storage, egress, provider tuning)",
                 if focused {
                     Style::default().fg(t.orange).add_modifier(Modifier::BOLD)
                 } else {
@@ -2133,6 +2256,179 @@ impl ConfigSurface {
             Span::styled("revert", Style::default().fg(t.text_dim)),
         ]));
         frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    }
+
+    // ── Tier A (Advanced) input + rendering ─────────────────────────────
+
+    /// The focused Advanced field.
+    fn focused_adv(&self) -> AdvField {
+        AdvField::ALL[self.adv_focus.min(AdvField::ALL.len() - 1)]
+    }
+
+    /// Move the Advanced selection up/down, wrapping.
+    fn move_adv(&mut self, delta: isize) {
+        let len = AdvField::ALL.len() as isize;
+        self.adv_focus = (self.adv_focus as isize + delta).rem_euclid(len) as usize;
+    }
+
+    /// Flip / cycle the focused Advanced field's value. Navigation-only fields
+    /// (ProviderCosts) are inert here.
+    fn toggle_adv(&mut self) {
+        match self.focused_adv() {
+            AdvField::Traces => {
+                self.current.obs_structured_traces = !self.current.obs_structured_traces
+            }
+            AdvField::OnlineEvolution => {
+                self.current.obs_online_evolution = !self.current.obs_online_evolution
+            }
+            AdvField::WorkflowLive => {
+                self.current.obs_workflow_live = !self.current.obs_workflow_live
+            }
+            AdvField::EgressGuard => {
+                self.current.security_egress_enabled = !self.current.security_egress_enabled
+            }
+            AdvField::CredentialBackend => {
+                // Cycle plaintext↔keyring. encrypted-file is read-only — never
+                // reconstruct its two paths from a radio.
+                self.current.storage_backend = match self.current.storage_backend.as_str() {
+                    "plaintext" => "keyring".to_string(),
+                    "keyring" => "plaintext".to_string(),
+                    other => other.to_string(),
+                };
+            }
+            AdvField::ProviderCosts => {}
+        }
+    }
+
+    /// Tier-A keys: `↑↓` move, `space`/`←→` toggle, `⏎` opens cost tuning (or
+    /// toggles a setting), `esc` saves and returns to the overview.
+    fn handle_advanced_key(&mut self, key: KeyEvent) -> SurfaceAction {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.move_adv(-1);
+                SurfaceAction::None
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.move_adv(1);
+                SurfaceAction::None
+            }
+            KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right => {
+                self.toggle_adv();
+                SurfaceAction::None
+            }
+            KeyCode::Enter => {
+                if self.focused_adv() == AdvField::ProviderCosts {
+                    self.tier = Tier::Expert;
+                    self.expert_focus = 0;
+                } else {
+                    self.toggle_adv();
+                }
+                SurfaceAction::None
+            }
+            KeyCode::Esc => {
+                // Save dirty edits (advances baseline → the `handle_key` seam
+                // raises the Tier1Save rebind), then back to the overview.
+                if self.is_dirty() {
+                    self.save();
+                }
+                self.tier = Tier::Overview;
+                SurfaceAction::None
+            }
+            _ => SurfaceAction::None,
+        }
+    }
+
+    /// The value-side spans for one Advanced field.
+    fn adv_value_spans(&self, f: AdvField, t: &Theme) -> Vec<Span<'static>> {
+        match f {
+            AdvField::Traces => toggle_strip(self.current.obs_structured_traces, "off", "on", t),
+            AdvField::OnlineEvolution => {
+                toggle_strip(self.current.obs_online_evolution, "off", "on", t)
+            }
+            AdvField::WorkflowLive => toggle_strip(self.current.obs_workflow_live, "off", "on", t),
+            AdvField::EgressGuard => {
+                toggle_strip(self.current.security_egress_enabled, "off", "allowlist", t)
+            }
+            AdvField::CredentialBackend => match self.current.storage_backend.as_str() {
+                "encrypted-file" => vec![Span::styled(
+                    "encrypted-file (edit paths in config.toml)".to_string(),
+                    Style::default().fg(t.text_muted),
+                )],
+                _ => radio_strip(
+                    &["plaintext", "keyring"],
+                    usize::from(self.current.storage_backend == "keyring"),
+                    t,
+                ),
+            },
+            AdvField::ProviderCosts => vec![Span::styled(
+                "⏎ open cost tuning".to_string(),
+                Style::default().fg(t.text_muted),
+            )],
+        }
+    }
+
+    /// Draw the Tier-A Advanced pane: observability / storage / security
+    /// editors grouped by section, plus the link into the Expert cost pane.
+    fn render_advanced(&self, frame: &mut Frame, area: Rect, t: &Theme) {
+        let block = panel("Wayland · Advanced", t);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        if inner.height < 3 || inner.width < 10 {
+            return;
+        }
+        let [body_area, footer_area] =
+            Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).areas(inner);
+
+        let focused = self.focused_adv();
+        let mut lines: Vec<Line> = Vec::new();
+        let mut last_section: Option<&'static str> = None;
+        for &f in AdvField::ALL.iter() {
+            let sec = f.section();
+            if Some(sec) != last_section {
+                if last_section.is_some() {
+                    lines.push(Line::from(""));
+                }
+                lines.push(Line::from(Span::styled(
+                    sec,
+                    Style::default().fg(t.text_dim).add_modifier(Modifier::BOLD),
+                )));
+                last_section = Some(sec);
+            }
+            let is_focused = f == focused;
+            let marker = if is_focused { "▸ " } else { "  " };
+            let label_style = if is_focused {
+                Style::default().fg(t.orange).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(t.text)
+            };
+            let mut spans = vec![
+                Span::styled(marker.to_string(), Style::default().fg(t.orange)),
+                Span::styled(format!("{:<20}", f.label()), label_style),
+            ];
+            spans.extend(self.adv_value_spans(f, t));
+            lines.push(Line::from(spans));
+            lines.push(Line::from(Span::styled(
+                format!("    {}", f.gloss()),
+                Style::default().fg(t.text_muted),
+            )));
+        }
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body_area);
+
+        let hints = Line::from(vec![
+            Span::styled(" ↑↓ ", Style::default().fg(t.orange)),
+            Span::styled("move   ", Style::default().fg(t.text_dim)),
+            Span::styled("space ", Style::default().fg(t.orange)),
+            Span::styled("toggle   ", Style::default().fg(t.text_dim)),
+            Span::styled("⏎ ", Style::default().fg(t.orange)),
+            Span::styled("open/toggle   ", Style::default().fg(t.text_dim)),
+            Span::styled("esc ", Style::default().fg(t.orange)),
+            Span::styled("save & back", Style::default().fg(t.text_dim)),
+        ]);
+        let promise = Line::from(Span::styled(
+            " changes save to your global config.toml and apply live",
+            Style::default().fg(t.text_muted),
+        ));
+        frame.render_widget(Paragraph::new(vec![hints, promise]), footer_area);
     }
 
     // ── Rendering: Tier 3 (expert) ──────────────────────────────────────
@@ -2897,15 +3193,17 @@ mod tests {
             text.contains("MEMORY & CONTEXT"),
             "missing MEMORY & CONTEXT:\n{text}"
         );
+        // S5 added the SPENDING section (Wallet row).
+        assert!(text.contains("SPENDING"), "missing SPENDING:\n{text}");
         // A consequence gloss, not a mechanism, for the approval radio.
         assert!(
             text.contains("Asks before it writes or runs anything"),
             "missing approval gloss:\n{text}"
         );
-        // The expert-entry row.
+        // The advanced-settings entry row (S6 relabel of the expert row).
         assert!(
-            text.contains("expert settings"),
-            "missing expert row:\n{text}"
+            text.contains("advanced settings"),
+            "missing advanced row:\n{text}"
         );
         // The save/undo footer promise.
         assert!(
@@ -2976,7 +3274,11 @@ mod tests {
         let mut app = App::new();
         let mut surface = ConfigSurface::new();
         surface.on_enter(&mut app);
-        surface.handle_key(ch('x'), &mut app);
+        surface.handle_key(ch('x'), &mut app); // → Advanced
+        while surface.focused_adv() != AdvField::ProviderCosts {
+            surface.handle_key(key(KeyCode::Down), &mut app);
+        }
+        surface.handle_key(key(KeyCode::Enter), &mut app); // → Expert cost pane
         assert_eq!(surface.tier, Tier::Expert);
         let text = render_text(&mut surface, &app);
         // The expert pane is titled and grouped.
@@ -3419,10 +3721,16 @@ mod tests {
     /// the theme tests use) to stay hermetic under the concurrent runner.
     static EXPERT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// Open the Expert tier and step the selection to the first editable
-    /// Pricing field (`cost_per_input_token`, `EXPERT_FIELDS[15]`).
+    /// Open the Expert cost pane (via the Advanced tier's "Provider cost
+    /// tuning" entry) and step the selection to the first editable Pricing
+    /// field (`cost_per_input_token`, `EXPERT_FIELDS[15]`).
     fn enter_expert_on_first_cost_field(surface: &mut ConfigSurface, app: &mut App) {
-        surface.handle_key(ch('x'), app); // overview → Expert tier
+        surface.handle_key(ch('x'), app); // overview → Advanced tier
+        assert_eq!(surface.tier, Tier::Advanced);
+        while surface.focused_adv() != AdvField::ProviderCosts {
+            surface.handle_key(key(KeyCode::Down), app);
+        }
+        surface.handle_key(key(KeyCode::Enter), app); // Advanced → Expert cost pane
         assert_eq!(surface.tier, Tier::Expert);
         for _ in 0..15 {
             surface.handle_key(key(KeyCode::Down), app);
@@ -3440,7 +3748,7 @@ mod tests {
         let mut app = App::new();
         let mut surface = ConfigSurface::new();
         surface.on_enter(&mut app);
-        surface.handle_key(ch('x'), &mut app);
+        enter_expert_on_first_cost_field(&mut surface, &mut app);
         let frame = render_text(&mut surface, &app);
         assert!(
             frame.contains("edit cost"),
@@ -3831,7 +4139,9 @@ mod tests {
     }
 
     #[test]
-    fn enter_on_expert_row_opens_the_expert_tier() {
+    fn enter_on_advanced_row_opens_the_advanced_tier() {
+        // S6: the home's "Advanced settings" row (formerly "expert") now opens
+        // the Advanced tier; `esc` saves+returns to the overview.
         let mut app = App::new();
         let mut surface = ConfigSurface::new();
         surface.on_enter(&mut app);
@@ -3839,10 +4149,128 @@ mod tests {
             surface.handle_key(key(KeyCode::Down), &mut app);
         }
         surface.handle_key(key(KeyCode::Enter), &mut app);
-        assert_eq!(surface.tier, Tier::Expert);
-        // `esc` from the expert tier returns to the overview.
+        assert_eq!(surface.tier, Tier::Advanced);
+        // `esc` from the advanced tier returns to the overview.
         surface.handle_key(key(KeyCode::Esc), &mut app);
         assert_eq!(surface.tier, Tier::Overview);
+    }
+
+    #[test]
+    fn advanced_pane_renders_its_sections_and_a_radio() {
+        let mut app = App::new();
+        let mut surface = ConfigSurface::new();
+        surface.on_enter(&mut app);
+        surface.handle_key(ch('x'), &mut app);
+        let text = render_text(&mut surface, &app);
+        assert!(text.contains("Advanced"), "missing advanced title:\n{text}");
+        assert!(
+            text.contains("OBSERVABILITY"),
+            "missing OBSERVABILITY:\n{text}"
+        );
+        assert!(text.contains("STORAGE"), "missing STORAGE:\n{text}");
+        assert!(text.contains("SECURITY"), "missing SECURITY:\n{text}");
+        assert!(
+            text.contains("Credential store"),
+            "missing storage radio:\n{text}"
+        );
+        // The radio shows both backends; plaintext is the default selection.
+        assert!(text.contains("plaintext") && text.contains("keyring"));
+    }
+
+    #[test]
+    fn advanced_provider_costs_entry_opens_the_expert_pane() {
+        let mut app = App::new();
+        let mut surface = ConfigSurface::new();
+        surface.on_enter(&mut app);
+        surface.handle_key(ch('x'), &mut app);
+        assert_eq!(surface.tier, Tier::Advanced);
+        while surface.focused_adv() != AdvField::ProviderCosts {
+            surface.handle_key(key(KeyCode::Down), &mut app);
+        }
+        surface.handle_key(key(KeyCode::Enter), &mut app);
+        assert_eq!(
+            surface.tier,
+            Tier::Expert,
+            "⏎ on Provider cost tuning must open the Expert cost pane"
+        );
+    }
+
+    #[test]
+    fn advanced_traces_toggle_persists_to_observability() {
+        // S6: the Advanced Structured-traces toggle flips `[observability]`
+        // and `esc` saves it. Hermetic via WAYLAND_HOME under the env lock.
+        let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let prev = std::env::var_os("WAYLAND_HOME");
+        // SAFETY: serialised by EXPERT_ENV_LOCK; restored before unlock.
+        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+
+        let mut app = App::new();
+        app.config.obs_structured_traces = false;
+        let mut surface = ConfigSurface::new();
+        surface.on_enter(&mut app);
+        surface.handle_key(ch('x'), &mut app); // → Advanced (focus = Traces)
+        assert_eq!(surface.focused_adv(), AdvField::Traces);
+        surface.handle_key(key(KeyCode::Char(' ')), &mut app);
+        assert!(
+            surface.current.obs_structured_traces,
+            "space must flip traces on"
+        );
+        surface.handle_key(key(KeyCode::Esc), &mut app); // save & back
+        assert_eq!(surface.tier, Tier::Overview);
+        assert!(!surface.is_dirty());
+        let written = std::fs::read_to_string(dir.path().join("config.toml"))
+            .expect("config.toml should have been written");
+        assert!(
+            written.contains("[observability]") && written.contains("structured_traces"),
+            "traces must persist to [observability], got:\n{written}"
+        );
+
+        // SAFETY: restore the prior env under the same lock.
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("WAYLAND_HOME", v),
+                None => std::env::remove_var("WAYLAND_HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn advanced_credential_backend_radio_cycles_and_persists() {
+        // S6: the credential-store radio cycles plaintext↔keyring and persists
+        // to `[storage.credentials] backend`.
+        let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let prev = std::env::var_os("WAYLAND_HOME");
+        // SAFETY: serialised by EXPERT_ENV_LOCK; restored before unlock.
+        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+
+        let mut app = App::new();
+        app.config.storage_backend = "plaintext".into();
+        let mut surface = ConfigSurface::new();
+        surface.on_enter(&mut app);
+        surface.handle_key(ch('x'), &mut app); // → Advanced
+        while surface.focused_adv() != AdvField::CredentialBackend {
+            surface.handle_key(key(KeyCode::Down), &mut app);
+        }
+        surface.handle_key(key(KeyCode::Char(' ')), &mut app); // plaintext → keyring
+        assert_eq!(surface.current.storage_backend, "keyring");
+        surface.handle_key(key(KeyCode::Esc), &mut app); // save & back
+        assert!(!surface.is_dirty());
+        let written = std::fs::read_to_string(dir.path().join("config.toml"))
+            .expect("config.toml should have been written");
+        assert!(
+            written.contains("backend") && written.contains("keyring"),
+            "backend must persist to [storage.credentials], got:\n{written}"
+        );
+
+        // SAFETY: restore the prior env under the same lock.
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("WAYLAND_HOME", v),
+                None => std::env::remove_var("WAYLAND_HOME"),
+            }
+        }
     }
 
     #[test]
@@ -3853,7 +4281,13 @@ mod tests {
         let mut surface = ConfigSurface::new();
         surface.on_enter(&mut app);
         let theme = Theme::no_color();
-        for tier in [Tier::Overview, Tier::Detail, Tier::Expert, Tier::Providers] {
+        for tier in [
+            Tier::Overview,
+            Tier::Detail,
+            Tier::Expert,
+            Tier::Advanced,
+            Tier::Providers,
+        ] {
             surface.tier = tier;
             for (w, h) in [(1u16, 1u16), (8, 4), (20, 6)] {
                 let mut terminal = Terminal::new(TestBackend::new(w, h)).expect("test terminal");
@@ -3869,7 +4303,11 @@ mod tests {
         let mut app = App::new();
         let mut surface = ConfigSurface::new();
         surface.on_enter(&mut app);
-        surface.handle_key(ch('x'), &mut app);
+        surface.handle_key(ch('x'), &mut app); // → Advanced
+        while surface.focused_adv() != AdvField::ProviderCosts {
+            surface.handle_key(key(KeyCode::Down), &mut app);
+        }
+        surface.handle_key(key(KeyCode::Enter), &mut app); // → Expert cost pane
         assert_eq!(surface.expert_focus, 0);
         surface.handle_key(key(KeyCode::Up), &mut app);
         assert_eq!(

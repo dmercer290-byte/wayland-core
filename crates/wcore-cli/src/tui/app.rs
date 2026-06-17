@@ -1245,6 +1245,21 @@ pub struct ConfigView {
     /// `[budget] max_wall_time_secs` — the runaway wall-clock guard, or
     /// `None`. Shown on the Safety row alongside the turn ceiling.
     pub budget_max_wall_secs: Option<u64>,
+    /// `[observability] structured_traces` — emit structured trace spans.
+    /// Advanced-tier toggle.
+    pub obs_structured_traces: bool,
+    /// `[observability] online_evolution` — the GEPA online-evolution loop.
+    pub obs_online_evolution: bool,
+    /// `[observability] workflow_live_mode` — live workflow drill-in.
+    pub obs_workflow_live: bool,
+    /// `[storage.credentials] backend` as a lowercase tag (`plaintext` /
+    /// `keyring` / `encrypted-file`). The Advanced radio cycles plaintext↔
+    /// keyring; `encrypted-file` (two configured paths) is shown read-only so
+    /// the radio never clobbers the path layout.
+    pub storage_backend: String,
+    /// `[security] enabled` — the egress network guard. Advanced-tier toggle
+    /// (the `egress_allow` list editor is a later collection slice).
+    pub security_egress_enabled: bool,
 }
 
 /// The four `ProviderCompat` cost-per-token overrides surfaced by the

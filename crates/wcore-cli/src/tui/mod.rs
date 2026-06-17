@@ -247,6 +247,17 @@ pub fn config_view_from(config: &wcore_config::config::Config) -> app::ConfigVie
         tools_verify_edits: config.tools.verify_edits,
         budget_max_cost_usd: config.budget.max_cost_usd,
         budget_max_wall_secs: config.budget.max_wall_time_secs,
+        // S6 Advanced: observability toggles, storage backend tag, egress guard.
+        obs_structured_traces: config.observability.structured_traces,
+        obs_online_evolution: config.observability.online_evolution,
+        obs_workflow_live: config.observability.workflow_live_mode,
+        storage_backend: match &config.storage.credentials.backend {
+            wcore_config::credentials::CredentialsBackend::Plaintext => "plaintext",
+            wcore_config::credentials::CredentialsBackend::Keyring => "keyring",
+            wcore_config::credentials::CredentialsBackend::EncryptedFile { .. } => "encrypted-file",
+        }
+        .to_string(),
+        security_egress_enabled: config.security.enabled,
     }
 }
 
