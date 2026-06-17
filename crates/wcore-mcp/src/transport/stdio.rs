@@ -190,6 +190,24 @@ fn windows_cmd_quote(arg: &str) -> String {
     out
 }
 
+/// The executable token for a `cmd /C <line>` command line on Windows.
+///
+/// Unlike an argument, a program name must NOT be caret-escaped: cmd.exe
+/// resolves it against PATH/PATHEXT itself (`node` → `node.exe`/`node.cmd`).
+/// Running it through [`windows_cmd_quote`] produced `^"node^"`, which cmd read
+/// as a literal-quoted name and failed to resolve, so the MCP server never
+/// started (wayland#164). A bare name passes through unchanged; a path with
+/// whitespace is wrapped in the plain double quotes `cmd /C` expects for the
+/// executable token (no caret-escaping). Pure + platform-independent so it is
+/// unit-testable on any host.
+fn windows_program_token(command: &str) -> String {
+    if command.chars().any(char::is_whitespace) {
+        format!("\"{command}\"")
+    } else {
+        command.to_string()
+    }
+}
+
 /// SIGKILL the child's entire process group (Rank 24, unix-only).
 ///
 /// The child is spawned with `process_group(0)`, so its PGID equals its own
@@ -281,6 +299,35 @@ mod cmd_quote_tests {
         // caret-escape quotes: ^"a\\^"
         assert_eq!(out, "^\"a\\\\^\"");
     }
+
+    // wayland#164: a PROGRAM name (vs an argument) must not be caret-escaped —
+    // cmd resolves it via PATH/PATHEXT. These pin the regression where
+    // `node` was turned into `^"node^"` and failed to launch.
+    use super::windows_program_token;
+
+    #[test]
+    fn program_token_passes_bare_names_through_unquoted() {
+        // The exact production cases: cmd must see `node`, not `^"node^"`.
+        assert_eq!(windows_program_token("node"), "node");
+        assert_eq!(windows_program_token("npx"), "npx");
+        assert_eq!(windows_program_token("python"), "python");
+        // A path without spaces also passes through (cmd resolves it directly).
+        assert_eq!(
+            windows_program_token("C:\\nodejs\\node.exe"),
+            "C:\\nodejs\\node.exe"
+        );
+    }
+
+    #[test]
+    fn program_token_quotes_a_path_with_spaces_without_carets() {
+        let out = windows_program_token("C:\\Program Files\\nodejs\\node.exe");
+        assert_eq!(out, "\"C:\\Program Files\\nodejs\\node.exe\"");
+        // Critically: no caret-escaping on the executable token.
+        assert!(
+            !out.contains('^'),
+            "program token must never be caret-escaped: {out:?}"
+        );
+    }
 }
 
 impl StdioTransport {
@@ -336,7 +383,16 @@ impl StdioTransport {
             c
         } else {
             let mut parts = Vec::with_capacity(1 + args.len());
-            parts.push(shell_quote(command));
+            // wayland#164: the PROGRAM name must not go through `shell_quote`
+            // on Windows — that caret-escapes it to `^"node^"`, which cmd reads
+            // as a literal-quoted name and fails to resolve. cmd resolves the
+            // executable token against PATH/PATHEXT itself; only the ARGS need
+            // metacharacter-escaping.
+            parts.push(if cfg!(windows) {
+                windows_program_token(command)
+            } else {
+                shell_quote(command)
+            });
             for a in args {
                 parts.push(shell_quote(a));
             }
