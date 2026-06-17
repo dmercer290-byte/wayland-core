@@ -218,9 +218,16 @@ pub fn status_bar(f: &mut Frame, area: Rect, app: &App, t: &Theme, _sample: Syst
     // heuristic) — IJFW discipline: the user always sees the spend.
     if area.width >= COST_SEGMENT_MIN_WIDTH {
         spans.push(divider(t));
-        let cost = app.cost.as_ref().map(|c| c.total_cost_usd).unwrap_or(0.0);
+        // Real-or-nothing: before any spend is recorded `app.cost` is `None` —
+        // show an em-dash, never a fabricated `$0.00` (matches the `/config`
+        // health line and Sean's cost = real-or-nothing rule). A recorded zero
+        // (Some(0.0)) is honest data and still prints `$0.00`.
+        let cost_str = match app.cost.as_ref() {
+            Some(c) => format_cost(c.total_cost_usd),
+            None => "—".to_string(),
+        };
         spans.push(Span::styled(
-            format!(" {} ", format_cost(cost)),
+            format!(" {cost_str} "),
             Style::default().bg(t.bg).fg(t.text_dim),
         ));
         spans.push(divider(t));
@@ -506,6 +513,23 @@ mod tests {
         assert!(line.contains("$1.23"), "session cost missing: {line:?}");
         assert!(!line.contains("cpu"), "cpu leaked: {line:?}");
         assert!(!line.contains("ram"), "ram leaked: {line:?}");
+    }
+
+    #[test]
+    fn status_bar_shows_em_dash_when_no_cost_recorded() {
+        // Real-or-nothing: at boot `app.cost` is None — the status bar must
+        // show an em-dash, never a fabricated `$0.00`.
+        let app = App::new();
+        assert!(app.cost.is_none(), "precondition: no cost at boot");
+        let line = render(&app, &Theme::hearth(), 120);
+        assert!(
+            !line.contains("$0.00"),
+            "must not fabricate $0.00 with no spend: {line:?}"
+        );
+        assert!(
+            line.contains('—'),
+            "spend must read an em-dash when unrecorded: {line:?}"
+        );
     }
 
     #[test]
