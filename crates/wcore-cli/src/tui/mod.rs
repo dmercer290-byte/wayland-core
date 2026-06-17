@@ -240,6 +240,29 @@ pub fn config_view_from(config: &wcore_config::config::Config) -> app::ConfigVie
             cache_read: config.compat.cost_per_cache_read_token,
             cache_write: config.compat.cost_per_cache_write_token,
         },
+        // S5 Essentials: tools posture + budget cap, read straight from the
+        // resolved config so the home shows the live values.
+        tools_auto_approve: config.tools.auto_approve,
+        tools_allow_list: config.tools.allow_list.clone(),
+        tools_verify_edits: config.tools.verify_edits,
+        budget_max_cost_usd: config.budget.max_cost_usd,
+        budget_max_wall_secs: config.budget.max_wall_time_secs,
+        // S6 Advanced: observability toggles, storage backend tag, egress guard.
+        obs_structured_traces: config.observability.structured_traces,
+        obs_online_evolution: config.observability.online_evolution,
+        obs_workflow_live: config.observability.workflow_live_mode,
+        storage_backend: match &config.storage.credentials.backend {
+            wcore_config::credentials::CredentialsBackend::Plaintext => "plaintext",
+            wcore_config::credentials::CredentialsBackend::Keyring => "keyring",
+            wcore_config::credentials::CredentialsBackend::EncryptedFile { .. } => "encrypted-file",
+        }
+        .to_string(),
+        security_egress_enabled: config.security.enabled,
+        // S7 collection editors: the egress allowlist and the provider
+        // failover chain, read straight from the resolved config.
+        egress_allow: config.security.egress_allow.clone(),
+        failover_enabled: config.provider_chain.enabled,
+        fallback_models: config.provider_chain.fallback_models.clone(),
     }
 }
 

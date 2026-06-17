@@ -212,11 +212,20 @@ pub async fn auto_register_from_user_config(
     mgr: &mut ChannelManager,
     credentials: Arc<dyn CredentialsStore>,
 ) -> Result<usize, ChannelLoadError> {
-    let dir = dirs::home_dir()
-        .ok_or_else(|| ChannelLoadError::Config("no home dir".to_string()))?
-        .join(".wayland")
-        .join("channels");
-    auto_register_from_dir(mgr, &dir, credentials).await
+    auto_register_from_dir(mgr, &channels_dir(), credentials).await
+}
+
+/// The canonical channels directory: `$WAYLAND_HOME/channels` (or
+/// `~/.wayland/channels` when unset).
+///
+/// F-019 fix: this resolves through [`wcore_config::config::profile_home`],
+/// which honors `WAYLAND_HOME`. The previous loader joined
+/// `dirs::home_dir()/.wayland/channels` directly, so a sandboxed/test process
+/// under `WAYLAND_HOME` read the host user's real channel configs (the same
+/// class of leak as the OAuth-token path). Both the engine loader and the TUI
+/// Integrations view resolve the directory through here, so they never diverge.
+pub fn channels_dir() -> PathBuf {
+    wcore_config::config::profile_home().join("channels")
 }
 
 /// Test-visible variant of [`auto_register_from_user_config`] that
@@ -342,6 +351,96 @@ pub async fn auto_register_from_dir(
     Ok(registered)
 }
 
+/// A read-only, **secret-free** summary of one on-disk channel config, for the
+/// TUI Integrations view (`/doctor`). Only key *names* are surfaced — never an
+/// option or secret *value* — so the summary needs no redaction and can never
+/// leak a credential.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChannelSummary {
+    /// Channel instance name (the file stem).
+    pub name: String,
+    /// Platform tag (`"slack"`, `"telegram"`, …); empty on a parse failure.
+    pub platform: String,
+    /// Whether the channel is enabled (auto-started at boot).
+    pub enabled: bool,
+    /// Whether `platform` maps to a known factory. An unknown platform is the
+    /// answer to "why isn't my channel loading".
+    pub known_platform: bool,
+    /// The configured `[options]` key names (no values).
+    pub option_keys: Vec<String>,
+    /// The referenced `[secrets]` key names (no values).
+    pub secret_keys: Vec<String>,
+    /// `Some(message)` if the file could not be read/parsed — surfaced so a
+    /// broken config is visible rather than silently absent.
+    pub parse_error: Option<String>,
+}
+
+/// Scan a channels directory into secret-free [`ChannelSummary`] rows, sorted
+/// by filename. A missing/unreadable directory yields an empty list; an
+/// unreadable or unparseable file yields a summary carrying its `parse_error`
+/// (so the operator can see *why* a channel isn't loading) rather than being
+/// dropped. Read-only: never constructs a channel or touches the network.
+pub fn scan_channel_summaries(dir: &Path) -> Vec<ChannelSummary> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(|r| r.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("toml"))
+        .collect();
+    paths.sort();
+
+    for path in paths {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .to_string();
+        let broken = |msg: String| ChannelSummary {
+            name: stem.clone(),
+            platform: String::new(),
+            enabled: false,
+            known_platform: false,
+            option_keys: Vec::new(),
+            secret_keys: Vec::new(),
+            parse_error: Some(msg),
+        };
+        let body = match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) => {
+                out.push(broken(format!("read failed: {e}")));
+                continue;
+            }
+        };
+        match toml::from_str::<ChannelConfig>(&body) {
+            Ok(cfg) => {
+                let mut option_keys: Vec<String> = cfg.options.keys().cloned().collect();
+                option_keys.sort();
+                let mut secret_keys: Vec<String> = cfg.secrets.keys().cloned().collect();
+                secret_keys.sort();
+                out.push(ChannelSummary {
+                    known_platform: channel_factory_for(&cfg.platform).is_some(),
+                    name: cfg.name,
+                    platform: cfg.platform,
+                    enabled: cfg.enabled,
+                    option_keys,
+                    secret_keys,
+                    parse_error: None,
+                });
+            }
+            Err(e) => out.push(broken(e.to_string())),
+        }
+    }
+    out
+}
+
+/// Scan the user's [`channels_dir`] into secret-free summaries.
+pub fn scan_user_channels() -> Vec<ChannelSummary> {
+    scan_channel_summaries(&channels_dir())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,6 +481,65 @@ mod tests {
 
     fn creds() -> Arc<dyn CredentialsStore> {
         MemStore::new()
+    }
+
+    #[test]
+    fn scan_summaries_reports_status_and_never_leaks_secret_values() {
+        let dir = TempDir::new().unwrap();
+        // Known platform, enabled, with options + a secret reference.
+        std::fs::write(
+            dir.path().join("myslack.toml"),
+            "name = \"myslack\"\nplatform = \"slack\"\nenabled = true\n\
+             [options]\nchannel = \"#general\"\n\
+             [secrets]\nbot_token = \"keychain:slack:SECRETVALUE\"\n",
+        )
+        .unwrap();
+        // Known platform but disabled.
+        std::fs::write(
+            dir.path().join("mytg.toml"),
+            "name = \"mytg\"\nplatform = \"telegram\"\nenabled = false\n",
+        )
+        .unwrap();
+        // Unknown platform — the "why isn't it loading" case.
+        std::fs::write(
+            dir.path().join("weird.toml"),
+            "name = \"weird\"\nplatform = \"carrierpigeon\"\n",
+        )
+        .unwrap();
+        // Unparseable file — must surface as a parse_error, not vanish.
+        std::fs::write(dir.path().join("broken.toml"), "name = = not valid").unwrap();
+
+        let summaries = scan_channel_summaries(dir.path());
+        let by = |n: &str| {
+            summaries
+                .iter()
+                .find(|c| c.name == n)
+                .unwrap_or_else(|| panic!("missing summary {n}"))
+        };
+
+        let slack = by("myslack");
+        assert_eq!(slack.platform, "slack");
+        assert!(slack.known_platform && slack.enabled);
+        assert!(slack.option_keys.contains(&"channel".to_string()));
+        assert!(slack.secret_keys.contains(&"bot_token".to_string()));
+
+        assert!(!by("mytg").enabled, "disabled channel must read disabled");
+        assert!(
+            !by("weird").known_platform,
+            "unknown platform must read unknown"
+        );
+        assert!(
+            summaries.iter().any(|c| c.parse_error.is_some()),
+            "the broken file must surface a parse_error"
+        );
+
+        // The secret VALUE must never appear anywhere in the summaries — only
+        // the key NAME (`bot_token`) is surfaced.
+        let dump = format!("{summaries:?}");
+        assert!(
+            !dump.contains("SECRETVALUE"),
+            "a secret value leaked into the summary:\n{dump}"
+        );
     }
 
     #[test]

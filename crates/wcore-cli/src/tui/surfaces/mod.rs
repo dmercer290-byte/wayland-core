@@ -42,7 +42,12 @@ mod diagnostics;
 mod marketplace; // Lane F2 — the /plugins marketplace overlay
 mod model_picker; // arrow-key /model + /provider pickers
 mod onboarding;
+// Paste-to-detect provider setup: state machine + view-model (slice S4a). The
+// `Surface` wiring (draw, async detect spawn, storage write + rebind, slash
+// command) lands in S4b; until then its items are exercised only by unit tests,
+// so allow dead_code on this staged module.
 mod palette;
+mod paste_detect_modal;
 mod plan_review;
 mod plugins;
 mod subagents;
@@ -91,6 +96,10 @@ pub enum SurfaceId {
     /// Arrow-key `/provider` picker overlay. Summoned by bare `/provider`,
     /// dismissed with Esc. Not a tab.
     ProviderPicker,
+    /// S4b — the `/connect` paste-to-detect overlay. Paste a key; it
+    /// fingerprints, validates live, and (on accept) stores + makes default.
+    /// Summoned by `/connect`, dismissed with Esc. Not a tab.
+    PasteDetect,
 }
 
 impl SurfaceId {
@@ -127,6 +136,7 @@ impl SurfaceId {
             SurfaceId::Workflows => "Workflows",
             SurfaceId::ModelPicker => "Model",
             SurfaceId::ProviderPicker => "Provider",
+            SurfaceId::PasteDetect => "Connect",
         }
     }
 
@@ -308,6 +318,21 @@ pub trait Surface {
     /// either types `?` as literal prose or, on an empty composer, escalates
     /// to `/help`; either way the surface, not the Router, owns the key.
     fn consumes_help_key(&self, _app: &App) -> bool {
+        false
+    }
+
+    /// FIX-2 — true when this surface owns `/` for its own input and the Router
+    /// must NOT pre-empt it with the global command palette.
+    ///
+    /// Default `false`: most surfaces (Diagnostics, Plugins, SubAgents, …) have
+    /// no `/` binding and no live text field, so the Router opens the command
+    /// palette on `/` there — making slash commands reachable from anywhere,
+    /// not only the Workspace composer. Surfaces that DO capture `/` override
+    /// this: `WorkspaceSurface` (composer-aware `/`), `AgentNav` (filter),
+    /// `Onboarding` (key entry), and `ConfigSurface` while any inline text
+    /// editor is active. When the override returns `true` the key falls through
+    /// to the surface's own `handle_key`.
+    fn consumes_slash(&self, _app: &App) -> bool {
         false
     }
 }
@@ -1056,6 +1081,20 @@ impl Router {
                 // into the Workspace switch; a returned `None` means the
                 // surface consumed `Esc` for its own state and is left
                 // be.
+                // FIX-2 — `/` opens the command palette from ANY surface, not
+                // only the Workspace composer. Before this, a user inside
+                // Config / Diagnostics / etc. who typed `/doctor` got nothing
+                // (the key was unhandled) and had to Esc home first — yet those
+                // surfaces even advertise `/provider` / `/model` hints. The
+                // Workspace owns its own composer-aware `/` (literal mid-message,
+                // palette on an empty line) so it is excluded; every other
+                // surface gets the global palette door unless it is actively
+                // capturing text (`consumes_slash`), where `/` stays literal.
+                KeyCode::Char('/')
+                    if here != SurfaceId::Workspace && !self.active.consumes_slash(app) =>
+                {
+                    return self.apply(SurfaceAction::OpenOverlay(SurfaceId::Palette), app);
+                }
                 KeyCode::Esc if here == SurfaceId::Diagnostics => {
                     return self.apply(SurfaceAction::Switch(SurfaceId::Workspace), app);
                 }
@@ -1231,13 +1270,36 @@ impl Router {
                         // so the next `/config` `on_enter` re-seeds from the
                         // just-saved truth instead of snapping back to the
                         // pre-save values. Provider/model/force are owned by
-                        // other paths (onboarding / CLI), so only the five
-                        // Tier-1 settings are mirrored here.
+                        // other paths (onboarding / CLI), so only the Tier-1
+                        // settings (plus the S5 Tools/Wallet fields below) are
+                        // mirrored here.
                         app.config.max_turns = applied.config_view.max_turns;
                         app.config.approval = applied.config_view.approval;
                         app.config.compaction = applied.config_view.compaction;
                         app.config.memory_enabled = applied.config_view.memory_enabled;
                         app.config.plan_first = applied.config_view.plan_first;
+                        // S5 Essentials: mirror the saved Tools + Wallet fields
+                        // so the next `/config` on_enter reseeds from the just-
+                        // saved truth, same as the five settings above.
+                        app.config.tools_auto_approve = applied.config_view.tools_auto_approve;
+                        app.config.tools_allow_list = applied.config_view.tools_allow_list.clone();
+                        app.config.tools_verify_edits = applied.config_view.tools_verify_edits;
+                        app.config.budget_max_cost_usd = applied.config_view.budget_max_cost_usd;
+                        app.config.budget_max_wall_secs = applied.config_view.budget_max_wall_secs;
+                        // S6 Advanced: mirror the observability/storage/security
+                        // edits too, same reseed reasoning.
+                        app.config.obs_structured_traces =
+                            applied.config_view.obs_structured_traces;
+                        app.config.obs_online_evolution = applied.config_view.obs_online_evolution;
+                        app.config.obs_workflow_live = applied.config_view.obs_workflow_live;
+                        app.config.storage_backend = applied.config_view.storage_backend.clone();
+                        app.config.security_egress_enabled =
+                            applied.config_view.security_egress_enabled;
+                        // S7 collection editors: mirror the egress allowlist and
+                        // the failover chain so the next on_enter reseeds truth.
+                        app.config.egress_allow = applied.config_view.egress_allow.clone();
+                        app.config.failover_enabled = applied.config_view.failover_enabled;
+                        app.config.fallback_models = applied.config_view.fallback_models.clone();
                         // The live apply succeeded — clear any prior degraded
                         // flag so `/config` shows the honest "now live" copy.
                         app.config_apply_failed = false;
@@ -1656,6 +1718,12 @@ impl Router {
                     "/config" => {
                         self.switch(app, SurfaceId::Config);
                     }
+                    "/connect" => {
+                        // S4b: the paste-to-detect overlay — paste a key, it
+                        // fingerprints + validates live, then stores it and
+                        // makes the provider default. Dismissed with Esc.
+                        let _ = self.apply(SurfaceAction::OpenOverlay(SurfaceId::PasteDetect), app);
+                    }
                     "/setup" => {
                         // Re-enter the first-run onboarding flow on demand.
                         self.switch(app, SurfaceId::Onboarding);
@@ -1681,12 +1749,14 @@ impl Router {
                                 self.apply(SurfaceAction::OpenOverlay(SurfaceId::Marketplace), app);
                         }
                     }
-                    "/doctor" | "/memory" | "/tools" => {
+                    "/doctor" | "/memory" | "/tools" | "/effective" => {
                         // `/tools` was a stub forwarded to the LLM. The
                         // diagnostics surface already enumerates every
                         // host-known tool with its backend/enabled status —
                         // route there rather than build a second, divergent
                         // tool list (Krug: one place to see what's loaded).
+                        // `/effective` (S9) lands on the same surface; its
+                        // redacted-config tab is reachable via `4`/Tab.
                         self.switch(app, SurfaceId::Diagnostics);
                     }
                     "/cost" => {
@@ -2875,6 +2945,7 @@ fn make_surface(id: SurfaceId) -> Box<dyn Surface> {
         // (make_surface has no `App`), so a bare construction is fine here.
         SurfaceId::ModelPicker => Box::new(model_picker::ModelPickerSurface::new("", "")),
         SurfaceId::ProviderPicker => Box::new(model_picker::ProviderPickerSurface::new("")),
+        SurfaceId::PasteDetect => Box::new(paste_detect_modal::PasteDetectSurface::new()),
     }
 }
 
@@ -3869,6 +3940,24 @@ mod tests {
         let mut router = Router::new(&app);
         router.apply(SurfaceAction::Command("/doctor".into()), &mut app);
         assert_eq!(app.surface, SurfaceId::Diagnostics);
+    }
+
+    #[test]
+    fn slash_opens_the_palette_from_a_non_workspace_surface() {
+        // FIX-2: `/` must reach the command palette from any surface, not just
+        // the Workspace composer. From Diagnostics (no text field, no `/`
+        // binding) pressing `/` opens the palette overlay.
+        let mut app = App::new();
+        let mut router = Router::new(&app);
+        router.apply(SurfaceAction::Switch(SurfaceId::Diagnostics), &mut app);
+        assert_eq!(app.surface, SurfaceId::Diagnostics);
+        assert_eq!(app.overlay, None, "no overlay before `/`");
+        router.handle_key(key(KeyCode::Char('/')), &mut app);
+        assert_eq!(
+            app.overlay,
+            Some(SurfaceId::Palette),
+            "`/` from Diagnostics must open the command palette"
+        );
     }
 
     #[test]
@@ -5970,12 +6059,12 @@ mod tests {
         );
     }
 
-    /// D039/D042: on the Workspace, a bare Tab with a reasoning rail present
-    /// advances the reasoning focus and must NOT switch tabs. Driven through
-    /// the Router; `app.session.turns` carries a Thinking block so the
-    /// Workspace's `owns_tab` reports `true`.
+    /// FIX-7: on the Workspace, a bare Tab switches tabs even when the
+    /// transcript already has a reasoning turn. The old behavior claimed Tab
+    /// for an (invisible) reasoning-focus step whenever any Thinking block
+    /// existed, silently breaking the documented "Tab next tab".
     #[test]
-    fn router_tab_steps_reasoning_rail_does_not_switch_tabs_d042() {
+    fn router_tab_switches_tabs_even_with_a_reasoning_turn_fix7() {
         use crate::tui::app::{TurnRole, TurnView};
         use crate::tui::turn_element::TurnElement;
         let mut app = App::new();
@@ -5989,20 +6078,12 @@ mod tests {
         });
         let mut router = Router::new(&app);
         router.apply(SurfaceAction::Switch(SurfaceId::Workspace), &mut app);
-        assert!(
-            app.focused_reasoning_turn_idx.is_none(),
-            "reasoning focus starts unset"
-        );
+        assert_eq!(app.surface, SurfaceId::Workspace);
         router.handle_key(key(KeyCode::Tab), &mut app);
         assert_eq!(
             app.surface,
-            SurfaceId::Workspace,
-            "Tab with a reasoning rail present must NOT switch tabs"
-        );
-        assert_eq!(
-            app.focused_reasoning_turn_idx,
-            Some(0),
-            "Tab must advance the reasoning focus to the reasoning turn"
+            SurfaceId::TABS[1],
+            "Tab must switch to the next tab even with a reasoning turn present"
         );
     }
 }

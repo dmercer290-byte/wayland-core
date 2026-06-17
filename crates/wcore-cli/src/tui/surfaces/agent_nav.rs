@@ -395,6 +395,12 @@ impl Surface for AgentNavSurface {
         SurfaceId::AgentNav
     }
 
+    /// FIX-2 — AgentNav owns `/` for its own group-filter, so the Router must
+    /// not steal it for the command palette.
+    fn consumes_slash(&self, _app: &App) -> bool {
+        true
+    }
+
     fn on_enter(&mut self, app: &mut App) {
         // Ensure selection is valid against the live agent list.
         let rows = self.build_rows(&app.session.sub_agents);

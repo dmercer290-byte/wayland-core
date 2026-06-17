@@ -228,6 +228,12 @@ impl CommandRegistry {
                 "tokens and spend this session",
                 false,
             ),
+            Command::new(
+                "/effective",
+                ContextMemory,
+                "view the resolved config (redacted)",
+                false,
+            ),
             // TOOLS & EXTENSIONS
             Command::new(
                 "/tools",
@@ -282,6 +288,12 @@ impl CommandRegistry {
                 false,
             ),
             Command::new("/config", Workflow, "all settings", false),
+            Command::new(
+                "/connect",
+                Workflow,
+                "paste an API key to connect a provider",
+                false,
+            ),
             Command::new("/setup", Workflow, "re-run the onboarding flow", false),
             // DIAGNOSTICS
             Command::new(
@@ -560,7 +572,9 @@ mod tests {
         // `/voice` is the 26th — toggles voice capture (v0.9.1 W1 E,
         // mirrors the Ctrl+Space chord through the same dispatcher).
         // `/theme` is the 27th — light/dark/auto switch (v0.9.2 W8, §5).
-        assert_eq!(reg.len(), 27);
+        // `/connect` is the 28th — S4b paste-to-detect provider connect.
+        // `/effective` is the 29th — S9 redacted effective-config preview.
+        assert_eq!(reg.len(), 29);
         for name in [
             "/resume",
             "/rewind",
@@ -574,6 +588,7 @@ mod tests {
             "/repomap",
             "/memory",
             "/cost",
+            "/effective",
             "/tools",
             "/mcp",
             "/auth",
@@ -585,6 +600,7 @@ mod tests {
             "/mode",
             "/theme",
             "/config",
+            "/connect",
             "/setup",
             "/doctor",
             "/replay",

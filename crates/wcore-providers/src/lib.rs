@@ -12,12 +12,14 @@ pub mod cohere;
 pub mod cooldown;
 pub mod deepseek;
 pub mod failover;
+pub mod fingerprint;
 pub mod fireworks;
 pub mod flux_router;
 pub mod gemini;
 pub mod groq;
 pub mod http_client;
 pub mod key_rotation;
+pub mod key_validation;
 // litellm, lmstudio, vllm: deleted per DECISIONS.md §D3 (Sean, 2026-05-23).
 // These were framework-shaped local-inference adapters shipped as code but
 // never wired to ProviderType arms. Revivable as plugins if needed.
@@ -31,6 +33,7 @@ pub mod openai_compat;
 pub mod openai_compatible;
 pub mod openai_responses;
 pub mod openrouter;
+pub mod paste_detect;
 pub mod perplexity;
 pub mod qwen;
 pub mod registry;

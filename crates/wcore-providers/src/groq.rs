@@ -55,6 +55,10 @@ impl LlmProvider for GroqProvider {
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         self.inner.stream(request).await
     }
+
+    async fn list_models(&self) -> anyhow::Result<Vec<crate::ModelInfo>> {
+        self.inner.list_models().await
+    }
 }
 
 /// Register a Groq factory in the given registry under the lowercased id
@@ -172,6 +176,41 @@ mod tests {
             DebugConfig::default(),
         );
         assert!(matches!(second, Err(RegistryError::DuplicateId(_))));
+    }
+
+    #[tokio::test]
+    async fn list_models_does_a_live_fetch_not_the_alias_floor() {
+        // Regression (E2E-found): the OpenAI-compat newtypes must forward
+        // `list_models` to their inner `OpenAIProvider` (a live `GET /v1/models`),
+        // NOT inherit the trait-default alias catalog. Before the fix, Groq's
+        // `list_models` returned the (empty) alias floor, so paste-to-connect
+        // validation could never authenticate Groq/OpenRouter/Cerebras/Deepseek
+        // even with valid keys — they all fell through to the picker.
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"data":[{"id":"llama-3.3-70b-versatile"},{"id":"mixtral-8x7b"}]}"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let p = GroqProvider::new(
+            "gsk_test",
+            &server.uri(),
+            ProviderCompat::default(),
+            DebugConfig::default(),
+        );
+        let models = p.list_models().await.expect("list_models");
+        assert_eq!(
+            models.len(),
+            2,
+            "Groq must surface the live model catalog, not the empty alias floor"
+        );
+        assert!(models.iter().any(|m| m.id == "llama-3.3-70b-versatile"));
     }
 
     #[test]

@@ -61,6 +61,10 @@ voice = ["wcore-agent/voice"]
 async-trait.workspace    = true
 wcore-agent.workspace    = true
 wcore-agents-pack.workspace = true
+# S10: read-only Integrations view in `/doctor` scans the on-disk channel
+# configs (`scan_user_channels`) through the same WAYLAND_HOME-correct path the
+# engine loader uses. Already in the graph transitively via wcore-agent.
+wcore-channels-registry = { path = "../wcore-channels-registry" }
 wcore-compact.workspace  = true
 wcore-config.workspace   = true
 wcore-memory.workspace   = true

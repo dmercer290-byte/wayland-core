@@ -1568,6 +1568,12 @@ impl Surface for OnboardingSurface {
         SurfaceId::Onboarding
     }
 
+    /// FIX-2 — onboarding is a text-entry flow (API keys, base URLs), so `/` is
+    /// literal here; the Router must not divert it to the command palette.
+    fn consumes_slash(&self, _app: &App) -> bool {
+        true
+    }
+
     fn render(&mut self, frame: &mut Frame, area: Rect, _app: &App, theme: &Theme) {
         // Fold in any validation result that arrived since the last
         // frame *before* drawing, so a resolved validation is reflected

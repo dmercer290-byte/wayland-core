@@ -210,8 +210,6 @@ pub struct App {
     pub active_agent_transcript_id: Option<String>,
     /// v0.9.3 — one-shot onboarding state for first-spawn hint.
     pub onboarding_state: crate::tui::onboarding::OnboardingState,
-    /// v0.9.4 — turn index of the reasoning block focused for Tab+Enter expand.
-    pub focused_reasoning_turn_idx: Option<usize>,
     /// v0.9.2 W10: monotonic revision bumped once per value-changing
     /// `transient` write (a no-op `set` does NOT bump it). A `Store`
     /// subscriber installed in [`App::with_initial_surface`] increments this
@@ -340,7 +338,6 @@ impl App {
             agent_last_event: HashMap::new(),
             active_agent_transcript_id: None,
             onboarding_state: crate::tui::onboarding::OnboardingState::default(),
-            focused_reasoning_turn_idx: None,
             transient_rev,
             // D019: no snapshots taken yet — the store is built lazily on the
             // first turn that ends with touched files.
@@ -545,7 +542,6 @@ impl App {
         self.surface_stack.clear();
         self.active_agent_transcript_id = None;
         self.reasoning_expanded.clear();
-        self.focused_reasoning_turn_idx = None;
         // ForgeFlows-Live Phase 2: drop inferred workflows on /new alongside
         // the sub-agent state they are grouped from.
         self.workflows.clear();
@@ -1228,6 +1224,47 @@ pub struct ConfigView {
     /// to the provider preset. Carried so the Config surface's Expert tier
     /// seeds + persists the real pricing values instead of placeholders.
     pub compat_costs: CompatCosts,
+    /// `[tools] auto_approve` — every tool call is auto-approved without a
+    /// per-call prompt. Surfaced by the Essentials Tools row.
+    pub tools_auto_approve: bool,
+    /// `[tools] allow_list` — the pre-approved tools. The Essentials Tools
+    /// row shows the count (`.len()`); the Advanced list editor (S7) edits the
+    /// entries directly.
+    pub tools_allow_list: Vec<String>,
+    /// `[tools] verify_edits` — re-read files after Write/Edit and feed a
+    /// verification-failed note back into the next turn.
+    pub tools_verify_edits: bool,
+    /// `[budget] max_cost_usd` — the per-session spend cap, or `None` for no
+    /// cap. The Essentials Wallet row shows + edits this; real session spend
+    /// comes from `App::cost` (never fabricated).
+    pub budget_max_cost_usd: Option<f64>,
+    /// `[budget] max_wall_time_secs` — the runaway wall-clock guard, or
+    /// `None`. Shown on the Safety row alongside the turn ceiling.
+    pub budget_max_wall_secs: Option<u64>,
+    /// `[observability] structured_traces` — emit structured trace spans.
+    /// Advanced-tier toggle.
+    pub obs_structured_traces: bool,
+    /// `[observability] online_evolution` — the GEPA online-evolution loop.
+    pub obs_online_evolution: bool,
+    /// `[observability] workflow_live_mode` — live workflow drill-in.
+    pub obs_workflow_live: bool,
+    /// `[storage.credentials] backend` as a lowercase tag (`plaintext` /
+    /// `keyring` / `encrypted-file`). The Advanced radio cycles plaintext↔
+    /// keyring; `encrypted-file` (two configured paths) is shown read-only so
+    /// the radio never clobbers the path layout.
+    pub storage_backend: String,
+    /// `[security] enabled` — the egress network guard. Advanced-tier toggle.
+    pub security_egress_enabled: bool,
+    /// `[security] egress_allow` — operator-curated extra egress allowlist
+    /// entries. The Advanced list editor (S7) adds/edits/removes domains.
+    pub egress_allow: Vec<String>,
+    /// `[provider_chain] enabled` — wrap the primary provider in the resilient
+    /// circuit-breaker + fallback chain. Advanced-tier toggle (S7).
+    pub failover_enabled: bool,
+    /// `[provider_chain] fallback_models` — ordered fallback model ids tried
+    /// when the primary's circuit opens. The Advanced list editor (S7) edits
+    /// the chain.
+    pub fallback_models: Vec<String>,
 }
 
 /// The four `ProviderCompat` cost-per-token overrides surfaced by the
@@ -1370,7 +1407,7 @@ mod tests {
 
         let mut app = App::new();
 
-        // Populate all six fields that reset_agents must clear.
+        // Populate the fields that reset_agents must clear.
         app.agent_last_event
             .insert("spawn:test".to_string(), Instant::now());
         app.agent_glow
@@ -1381,7 +1418,6 @@ mod tests {
         });
         app.active_agent_transcript_id = Some("spawn:test".to_string());
         app.reasoning_expanded.insert(0, true);
-        app.focused_reasoning_turn_idx = Some(0);
 
         // Set a sentinel on onboarding_state to verify it is NOT reset.
         app.onboarding_state.first_spawn_seen = Some(Instant::now());
@@ -1407,10 +1443,6 @@ mod tests {
         assert!(
             app.reasoning_expanded.is_empty(),
             "reset_agents must clear reasoning_expanded"
-        );
-        assert!(
-            app.focused_reasoning_turn_idx.is_none(),
-            "reset_agents must clear focused_reasoning_turn_idx"
         );
         // onboarding_state must survive the reset (once-per-session hint).
         assert!(

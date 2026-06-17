@@ -54,6 +54,10 @@ impl LlmProvider for XaiProvider {
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         self.inner.stream(request).await
     }
+
+    async fn list_models(&self) -> anyhow::Result<Vec<crate::ModelInfo>> {
+        self.inner.list_models().await
+    }
 }
 
 /// Register an xAI factory in the given registry under the lowercased id

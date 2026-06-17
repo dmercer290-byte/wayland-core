@@ -170,9 +170,8 @@ impl HealthCheck {
 
 /// The `/doctor` report: system dependency + environment health.
 ///
-/// Built from a live [`crate::doctor::collect`] run by [`run_doctor`];
-/// `Default` is the empty report shown for the one frame before the first
-/// `on_enter` collection lands.
+/// Built from a live [`crate::doctor::collect`] run by [`spawn_health_probe`];
+/// `Default` is the empty report shown while the first probe is in flight.
 #[derive(Debug, Clone, Default)]
 pub struct DoctorReport {
     /// The individual check rows, in display order.
@@ -289,47 +288,75 @@ pub struct TokenBudgetView {
     pub last_turn_output: u64,
 }
 
-/// Run the real [`crate::doctor::collect`] probe and convert its result
-/// into a [`DoctorReport`] of [`HealthCheck`] rows.
-///
-/// `doctor::collect` is async (its `which` probes spawn subprocesses),
-/// but the surface's `on_enter` / `handle_key` hooks are synchronous and
-/// run inside the TUI's tokio runtime — so `block_on` cannot be called
-/// here. The probe is therefore driven on a short-lived worker thread
-/// with its own current-thread runtime, and this fn blocks joining it.
-/// The probe is a handful of `which` calls, so the stall is sub-100ms.
-fn run_doctor() -> DoctorReport {
-    let raw = std::thread::spawn(|| {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("doctor probe runtime");
-        rt.block_on(doctor::collect())
-    })
-    .join()
-    .expect("doctor probe thread");
+/// How long the surface waits for the provider-health probe before it stops
+/// showing "probing…" and reports a timeout. Set above the underlying 5s
+/// per-request cap (plus slack for the concurrent set) so a healthy-but-slow
+/// network still lands normally; only a genuinely stalled probe trips it.
+const HEALTH_PROBE_UI_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
-    DoctorReport {
-        checks: raw.checks.iter().map(health_check_from).collect(),
-    }
+/// One result from the off-thread `/doctor` probe. The two probes are
+/// **independent** — the fast system-dependency scan (`which` subprocesses)
+/// is delivered the instant it finishes, without waiting for the slow live
+/// provider-health HTTP probes — so SYSTEM/DISCOVERED fill in immediately
+/// while PROVIDERS is still in flight.
+enum ProbeMsg {
+    /// The converted system-dependency report (`which` checks).
+    Doctor(DoctorReport),
+    /// The live provider-health rows (real HTTP probes).
+    Health(Vec<AgentProviderHealth>),
 }
 
-/// Run the live provider-health probes on a short-lived worker thread,
-/// using the same thread-per-call pattern as [`run_doctor`].
+/// Start the two slow `/doctor` probes on a **detached** worker thread and
+/// return a receiver that delivers each result as it lands.
 ///
-/// The async [`wcore_agent::health::provider_health_check_all`] races
-/// four 5-second-capped HTTP probes in parallel, so the worst-case
-/// stall on the calling (sync) `on_enter` is one timeout, ~5s.
-fn run_provider_health() -> Vec<AgentProviderHealth> {
-    std::thread::spawn(|| {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("provider-health probe runtime");
-        rt.block_on(health::provider_health_check_all())
-    })
-    .join()
-    .expect("provider-health probe thread")
+/// This is the fix for the `on_enter` UI-thread freeze: `doctor::collect`
+/// (which spawns subprocesses) and `health::provider_health_check_all`
+/// (live HTTP) are async, but the surface's `on_enter`/`handle_key` hooks
+/// are synchronous and run inside the TUI's tokio runtime. The previous
+/// implementation drove them on a worker thread but then **joined** it,
+/// blocking the render loop — and when the HTTP probes stalled (a
+/// restrictive egress layer, or many connected providers exceeding the
+/// per-probe cap), the entire TUI froze and the Diagnostics surface never
+/// painted. Here the thread is left running; the surface renders a
+/// "probing…" state immediately and `tick`→[`DiagnosticsSurface::poll_health`]
+/// fills in SYSTEM/PROVIDERS/DISCOVERED as each result lands (the same
+/// async-poll pattern as the paste-detect modal). The two probes are
+/// dispatched concurrently and each sends on its own, so the fast system
+/// scan is never held hostage by the slow provider HTTP probe.
+fn spawn_health_probe() -> std::sync::mpsc::Receiver<ProbeMsg> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    // If the thread fails to spawn, both senders drop and the receiver
+    // resolves to `Disconnected` — the surface treats that as "no result"
+    // and stops waiting rather than hanging on a perpetual "probing…".
+    let _ = std::thread::Builder::new()
+        .name("wld-doctor-probe".into())
+        .spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(_) => return,
+            };
+            rt.block_on(async {
+                let tx_doctor = tx.clone();
+                let doctor_task = async move {
+                    let raw = doctor::collect().await;
+                    let report = DoctorReport {
+                        checks: raw.checks.iter().map(health_check_from).collect(),
+                    };
+                    // A dropped receiver (surface left the screen) is an
+                    // expected no-op, not an error.
+                    let _ = tx_doctor.send(ProbeMsg::Doctor(report));
+                };
+                let health_task = async move {
+                    let health = health::provider_health_check_all().await;
+                    let _ = tx.send(ProbeMsg::Health(health));
+                };
+                tokio::join!(doctor_task, health_task);
+            });
+        });
+    rx
 }
 
 /// Build the per-tool backend-status snapshot by walking [`TOOL_GATES`]
@@ -353,6 +380,225 @@ fn scan_tool_status() -> Vec<ToolStatusRow> {
 /// `Err` and an empty value).
 fn env_set_nonempty(name: &str) -> bool {
     matches!(std::env::var(name), Ok(v) if !v.is_empty())
+}
+
+/// S8: build the **config-posture** health rows from the resolved
+/// [`ConfigView`](crate::tui::app::ConfigView) snapshot on `App`.
+///
+/// These are coherence/safety checks on the user's *configuration* — distinct
+/// from the SYSTEM (binaries), PROVIDERS (live HTTP), and TOOLS (env gates)
+/// sections, which probe the runtime environment. Every row reads real config
+/// values plumbed by S5–S7 (egress allowlist, credential backend, spend cap,
+/// failover chain, tool-approval posture) plus one cheap filesystem resolve
+/// for the memory directory. A valid-but-permissive state is surfaced as
+/// `Warn` (never a fake `Fail`); a benign "off" state is an honest `Ok`.
+fn scan_config_health(app: &App) -> Vec<HealthCheck> {
+    let c = &app.config;
+    let mut rows = Vec::new();
+
+    // Egress guard — off means outbound calls are not gated.
+    rows.push(if c.security_egress_enabled {
+        let n = c.egress_allow.len();
+        HealthCheck::new(
+            "egress guard",
+            HealthState::Ok,
+            format!(
+                "on · {n} extra allowlist entr{}",
+                if n == 1 { "y" } else { "ies" }
+            ),
+        )
+    } else {
+        HealthCheck::new(
+            "egress guard",
+            HealthState::Warn,
+            "off — outbound network calls are not restricted",
+        )
+    });
+
+    // Credential storage backend — plaintext is the permissive default.
+    rows.push(match c.storage_backend.as_str() {
+        "keyring" => HealthCheck::new("credential store", HealthState::Ok, "OS keyring"),
+        "encrypted-file" => HealthCheck::new("credential store", HealthState::Ok, "encrypted file"),
+        _ => HealthCheck::new(
+            "credential store",
+            HealthState::Warn,
+            "plaintext file (0600) — Advanced → keyring to harden",
+        ),
+    });
+
+    // Tool approval posture — auto-approve runs every tool call unprompted.
+    rows.push(if c.tools_auto_approve {
+        HealthCheck::new(
+            "tool approval",
+            HealthState::Warn,
+            "auto-approve — every tool call runs without a prompt",
+        )
+    } else {
+        HealthCheck::new(
+            "tool approval",
+            HealthState::Ok,
+            format!("ask each · {} pre-approved", c.tools_allow_list.len()),
+        )
+    });
+
+    // Provider failover chain (S7) — on with no chain does nothing.
+    rows.push(if c.failover_enabled {
+        if c.fallback_models.is_empty() {
+            HealthCheck::new(
+                "provider failover",
+                HealthState::Warn,
+                "on but no fallback models configured",
+            )
+        } else {
+            let n = c.fallback_models.len();
+            HealthCheck::new(
+                "provider failover",
+                HealthState::Ok,
+                format!("on · {n} fallback model{}", if n == 1 { "" } else { "s" }),
+            )
+        }
+    } else {
+        HealthCheck::new(
+            "provider failover",
+            HealthState::Ok,
+            "off — single provider",
+        )
+    });
+
+    // Spend cap (S5) — informational; "no cap" is a valid choice.
+    rows.push(match c.budget_max_cost_usd {
+        Some(cap) => HealthCheck::new(
+            "spend cap",
+            HealthState::Ok,
+            format!("${cap:.2} per session"),
+        ),
+        None => HealthCheck::new("spend cap", HealthState::Ok, "no cap set"),
+    });
+
+    // Long-term memory — when on, the store directory must resolve.
+    rows.push(if c.memory_enabled {
+        match std::env::current_dir()
+            .ok()
+            .and_then(|cwd| wcore_memory::paths::auto_memory_dir(&cwd))
+        {
+            Some(dir) => HealthCheck::new(
+                "long-term memory",
+                HealthState::Ok,
+                format!("on · {}", dir.display()),
+            ),
+            None => HealthCheck::new(
+                "long-term memory",
+                HealthState::Warn,
+                "on · could not resolve the memory directory",
+            ),
+        }
+    } else {
+        HealthCheck::new("long-term memory", HealthState::Ok, "off")
+    });
+
+    rows
+}
+
+/// S11: one "here's what I found" discovery row — a latent capability on this
+/// machine the user could wire up (ambient cloud creds, a local Ollama daemon,
+/// an existing Claude Desktop MCP config). Read-only: detection only, never
+/// mutates config.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Discovery {
+    /// Short capability label (e.g. `AWS / Bedrock`).
+    pub label: String,
+    /// Whether the capability was detected on this host.
+    pub available: bool,
+    /// A one-line detail: what was found, or how to enable it.
+    pub detail: String,
+}
+
+/// The Claude Desktop config path on this platform
+/// (`<config-dir>/Claude/claude_desktop_config.json`). Uses the real OS config
+/// dir — Claude Desktop is an external app, so this deliberately does NOT honor
+/// `WAYLAND_HOME` (we are discovering the actual machine).
+fn claude_desktop_config_path() -> std::path::PathBuf {
+    dirs::config_dir()
+        .unwrap_or_default()
+        .join("Claude")
+        .join("claude_desktop_config.json")
+}
+
+/// Count the MCP servers declared in a Claude Desktop config file. Returns
+/// `None` if the file is absent/unreadable/unparseable or has no `mcpServers`
+/// object — the discovery row reads that as "not detected".
+fn count_mcp_servers_in(path: &std::path::Path) -> Option<usize> {
+    let body = std::fs::read_to_string(path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&body).ok()?;
+    Some(json.get("mcpServers")?.as_object()?.len())
+}
+
+/// S11: probe the machine for latent capabilities Wayland could use. Reuses the
+/// single-source-of-truth ambient/OAuth detection in
+/// [`wcore_config::config::provider_connected`] and the already-collected
+/// Ollama doctor signal; the only fresh probe is the Claude Desktop config scan.
+fn scan_environment(ollama_available: bool) -> Vec<Discovery> {
+    use wcore_config::config::{ProviderType, provider_connected};
+
+    let mut rows = Vec::new();
+
+    rows.push(Discovery {
+        label: "Ollama (local models)".to_string(),
+        available: ollama_available,
+        detail: if ollama_available {
+            "detected — route local models with `ollama:<model>`".to_string()
+        } else {
+            "not found — install ollama or set OLLAMA_BASE_URL".to_string()
+        },
+    });
+
+    let aws = provider_connected(ProviderType::Bedrock);
+    rows.push(Discovery {
+        label: "AWS / Bedrock".to_string(),
+        available: aws,
+        detail: if aws {
+            "ambient AWS credentials detected — Bedrock is ready".to_string()
+        } else {
+            "no AWS credentials (env / ~/.aws / role)".to_string()
+        },
+    });
+
+    let gcp = provider_connected(ProviderType::Vertex);
+    rows.push(Discovery {
+        label: "GCP / Vertex".to_string(),
+        available: gcp,
+        detail: if gcp {
+            "ambient GCP credentials detected — Vertex is ready".to_string()
+        } else {
+            "no GCP credentials (GOOGLE_APPLICATION_CREDENTIALS / ADC)".to_string()
+        },
+    });
+
+    let chatgpt = provider_connected(ProviderType::OpenAIChatGpt);
+    rows.push(Discovery {
+        label: "ChatGPT (OAuth)".to_string(),
+        available: chatgpt,
+        detail: if chatgpt {
+            "stored ChatGPT login detected".to_string()
+        } else {
+            "not signed in — run `wayland auth login chatgpt`".to_string()
+        },
+    });
+
+    let mcp = count_mcp_servers_in(&claude_desktop_config_path());
+    rows.push(Discovery {
+        label: "Claude Desktop MCP".to_string(),
+        available: mcp.is_some_and(|n| n > 0),
+        detail: match mcp {
+            Some(n) if n > 0 => format!(
+                "{n} MCP server{} configured — importable",
+                if n == 1 { "" } else { "s" }
+            ),
+            _ => "no Claude Desktop MCP config found".to_string(),
+        },
+    });
+
+    rows
 }
 
 /// Extract the last 10 engine errors from the session transcript.
@@ -468,7 +714,7 @@ pub struct MemoryReport {
 // DiagnosticsSurface
 // ─────────────────────────────────────────────────────────────────────────
 
-/// Which of the three diagnostic screens is in view.
+/// Which diagnostic screen is in view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagMode {
     /// `/doctor` — provider / key / MCP health.
@@ -477,11 +723,18 @@ pub enum DiagMode {
     Cost,
     /// `/memory` — long-term memory contents + delete.
     Memory,
+    /// `/effective` — the resolved effective config, redacted (S9).
+    Effective,
 }
 
 impl DiagMode {
-    /// The three modes in tab order.
-    const ALL: [DiagMode; 3] = [DiagMode::Doctor, DiagMode::Cost, DiagMode::Memory];
+    /// The modes in tab order.
+    const ALL: [DiagMode; 4] = [
+        DiagMode::Doctor,
+        DiagMode::Cost,
+        DiagMode::Memory,
+        DiagMode::Effective,
+    ];
 
     /// The slash-command label for this mode.
     fn label(self) -> &'static str {
@@ -489,6 +742,7 @@ impl DiagMode {
             DiagMode::Doctor => "/doctor",
             DiagMode::Cost => "/cost",
             DiagMode::Memory => "/memory",
+            DiagMode::Effective => "/effective",
         }
     }
 }
@@ -529,6 +783,44 @@ pub struct DiagnosticsSurface {
     /// `TOOL_GATES` + a live env-var probe. Cheap to recompute, but
     /// caching it keeps the render path free of `std::env::var` calls.
     tool_status: Vec<ToolStatusRow>,
+    /// S8 — config-posture health rows built from the resolved `ConfigView`
+    /// on `App` (egress / credentials / tool approval / failover / spend cap /
+    /// memory). Refreshed alongside the doctor probe on `on_enter` + `r`.
+    config_checks: Vec<HealthCheck>,
+    /// S9 — the rendered effective-config TOML (redacted) for the `/effective`
+    /// mode, built on `on_enter` via `wcore_config::config::effective_config_toml`.
+    /// Holds an error message string if the render failed.
+    effective_toml: String,
+    /// Vertical scroll offset for the `/effective` view (the TOML can exceed
+    /// the viewport). Clamped on `Up`/`Down`/`PageUp`/`PageDown`.
+    effective_scroll: u16,
+    /// S10 — secret-free summaries of the on-disk channel configs (the
+    /// "Integrations ghost" made visible). Scanned from the canonical
+    /// `channels_dir()` on `on_enter` + the `r` key, rendered as the CHANNELS
+    /// section of `/doctor`.
+    channels: Vec<wcore_channels_registry::ChannelSummary>,
+    /// S11 — "here's what I found" environment discovery: latent capabilities
+    /// on this machine (ambient cloud creds, local Ollama, Claude Desktop MCP)
+    /// the user could wire up. Rendered as the DISCOVERED section of `/doctor`.
+    discovered: Vec<Discovery>,
+    /// In-flight handle for the async system + provider-health probe. `Some`
+    /// while either probe is running (started by `on_enter` / the `r` key);
+    /// `tick` polls it and clears it back to `None` once both results land.
+    /// Keeping the probe off the synchronous `on_enter` path is what stops the
+    /// live HTTP probes from freezing the whole TUI (see [`spawn_health_probe`]).
+    health_pending: Option<std::sync::mpsc::Receiver<ProbeMsg>>,
+    /// Whether the live provider-health rows have landed for the current probe.
+    /// Distinct from `doctor_collected` (the system scan) because the two
+    /// probes resolve independently — the fast system scan should not gate the
+    /// PROVIDERS "probing…" state on the slow HTTP probe, and vice-versa.
+    health_collected: bool,
+    /// When the current probe was started, for the UI-side health timeout.
+    probe_started: Option<std::time::Instant>,
+    /// Set when the provider-health probe exceeded [`HEALTH_PROBE_UI_TIMEOUT`]
+    /// without landing. The HTTP probe carries its own per-request cap, but a
+    /// hostile egress layer can stall it beyond that; rather than show
+    /// "probing…" forever we give up waiting and say so honestly.
+    health_timed_out: bool,
 }
 
 impl Default for DiagnosticsSurface {
@@ -552,6 +844,15 @@ impl DiagnosticsSurface {
             doctor_collected: false,
             provider_health: Vec::new(),
             tool_status: Vec::new(),
+            config_checks: Vec::new(),
+            effective_toml: String::new(),
+            effective_scroll: 0,
+            channels: Vec::new(),
+            discovered: Vec::new(),
+            health_pending: None,
+            health_collected: false,
+            probe_started: None,
+            health_timed_out: false,
         }
     }
 
@@ -560,14 +861,115 @@ impl DiagnosticsSurface {
         self.mode
     }
 
-    /// Run the live `doctor` probe and store its report. Also refreshes
-    /// the v0.9.0 W4 E2 provider-health probes (real HTTP) + the cheap
-    /// env-driven tool-status snapshot.
-    fn refresh_doctor(&mut self) {
-        self.doctor = run_doctor();
-        self.provider_health = run_provider_health();
+    /// Refresh the `/doctor` data. The cheap, local scans (tool gates, config
+    /// posture, channel configs) run synchronously here; the two slow live
+    /// probes (system `which` checks + provider HTTP health) are started on a
+    /// detached worker thread and filled in later by `tick`→[`Self::poll_health`].
+    ///
+    /// Splitting the work this way is the fix for the `on_enter` freeze: the
+    /// surface paints immediately with the local sections (CONFIG / TOOLS /
+    /// CHANNELS) and a "probing…" placeholder for SYSTEM / PROVIDERS /
+    /// DISCOVERED, instead of blocking the render loop on uncapped HTTP probes.
+    fn refresh_doctor(&mut self, app: &App) {
+        // Instant, local, non-blocking scans — safe on the UI thread.
         self.tool_status = scan_tool_status();
-        self.doctor_collected = true;
+        self.config_checks = scan_config_health(app);
+        // S10: surface the on-disk channel configs (read-only, secret-free).
+        self.channels = wcore_channels_registry::scan_user_channels();
+        // Slow live probes run off-thread; DISCOVERED (S11) is computed in
+        // `poll_health` once the doctor report (its Ollama signal) lands.
+        self.start_health_probe();
+    }
+
+    /// Start the async system + provider-health probe (idempotent: replacing
+    /// any in-flight handle). Marks both results not-yet-collected so the
+    /// render shows the "probing…" state until [`Self::poll_health`] applies
+    /// each. The prior rows are kept until then, so a re-run (`r`) updates in
+    /// place rather than flashing to empty.
+    fn start_health_probe(&mut self) {
+        self.doctor_collected = false;
+        self.health_collected = false;
+        self.health_timed_out = false;
+        self.probe_started = Some(std::time::Instant::now());
+        self.health_pending = Some(spawn_health_probe());
+    }
+
+    /// Poll the in-flight health probe; apply any results that have landed.
+    /// Returns `true` when something was applied (so the caller knows a
+    /// repaint is due). Drains every queued message per call so a fast and a
+    /// slow result that arrive together are both picked up. The receiver is
+    /// cleared once both probes have resolved (or the thread dropped without a
+    /// result), so the surface never hangs on a perpetual "probing…". Called
+    /// from `tick` every loop iteration.
+    fn poll_health(&mut self) -> bool {
+        let Some(rx) = self.health_pending.as_ref() else {
+            return false;
+        };
+        let mut changed = false;
+        loop {
+            match rx.try_recv() {
+                Ok(ProbeMsg::Doctor(report)) => {
+                    self.doctor = report;
+                    // S11: "here's what I found" — reuse the just-landed Ollama
+                    // doctor signal rather than re-probing it.
+                    let ollama_available = self
+                        .doctor
+                        .checks
+                        .iter()
+                        .any(|c| c.label == "ollama" && c.state == HealthState::Ok);
+                    self.discovered = scan_environment(ollama_available);
+                    self.doctor_collected = true;
+                    changed = true;
+                }
+                Ok(ProbeMsg::Health(rows)) => {
+                    self.provider_health = rows;
+                    self.health_collected = true;
+                    changed = true;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    // The probe thread is gone — stop waiting on anything that
+                    // never arrived and render whatever we have.
+                    self.doctor_collected = true;
+                    self.health_collected = true;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        // UI-side timeout: a stalled provider-health probe (egress layer
+        // holding the connection past its own cap) must not show "probing…"
+        // forever. Give up waiting on it and report a timeout. The detached
+        // probe thread is left to finish on its own; a re-run (`r`) starts a
+        // fresh one.
+        if !self.health_collected
+            && self
+                .probe_started
+                .is_some_and(|t| t.elapsed() >= HEALTH_PROBE_UI_TIMEOUT)
+        {
+            self.health_collected = true;
+            self.health_timed_out = true;
+            changed = true;
+        }
+        // Stop polling once both probes have settled.
+        if self.doctor_collected && self.health_collected {
+            self.health_pending = None;
+        }
+        changed
+    }
+
+    /// S9: render the redacted effective config into `effective_toml` and reset
+    /// the scroll. Uses default CLI args — the file-merged config (global ←
+    /// project ← profile is not threaded yet; a follow-up). A render failure is
+    /// stored as a readable message rather than panicking the read-only screen.
+    fn refresh_effective(&mut self) {
+        self.effective_toml = match wcore_config::config::effective_config_toml(
+            &wcore_config::config::CliArgs::default(),
+        ) {
+            Ok(toml) => toml,
+            Err(e) => format!("could not render the effective config:\n{e:#}"),
+        };
+        self.effective_scroll = 0;
     }
 
     /// Re-scan the project long-term memory directory into the `/memory`
@@ -688,9 +1090,18 @@ impl Surface for DiagnosticsSurface {
 
     /// Refresh both the doctor probe and the memory scan when the surface
     /// becomes active, so re-entering the screen always shows live data.
-    fn on_enter(&mut self, _app: &mut App) {
-        self.refresh_doctor();
+    fn on_enter(&mut self, app: &mut App) {
+        self.refresh_doctor(app);
         self.refresh_memory();
+        self.refresh_effective();
+    }
+
+    /// Per-tick poll for the async health probe started by `on_enter`/`r`.
+    /// Applies the result when it lands so SYSTEM/PROVIDERS/DISCOVERED fill in
+    /// without blocking the UI thread. Emits no action.
+    fn tick(&mut self, _app: &mut App) -> SurfaceAction {
+        self.poll_health();
+        SurfaceAction::None
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
@@ -708,6 +1119,7 @@ impl Surface for DiagnosticsSurface {
             DiagMode::Doctor => self.render_doctor(frame, body_area, app, theme),
             DiagMode::Cost => self.render_cost(frame, body_area, app, theme),
             DiagMode::Memory => self.render_memory(frame, body_area, theme),
+            DiagMode::Effective => self.render_effective(frame, body_area, theme),
         }
     }
 
@@ -734,6 +1146,27 @@ impl Surface for DiagnosticsSurface {
                 self.mode = DiagMode::Memory;
                 SurfaceAction::None
             }
+            KeyCode::Char('4') => {
+                self.mode = DiagMode::Effective;
+                SurfaceAction::None
+            }
+            // `/effective` scroll — the redacted TOML can exceed the viewport.
+            KeyCode::Up | KeyCode::Char('k') if self.mode == DiagMode::Effective => {
+                self.effective_scroll = self.effective_scroll.saturating_sub(1);
+                SurfaceAction::None
+            }
+            KeyCode::Down | KeyCode::Char('j') if self.mode == DiagMode::Effective => {
+                self.effective_scroll = self.effective_scroll.saturating_add(1);
+                SurfaceAction::None
+            }
+            KeyCode::PageUp if self.mode == DiagMode::Effective => {
+                self.effective_scroll = self.effective_scroll.saturating_sub(10);
+                SurfaceAction::None
+            }
+            KeyCode::PageDown if self.mode == DiagMode::Effective => {
+                self.effective_scroll = self.effective_scroll.saturating_add(10);
+                SurfaceAction::None
+            }
             KeyCode::Tab => {
                 let idx = DiagMode::ALL
                     .iter()
@@ -753,7 +1186,7 @@ impl Surface for DiagnosticsSurface {
             }
             // `/doctor` re-run — re-run the live probe in place.
             KeyCode::Char('r') if self.mode == DiagMode::Doctor => {
-                self.refresh_doctor();
+                self.refresh_doctor(app);
                 SurfaceAction::None
             }
             // `/memory` list navigation.
@@ -853,7 +1286,7 @@ impl DiagnosticsSurface {
     ///   5. Token budget for the active model
     fn render_doctor(&self, frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
         let block = panel(
-            " /doctor — system · providers · tools · errors · tokens ",
+            " /doctor — system · providers · config · tools · errors · tokens ",
             t,
         );
         let inner = block.inner(area);
@@ -862,29 +1295,49 @@ impl DiagnosticsSurface {
             return;
         }
 
-        // The empty report shown for the single frame before the first
-        // `on_enter` probe lands.
-        if !self.doctor_collected && self.doctor.checks.is_empty() {
-            render_empty(frame, inner, t, "Running system checks…");
-            return;
-        }
+        // The two live probes (SYSTEM + PROVIDERS) run off-thread and resolve
+        // independently; until each lands its section (and DISCOVERED, derived
+        // from SYSTEM) shows a "probing…" line. The local sections (CONFIG /
+        // TOOLS / CHANNELS) always render immediately — the whole point of not
+        // blocking `on_enter`.
+        let system_probing = self.health_pending.is_some() && !self.doctor_collected;
+        let providers_probing = self.health_pending.is_some() && !self.health_collected;
+        let probing_line = || {
+            Line::from(Span::styled(
+                "  probing…",
+                Style::default().fg(t.text_muted),
+            ))
+        };
 
         let mut lines: Vec<Line> = Vec::new();
 
         // ── 1. System dependency rows ───────────────────────────────
         push_section_header(&mut lines, t, "SYSTEM");
-        for check in &self.doctor.checks {
-            lines.push(status_row(check.state, &check.label, &check.detail, t));
+        if self.doctor.checks.is_empty() && system_probing {
+            lines.push(probing_line());
+        } else {
+            for check in &self.doctor.checks {
+                lines.push(status_row(check.state, &check.label, &check.detail, t));
+            }
         }
 
         // ── 2. Provider health rows ─────────────────────────────────
         lines.push(Line::from(""));
         push_section_header(&mut lines, t, "PROVIDERS");
         if self.provider_health.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  no provider probes yet",
-                Style::default().fg(t.text_muted),
-            )));
+            lines.push(if providers_probing {
+                probing_line()
+            } else if self.health_timed_out {
+                Line::from(Span::styled(
+                    "  health probe timed out — check network / egress policy",
+                    Style::default().fg(t.warning),
+                ))
+            } else {
+                Line::from(Span::styled(
+                    "  no provider probes yet",
+                    Style::default().fg(t.text_muted),
+                ))
+            });
         } else {
             for ph in &self.provider_health {
                 lines.push(status_row(
@@ -896,7 +1349,17 @@ impl DiagnosticsSurface {
             }
         }
 
-        // ── 3. Per-tool backend status ──────────────────────────────
+        // ── 3. Config posture rows (S8) ─────────────────────────────
+        // Coherence/safety checks on the resolved config snapshot — the
+        // answer to "is my configuration sane", distinct from the runtime
+        // probes above.
+        lines.push(Line::from(""));
+        push_section_header(&mut lines, t, "CONFIG");
+        for check in &self.config_checks {
+            lines.push(status_row(check.state, &check.label, &check.detail, t));
+        }
+
+        // ── 4. Per-tool backend status ──────────────────────────────
         lines.push(Line::from(""));
         push_section_header(&mut lines, t, "TOOLS");
         for row in &self.tool_status {
@@ -913,7 +1376,7 @@ impl DiagnosticsSurface {
             lines.push(status_row(state, &row.name, &detail, t));
         }
 
-        // ── 4. MCP servers ──────────────────────────────────────────
+        // ── 5. MCP servers ──────────────────────────────────────────
         // Seeded at boot from the connect-health snapshot (tui::run) and
         // updated live by McpReady / McpFailed events. A failed or timed-out
         // server is the answer to "why aren't my plugin's tools showing up".
@@ -946,7 +1409,71 @@ impl DiagnosticsSurface {
             }
         }
 
-        // ── 5. Recent engine errors ─────────────────────────────────
+        // ── 6. Channels / integrations (S10) ────────────────────────
+        // The on-disk channel configs (`~/.wayland/channels/*.toml`) are
+        // otherwise invisible to the schema-driven `/config` TUI — this is the
+        // "ghost subsystem" made visible. Secret-free: only key names show.
+        lines.push(Line::from(""));
+        push_section_header(&mut lines, t, "CHANNELS");
+        if self.channels.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  none configured",
+                Style::default().fg(t.text_muted),
+            )));
+        } else {
+            for ch in &self.channels {
+                let (state, detail) = if let Some(err) = &ch.parse_error {
+                    (HealthState::Fail, format!("parse error · {err}"))
+                } else if !ch.known_platform {
+                    (
+                        HealthState::Fail,
+                        format!("unknown platform `{}` · won't load", ch.platform),
+                    )
+                } else if !ch.enabled {
+                    (HealthState::Warn, format!("{} · disabled", ch.platform))
+                } else {
+                    let opts = if ch.option_keys.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · opts: {}", ch.option_keys.join(", "))
+                    };
+                    let secrets = if ch.secret_keys.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · secrets: {}", ch.secret_keys.join(", "))
+                    };
+                    (
+                        HealthState::Ok,
+                        format!("{} · enabled{opts}{secrets}", ch.platform),
+                    )
+                };
+                lines.push(status_row(state, &ch.name, &detail, t));
+            }
+        }
+
+        // ── 7. Discovered capabilities (S11) ────────────────────────
+        // "Here's what I found" — latent capabilities on this machine the user
+        // could wire up. A found capability paints green; an absent one is a
+        // dim line with the how-to hint (absence is not a problem, so no Warn).
+        lines.push(Line::from(""));
+        push_section_header(&mut lines, t, "DISCOVERED");
+        if self.discovered.is_empty() && system_probing {
+            lines.push(probing_line());
+        }
+        for d in &self.discovered {
+            let (glyph, glyph_color, label_color) = if d.available {
+                ("● ", t.success, t.text)
+            } else {
+                ("○ ", t.text_dim, t.text_dim)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(glyph.to_string(), Style::default().fg(glyph_color)),
+                Span::styled(format!("{:<22}", d.label), Style::default().fg(label_color)),
+                Span::styled(d.detail.clone(), Style::default().fg(t.text_muted)),
+            ]));
+        }
+
+        // ── 8. Recent engine errors ─────────────────────────────────
         lines.push(Line::from(""));
         push_section_header(&mut lines, t, "RECENT ERRORS");
         let errors = collect_recent_errors(app);
@@ -967,7 +1494,7 @@ impl DiagnosticsSurface {
             }
         }
 
-        // ── 6. Token budget ─────────────────────────────────────────
+        // ── 9. Token budget ─────────────────────────────────────────
         lines.push(Line::from(""));
         push_section_header(&mut lines, t, "TOKEN BUDGET");
         let budget = token_budget_view(app);
@@ -1178,6 +1705,56 @@ impl DiagnosticsSurface {
         let para = Paragraph::new(lines).style(Style::default().bg(t.surface));
         frame.render_widget(para, inner);
     }
+
+    /// Render the `/effective` screen (S9): the redacted, merged effective
+    /// config as scrollable TOML, with a header noting what is and isn't shown.
+    fn render_effective(&self, frame: &mut Frame, area: Rect, t: &Theme) {
+        let block = panel(" /effective — resolved config · redacted ", t);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        if inner.height < 3 || inner.width < 10 {
+            return;
+        }
+        let [note_area, body_area, footer_area] = Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .areas(inner);
+
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(Span::styled(
+                    "Merged from global ← project config files. Secrets shown as ***.",
+                    Style::default().fg(t.text_dim),
+                )),
+                Line::from(Span::styled(
+                    "Live env-resolved API keys and session CLI flags are not shown.",
+                    Style::default().fg(t.text_muted),
+                )),
+            ]),
+            note_area,
+        );
+
+        // Clamp the scroll so the view can never run past the end into a blank
+        // screen (the held offset may exceed the content; the display clamps).
+        let total_lines = self.effective_toml.lines().count() as u16;
+        let scroll = self.effective_scroll.min(total_lines.saturating_sub(1));
+        frame.render_widget(
+            Paragraph::new(self.effective_toml.clone())
+                .style(Style::default().fg(t.text))
+                .scroll((scroll, 0)),
+            body_area,
+        );
+
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "  ↑↓ scroll · 1 doctor · 2 cost · 3 memory · 4 effective · esc workspace",
+                Style::default().fg(t.text_muted),
+            ))),
+            footer_area,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1212,6 +1789,23 @@ mod tests {
             out.push('\n');
         }
         out
+    }
+
+    /// Drive the async health probe (started by `on_enter`/`r`) to full
+    /// settlement by polling `tick`, the way the live render loop does. Both
+    /// the system scan and the provider-health rows must land (the receiver is
+    /// cleared only when both do). Bounded so a hung/slow probe fails the test
+    /// rather than spinning forever. Returns whether it settled in budget.
+    fn drive_health_probe(s: &mut DiagnosticsSurface) -> bool {
+        let mut app = App::new();
+        for _ in 0..400 {
+            s.tick(&mut app);
+            if s.health_pending.is_none() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        s.health_pending.is_none()
     }
 
     // -- OSC-9 / bell helpers ----------------------------------------------
@@ -1281,7 +1875,7 @@ mod tests {
     }
 
     #[test]
-    fn tab_cycles_through_the_three_modes() {
+    fn tab_cycles_through_the_modes() {
         let mut s = DiagnosticsSurface::new();
         let mut app = App::new();
         s.handle_key(key(KeyCode::Tab), &mut app);
@@ -1289,10 +1883,39 @@ mod tests {
         s.handle_key(key(KeyCode::Tab), &mut app);
         assert_eq!(s.mode(), DiagMode::Memory);
         s.handle_key(key(KeyCode::Tab), &mut app);
+        assert_eq!(s.mode(), DiagMode::Effective);
+        s.handle_key(key(KeyCode::Tab), &mut app);
         // Wraps back to the first mode.
         assert_eq!(s.mode(), DiagMode::Doctor);
         s.handle_key(key(KeyCode::BackTab), &mut app);
-        assert_eq!(s.mode(), DiagMode::Memory);
+        assert_eq!(s.mode(), DiagMode::Effective);
+    }
+
+    #[test]
+    fn effective_mode_renders_redaction_note_and_scrolls() {
+        // S9: the `4` key selects the Effective tab; the redacted-config
+        // preview renders with its caveat header and the scroll keys move the
+        // offset. The redaction note is static UI text, so this assertion is
+        // hermetic regardless of the box's real config contents.
+        let mut s = DiagnosticsSurface::new();
+        let mut app = App::new();
+        s.on_enter(&mut app);
+        s.handle_key(key(KeyCode::Char('4')), &mut app);
+        assert_eq!(s.mode(), DiagMode::Effective);
+        let out = render_to_string(&mut s);
+        assert!(out.contains("/effective"), "tab label missing:\n{out}");
+        assert!(
+            out.contains("Secrets shown as"),
+            "redaction note missing:\n{out}"
+        );
+        // Scroll down then up returns to the start; saturating at 0.
+        let before = s.effective_scroll;
+        s.handle_key(key(KeyCode::Down), &mut app);
+        assert_eq!(s.effective_scroll, before + 1);
+        s.handle_key(key(KeyCode::Up), &mut app);
+        assert_eq!(s.effective_scroll, before);
+        s.handle_key(key(KeyCode::Up), &mut app);
+        assert_eq!(s.effective_scroll, 0, "scroll must saturate at the top");
     }
 
     // -- /doctor screen ----------------------------------------------------
@@ -1343,14 +1966,15 @@ mod tests {
 
     #[test]
     fn doctor_renders_live_probe_rows_after_on_enter() {
-        // `on_enter` runs the real `doctor::collect` probe. Every doctor
-        // run includes the structural `binary version` row, so the live
+        // `on_enter` starts the real `doctor::collect` probe off-thread; the
+        // render loop's `tick` applies it once it lands. Every doctor run
+        // includes the structural `binary version` row, so the collected
         // report must show it — and no placeholder banner.
         let mut s = DiagnosticsSurface::new();
         s.on_enter(&mut App::new());
         assert!(
-            s.doctor_collected,
-            "on_enter must collect the doctor report"
+            drive_health_probe(&mut s),
+            "the async probe must collect the doctor report"
         );
         assert!(
             !s.doctor.checks.is_empty(),
@@ -1366,16 +1990,77 @@ mod tests {
     }
 
     #[test]
+    fn doctor_on_enter_does_not_block_and_shows_probing() {
+        // The freeze fix: `on_enter` must NOT block on the live probes. It
+        // returns immediately with a probe in flight, and the first render
+        // shows the local sections plus a "probing…" placeholder for the
+        // async ones — never a frozen/blank screen.
+        let mut s = DiagnosticsSurface::new();
+        s.on_enter(&mut App::new());
+        assert!(
+            s.health_pending.is_some(),
+            "on_enter must start the probe without blocking"
+        );
+        assert!(
+            !s.doctor_collected,
+            "the report is still in flight right after on_enter"
+        );
+        let out = render_to_string(&mut s);
+        // Local sections render instantly; the async sections show probing.
+        assert!(out.contains("CONFIG"), "local CONFIG section must render");
+        assert!(
+            out.contains("probing"),
+            "async sections must show a probing state"
+        );
+    }
+
+    #[test]
     fn doctor_re_run_key_refreshes_in_place() {
         let mut s = DiagnosticsSurface::new();
         let mut app = App::new();
-        // `r` runs the probe directly and consumes the key (no command).
+        // `r` starts the probe directly and consumes the key (no command).
         match s.handle_key(key(KeyCode::Char('r')), &mut app) {
             SurfaceAction::None => {}
             other => panic!("expected re-run to be inert, got {other:?}"),
         }
-        assert!(s.doctor_collected, "the `r` key must run the probe");
+        assert!(
+            s.health_pending.is_some(),
+            "the `r` key must start the probe"
+        );
+        assert!(drive_health_probe(&mut s), "the `r` probe must resolve");
         assert!(!s.doctor.checks.is_empty(), "re-run must populate rows");
+    }
+
+    #[test]
+    fn provider_health_probe_times_out_in_the_ui_after_the_cap() {
+        // A stalled provider-health probe (egress layer holding the connection
+        // past its own cap) must not show "probing…" forever. Once the UI
+        // timeout elapses the surface gives up waiting and renders an honest
+        // "timed out" line. Drive it with a never-resolving channel and a
+        // start time pushed past the cap (no real network, fully hermetic).
+        let mut s = DiagnosticsSurface::new();
+        let (_tx, rx) = std::sync::mpsc::channel::<ProbeMsg>();
+        s.health_pending = Some(rx); // _tx kept alive: not Disconnected, just Empty
+        s.doctor_collected = true; // pretend the fast system scan already landed
+        s.health_collected = false;
+        s.probe_started = Some(
+            std::time::Instant::now()
+                - (HEALTH_PROBE_UI_TIMEOUT + std::time::Duration::from_secs(1)),
+        );
+
+        let mut app = App::new();
+        s.tick(&mut app);
+
+        assert!(s.health_timed_out, "the probe must be marked timed out");
+        assert!(
+            s.health_pending.is_none(),
+            "a timed-out probe must stop being polled"
+        );
+        let out = render_to_string(&mut s);
+        assert!(
+            out.contains("timed out"),
+            "PROVIDERS must render the timeout copy:\n{out}"
+        );
     }
 
     // -- /cost screen ------------------------------------------------------
@@ -1869,6 +2554,192 @@ mod tests {
     }
 
     #[test]
+    fn doctor_shows_config_section_with_posture_rows() {
+        // S8: the CONFIG section surfaces config-posture health. A permissive
+        // config flags Warn rows the user can act on.
+        let mut s = DiagnosticsSurface::new();
+        let mut app = App::new();
+        app.config.security_egress_enabled = false; // unrestricted egress
+        app.config.tools_auto_approve = true; // every tool unprompted
+        app.config.storage_backend = "plaintext".into();
+        app.config.failover_enabled = true;
+        app.config.fallback_models = Vec::new(); // on but empty
+        s.on_enter(&mut app);
+        let out = render_tall(&mut s, &app);
+        assert!(
+            out.contains("CONFIG"),
+            "CONFIG section header missing:\n{out}"
+        );
+        assert!(out.contains("egress guard"), "egress row missing:\n{out}");
+        assert!(
+            out.contains("credential store"),
+            "creds row missing:\n{out}"
+        );
+        assert!(
+            out.contains("tool approval"),
+            "tool-approval row missing:\n{out}"
+        );
+        assert!(
+            out.contains("provider failover"),
+            "failover row missing:\n{out}"
+        );
+    }
+
+    #[test]
+    fn config_health_flags_permissive_posture_as_warn() {
+        // The risky-but-valid states must be Warn (actionable), never a fake
+        // Fail and never a silent Ok.
+        let mut app = App::new();
+        app.config.security_egress_enabled = false;
+        app.config.tools_auto_approve = true;
+        app.config.storage_backend = "plaintext".into();
+        app.config.failover_enabled = true;
+        app.config.fallback_models = Vec::new();
+        let rows = scan_config_health(&app);
+        let warn = |label: &str| {
+            rows.iter()
+                .find(|r| r.label == label)
+                .unwrap_or_else(|| panic!("missing row {label}"))
+                .state
+        };
+        assert_eq!(warn("egress guard"), HealthState::Warn);
+        assert_eq!(warn("tool approval"), HealthState::Warn);
+        assert_eq!(warn("credential store"), HealthState::Warn);
+        assert_eq!(warn("provider failover"), HealthState::Warn);
+    }
+
+    #[test]
+    fn config_health_marks_hardened_posture_ok() {
+        // A locked-down config reads clean: guard on, keyring, ask-each,
+        // failover with a chain, a spend cap.
+        let mut app = App::new();
+        app.config.security_egress_enabled = true;
+        app.config.egress_allow = vec!["example.com".into()];
+        app.config.tools_auto_approve = false;
+        app.config.tools_allow_list = vec!["Read".into(), "Grep".into()];
+        app.config.storage_backend = "keyring".into();
+        app.config.failover_enabled = true;
+        app.config.fallback_models = vec!["anthropic:haiku".into()];
+        app.config.budget_max_cost_usd = Some(5.0);
+        let rows = scan_config_health(&app);
+        assert!(
+            rows.iter().all(|r| r.state == HealthState::Ok),
+            "a hardened config must have no warnings, got: {:?}",
+            rows.iter()
+                .filter(|r| r.state != HealthState::Ok)
+                .map(|r| (&r.label, &r.detail))
+                .collect::<Vec<_>>()
+        );
+        // The egress row should report the allowlist count.
+        let egress = rows.iter().find(|r| r.label == "egress guard").unwrap();
+        assert!(
+            egress.detail.contains('1'),
+            "egress detail should count the allowlist entry: {}",
+            egress.detail
+        );
+    }
+
+    #[test]
+    fn doctor_channels_section_surfaces_status_secret_free() {
+        // S10: the CHANNELS section makes the on-disk channel configs visible —
+        // an enabled known channel shows its option/secret KEY names, an unknown
+        // platform reads "won't load". Injecting summaries keeps the test
+        // hermetic (no FS / no env); `doctor_collected` is forced so the body
+        // renders rather than the "running checks" splash.
+        let mut s = DiagnosticsSurface::new();
+        s.doctor_collected = true;
+        s.channels = vec![
+            wcore_channels_registry::ChannelSummary {
+                name: "myslack".to_string(),
+                platform: "slack".to_string(),
+                enabled: true,
+                known_platform: true,
+                option_keys: vec!["channel".to_string()],
+                secret_keys: vec!["bot_token".to_string()],
+                parse_error: None,
+            },
+            wcore_channels_registry::ChannelSummary {
+                name: "weird".to_string(),
+                platform: "carrierpigeon".to_string(),
+                enabled: true,
+                known_platform: false,
+                option_keys: vec![],
+                secret_keys: vec![],
+                parse_error: None,
+            },
+        ];
+        let app = App::new();
+        let out = render_tall(&mut s, &app);
+        assert!(out.contains("CHANNELS"), "section header missing:\n{out}");
+        assert!(
+            out.contains("myslack") && out.contains("slack"),
+            "known channel missing:\n{out}"
+        );
+        // KEY names are surfaced (never values).
+        assert!(out.contains("bot_token"), "secret key name missing:\n{out}");
+        assert!(
+            out.contains("weird") && out.contains("unknown platform"),
+            "unknown-platform channel must read 'won't load':\n{out}"
+        );
+    }
+
+    #[test]
+    fn count_mcp_servers_in_parses_claude_desktop_config() {
+        // S11: the only greenfield probe — count `mcpServers` in a Claude
+        // Desktop config; absent file / absent key / bad JSON all read None.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ok = dir.path().join("claude_desktop_config.json");
+        std::fs::write(&ok, r#"{"mcpServers":{"notion":{},"github":{}}}"#).unwrap();
+        assert_eq!(count_mcp_servers_in(&ok), Some(2));
+
+        assert_eq!(
+            count_mcp_servers_in(&dir.path().join("missing.json")),
+            None,
+            "absent file must read None"
+        );
+
+        let no_key = dir.path().join("empty.json");
+        std::fs::write(&no_key, "{}").unwrap();
+        assert_eq!(
+            count_mcp_servers_in(&no_key),
+            None,
+            "config without mcpServers must read None"
+        );
+    }
+
+    #[test]
+    fn doctor_discovered_section_shows_found_and_absent_rows() {
+        // S11: the DISCOVERED section paints found capabilities prominently and
+        // absent ones as dim how-to hints. Injecting rows keeps the test
+        // hermetic; `doctor_collected` forces the body to render.
+        let mut s = DiagnosticsSurface::new();
+        s.doctor_collected = true;
+        s.discovered = vec![
+            Discovery {
+                label: "Ollama (local models)".to_string(),
+                available: true,
+                detail: "detected — route local models with `ollama:<model>`".to_string(),
+            },
+            Discovery {
+                label: "AWS / Bedrock".to_string(),
+                available: false,
+                detail: "no AWS credentials (env / ~/.aws / role)".to_string(),
+            },
+        ];
+        let app = App::new();
+        let out = render_tall(&mut s, &app);
+        assert!(out.contains("DISCOVERED"), "section header missing:\n{out}");
+        assert!(
+            out.contains("Ollama") && out.contains("detected"),
+            "found capability missing:\n{out}"
+        );
+        assert!(
+            out.contains("AWS / Bedrock") && out.contains("no AWS credentials"),
+            "absent capability + hint missing:\n{out}"
+        );
+    }
+
+    #[test]
     fn doctor_lists_all_tools_with_backend_status() {
         // The TOOLS section must include every entry in `TOOL_GATES`,
         // each annotated with its current `enabled` state and the env
@@ -1909,6 +2780,7 @@ mod tests {
 
         let mut s = DiagnosticsSurface::new();
         s.on_enter(&mut App::new());
+        assert!(drive_health_probe(&mut s), "probe must resolve");
 
         // All four probes must report Yellow.
         assert_eq!(s.provider_health.len(), 4);
@@ -1944,12 +2816,14 @@ mod tests {
 
     #[test]
     fn doctor_provider_health_times_out_at_5s() {
-        // A wedged provider must NOT stall /doctor past the configured
-        // 5s health-check cap. We point `ANTHROPIC_API_BASE` at a TCP
-        // listener that accepts and never replies, set the api key so
-        // the probe is exercised (not skipped as Yellow), then assert
-        // the whole `on_enter` returns inside 10s (5s cap + slack for
-        // CI noise + the other three probes' connect-failures).
+        // A wedged provider must NOT stall /doctor. We point
+        // `ANTHROPIC_API_BASE` at a TCP listener that accepts and never
+        // replies, set the api key so the probe is exercised (not skipped as
+        // Yellow), then assert two things: (1) `on_enter` returns IMMEDIATELY
+        // — the probe runs off-thread, so a wedged provider can never freeze
+        // the UI (the on_enter-freeze fix); (2) once the probe is driven to
+        // completion the Anthropic row is Red/unreachable, proving the
+        // underlying health cap still fired.
         use std::time::Instant;
         use tokio::io::AsyncReadExt;
         use tokio::net::TcpListener;
@@ -1996,10 +2870,18 @@ mod tests {
         s.on_enter(&mut App::new());
         let elapsed = started.elapsed();
 
-        // The 5s cap holds — generous slack for slow CI.
+        // on_enter must NOT block on the (wedged) probe — it only starts the
+        // worker thread and returns. Generous slack for thread-spawn on slow CI.
         assert!(
-            elapsed < std::time::Duration::from_secs(15),
-            "/doctor on_enter must respect the 5s health-probe cap (took {elapsed:?})"
+            elapsed < std::time::Duration::from_secs(2),
+            "/doctor on_enter must not block on the health probe (took {elapsed:?})"
+        );
+
+        // Drive the off-thread probe to completion (the wedged provider hits
+        // the underlying 5s cap), then check the result.
+        assert!(
+            drive_health_probe(&mut s),
+            "probe must resolve within budget"
         );
 
         // The Anthropic row must be Red with an unreachable detail.

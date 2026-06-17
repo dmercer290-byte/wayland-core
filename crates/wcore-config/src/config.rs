@@ -1330,6 +1330,24 @@ impl Config {
             ..self.clone()
         }
     }
+
+    /// Like [`for_provider_discovery`](Self::for_provider_discovery), but binds
+    /// an explicitly-supplied `api_key` instead of resolving one from storage or
+    /// the environment. This is the seam for the `/config` paste-to-detect flow:
+    /// it lets the engine probe a *just-pasted* key against a candidate provider
+    /// (via `list_models`) before the key is ever written to disk. The provider
+    /// identity, base URL, and compat preset are stamped from `provider`; the
+    /// model is irrelevant to `list_models` and is left as `self.model`.
+    pub fn for_key_validation(&self, provider: ProviderType, api_key: &str) -> Self {
+        Self {
+            provider,
+            provider_label: provider_type_slug(provider).to_string(),
+            api_key: api_key.to_string(),
+            base_url: default_base_url_for(provider),
+            compat: compat_defaults_for(provider),
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1919,10 +1937,15 @@ fn resolve_api_key(
 )]
 pub struct MissingApiKey;
 
-fn lookup_store_api_key(
-    store: &dyn crate::credentials::CredentialsStore,
-    provider: ProviderType,
-) -> Option<String> {
+/// The credentials-store key under which `provider`'s API key is stored, or
+/// `None` for providers that authenticate out-of-band (Bedrock/Vertex via cloud
+/// credentials, ChatGPT Codex via OAuth) and therefore have no store slot.
+///
+/// This is the single source of truth for the mapping: both the read path
+/// ([`lookup_store_api_key`], consumed by [`resolve_api_key`]) and the write
+/// path ([`store_provider_api_key`]) go through it, so a key written here is
+/// guaranteed to be the key resolution later reads back.
+pub fn credentials_store_key(provider: ProviderType) -> Option<String> {
     let key = match provider {
         ProviderType::Anthropic => "providers.anthropic.api_key",
         ProviderType::OpenAI => "providers.openai.api_key",
@@ -1949,7 +1972,56 @@ fn lookup_store_api_key(
         ProviderType::Mistral => "providers.mistral.api_key",
         ProviderType::Cohere => "providers.cohere.api_key",
     };
-    store.get(key).ok().flatten()
+    Some(key.to_string())
+}
+
+fn lookup_store_api_key(
+    store: &dyn crate::credentials::CredentialsStore,
+    provider: ProviderType,
+) -> Option<String> {
+    let key = credentials_store_key(provider)?;
+    store.get(&key).ok().flatten()
+}
+
+/// Persist a validated API key for `provider` into the configured credentials
+/// store — the same store [`resolve_api_key`] reads from — so a subsequent
+/// [`Config::resolve`] (e.g. a live engine rebind) picks it up without a
+/// restart and without mutating process environment variables.
+///
+/// The storage backend (keyring / plaintext-0600 / encrypted-file) is read
+/// from the on-disk `[storage.credentials]` block, exactly as resolution will
+/// read it. Returns an error for providers with no store slot
+/// ([`credentials_store_key`] returns `None`) or on a store write failure. The
+/// value is never logged.
+pub fn store_provider_api_key(provider: ProviderType, api_key: &str) -> anyhow::Result<()> {
+    let Some(store_key) = credentials_store_key(provider) else {
+        anyhow::bail!(
+            "provider {} authenticates out-of-band and has no credentials-store API key",
+            provider_type_slug(provider)
+        );
+    };
+
+    // Resolve the SAME storage backend resolution will later read from: the
+    // on-disk `[storage.credentials]` block (defaulted when the file or the
+    // block is absent).
+    let storage = load_global_config_file()
+        .map(|f| f.storage.credentials)
+        .unwrap_or_default();
+
+    let store = crate::credentials::open_store(&storage, &credentials_storage_path())?;
+    store
+        .put(&store_key, api_key)
+        .map_err(|e| anyhow::anyhow!("writing {store_key} to credentials store: {e}"))?;
+    Ok(())
+}
+
+/// Load and parse the global `config.toml` into a [`ConfigFile`], or `None`
+/// when the file does not exist. Mirrors the load half of
+/// [`patch_global_config`] without mutating or rewriting the file.
+fn load_global_config_file() -> Option<ConfigFile> {
+    let path = global_config_path();
+    let raw = std::fs::read_to_string(&path).ok()?;
+    toml::from_str(&raw).ok()
 }
 
 // --- App directories ---
@@ -2414,6 +2486,119 @@ pub fn migrate_legacy_yaml_if_needed() {
         updated.default.model.as_deref().unwrap_or(""),
         legacy_path.display(),
     );
+}
+
+/// Render the **effective configuration** as a redacted, pretty-printed TOML
+/// string: the values the engine resolves from disk, merged in cascade order
+/// (global ← project ← `--profile`) with the headline CLI overrides stamped on.
+///
+/// This is the data layer behind the `/doctor` Effective-config preview. It
+/// repeats the file-merge phase of [`Config::resolve`] (steps 1–4) — the same
+/// `try_load_config_file` / `merge_config_files` / `apply_profile` path — so the
+/// preview never drifts from what `resolve` actually loads.
+///
+/// **Secrets are redacted.** Every string value whose key name looks like a
+/// credential (`api_key`, `token`, `secret`, `password`, `credential`,
+/// `private_key`, or anything containing `auth`) is replaced with `***` via a
+/// recursive walk of the serialized value tree — robust to new secret-bearing
+/// fields (a new key under `[providers.*]` / `[channels.*]` / MCP headers is
+/// masked without a code change). Over-redaction is the safe direction.
+///
+/// Caveats surfaced to the user by the caller's header: live env-resolved API
+/// keys never appear here (the file never holds them), and `WAYLAND_HOME`
+/// sandboxing is honored through [`global_config_path`].
+pub fn effective_config_toml(cli: &CliArgs) -> anyhow::Result<String> {
+    use anyhow::Context;
+
+    // Steps 1–4 of `resolve`: load + merge + optional profile overlay.
+    let global = try_load_config_file(&global_config_path())
+        .context("loading global config for the effective-config preview")?;
+    let project_path = cli
+        .project_dir
+        .as_ref()
+        .map(|d| d.join(".wayland-core.toml"))
+        .unwrap_or_else(project_config_path);
+    let project = try_load_config_file(&project_path)
+        .context("loading project config for the effective-config preview")?;
+    let mut merged = merge_config_files(global, project);
+    if let Some(profile_name) = &cli.profile {
+        merged = apply_profile(merged, profile_name)?;
+    }
+
+    // Stamp the headline CLI overrides so the preview reflects launch flags
+    // (the rest of the CLI surface is provider-resolution detail that does not
+    // belong in a config-file preview).
+    if let Some(provider) = &cli.provider {
+        merged.default.provider = provider.clone();
+    }
+    if let Some(model) = &cli.model {
+        merged.default.model = Some(model.clone());
+    }
+    if cli.max_turns.is_some() {
+        merged.default.max_turns = cli.max_turns;
+    }
+
+    let mut value =
+        toml::Value::try_from(&merged).context("serializing the merged config for redaction")?;
+    redact_secrets_in_place(&mut value);
+    toml::to_string_pretty(&value).context("rendering the effective config as TOML")
+}
+
+/// True if a TOML key name designates a secret value that must be redacted.
+/// Matched case-insensitively as a substring so compound names
+/// (`webhook_secret`, `bot_token`, `Authorization`) are covered.
+fn is_secret_key(key: &str) -> bool {
+    const NEEDLES: [&str; 9] = [
+        "api_key",
+        "apikey",
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "credential",
+        "private_key",
+        "auth",
+    ];
+    let lowered = key.to_ascii_lowercase();
+    NEEDLES.iter().any(|n| lowered.contains(n))
+}
+
+/// Recursively replace every secret-keyed string value in `value` with `***`.
+fn redact_secrets_in_place(value: &mut toml::Value) {
+    match value {
+        toml::Value::Table(table) => {
+            for (key, child) in table.iter_mut() {
+                if is_secret_key(key) {
+                    mask_value(child);
+                } else {
+                    redact_secrets_in_place(child);
+                }
+            }
+        }
+        toml::Value::Array(items) => {
+            for child in items.iter_mut() {
+                redact_secrets_in_place(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Mask every string reachable from a secret-keyed value (a bare string, an
+/// array of strings, or a nested table of strings). Non-string leaves
+/// (numbers/bools) under a secret key are left as-is — they are not secrets to
+/// leak, and masking them would corrupt the rendered types.
+fn mask_value(value: &mut toml::Value) {
+    match value {
+        toml::Value::String(s) => *s = "***".to_string(),
+        toml::Value::Array(items) => items.iter_mut().for_each(mask_value),
+        toml::Value::Table(table) => {
+            for (_, child) in table.iter_mut() {
+                mask_value(child);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Merge two config files. Project overrides global.
@@ -3524,6 +3709,49 @@ mod tests {
         assert_eq!(result, "");
     }
 
+    #[test]
+    fn credentials_store_key_maps_bearer_providers_and_excludes_oob() {
+        // Out-of-band auth (cloud creds / OAuth) has no store slot.
+        assert_eq!(credentials_store_key(ProviderType::Bedrock), None);
+        assert_eq!(credentials_store_key(ProviderType::Vertex), None);
+        assert_eq!(credentials_store_key(ProviderType::OpenAIChatGpt), None);
+        // Bearer-key providers map to `providers.<slug>.api_key`, including the
+        // hyphenated slugs that are easy to get wrong by hand.
+        assert_eq!(
+            credentials_store_key(ProviderType::Anthropic).as_deref(),
+            Some("providers.anthropic.api_key")
+        );
+        assert_eq!(
+            credentials_store_key(ProviderType::AzureOpenAI).as_deref(),
+            Some("providers.azure-openai.api_key")
+        );
+        assert_eq!(
+            credentials_store_key(ProviderType::FluxRouter).as_deref(),
+            Some("providers.flux-router.api_key")
+        );
+    }
+
+    #[test]
+    fn stored_key_is_read_back_by_resolution() {
+        // The contract paste-to-detect depends on: a key written under
+        // `credentials_store_key` is the exact key resolution reads back, so a
+        // saved credential resolves live on the next rebind. Exercised through
+        // the real read path (`lookup_store_api_key`) against a plaintext store,
+        // with no process-env mutation.
+        use crate::credentials::CredentialsStore;
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            crate::credentials::PlaintextCredentialsStore::new(dir.path().join("creds.toml"));
+        let write_key = credentials_store_key(ProviderType::Deepseek).unwrap();
+        store.put(&write_key, "sk-deepseek-secret").unwrap();
+
+        let read = lookup_store_api_key(&store, ProviderType::Deepseek);
+        assert_eq!(read.as_deref(), Some("sk-deepseek-secret"));
+
+        // A provider with no slot resolves to nothing from the store.
+        assert_eq!(lookup_store_api_key(&store, ProviderType::Bedrock), None);
+    }
+
     // -------------------------------------------------------------------------
     // P5-14: SkillsPermissionConfig TOML deserialization
     // -------------------------------------------------------------------------
@@ -4576,6 +4804,128 @@ skills_lifecycle = true
              contents:\n{toml_contents}\n\
              (this means the migration read yaml from somewhere other than \
              WAYLAND_HOME — hermeticity bug)"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // S9: effective-config preview (`effective_config_toml`) + secret redaction.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn redact_masks_secret_named_keys_at_any_depth() {
+        // The redaction walk must mask credential-shaped keys wherever they
+        // appear — top-level, nested tables, and inside header tables — while
+        // leaving non-secret values (and non-string secret leaves) intact.
+        let mut value: toml::Value = toml::from_str(
+            r#"
+            [default]
+            provider = "anthropic"
+
+            [providers.anthropic]
+            api_key = "sk-ant-SECRET"
+            base_url = "https://api.anthropic.com"
+
+            [channels.telegram]
+            bot_token = "12345:SECRET"
+            chat_id = 99
+
+            [mcp.servers.notion.headers]
+            Authorization = "Bearer SECRET"
+            "#,
+        )
+        .expect("parse fixture");
+
+        redact_secrets_in_place(&mut value);
+        let out = toml::to_string_pretty(&value).expect("serialize");
+
+        assert!(!out.contains("SECRET"), "a secret leaked:\n{out}");
+        assert!(
+            out.contains("api_key = \"***\""),
+            "api_key not masked:\n{out}"
+        );
+        assert!(
+            out.contains("bot_token = \"***\""),
+            "token not masked:\n{out}"
+        );
+        assert!(
+            out.contains("Authorization = \"***\""),
+            "auth header not masked:\n{out}"
+        );
+        // Non-secret values survive.
+        assert!(
+            out.contains("provider = \"anthropic\""),
+            "provider lost:\n{out}"
+        );
+        assert!(out.contains("api.anthropic.com"), "base_url lost:\n{out}");
+        assert!(out.contains("chat_id = 99"), "non-secret int lost:\n{out}");
+    }
+
+    #[test]
+    #[serial_test::serial(wayland_home_env)]
+    fn effective_config_toml_merges_and_redacts_from_disk() {
+        let wh_key = "WAYLAND_HOME";
+        let prev_wh = std::env::var_os(wh_key);
+        let sandbox = tempfile::tempdir().expect("tempdir sandbox");
+        // SAFETY: serialized by the `wayland_home_env` serial group.
+        unsafe { std::env::set_var(wh_key, sandbox.path()) };
+
+        std::fs::write(
+            sandbox.path().join("config.toml"),
+            "[default]\nprovider = \"anthropic\"\n\n\
+             [providers.anthropic]\napi_key = \"sk-ant-LIVE-SECRET\"\n",
+        )
+        .expect("seed config.toml");
+
+        let rendered = effective_config_toml(&CliArgs::default());
+
+        // Restore env BEFORE asserting so a failure can't leak state.
+        match prev_wh {
+            Some(v) => unsafe { std::env::set_var(wh_key, v) },
+            None => unsafe { std::env::remove_var(wh_key) },
+        }
+
+        let out = rendered.expect("effective config should render");
+        assert!(
+            out.contains("provider = \"anthropic\""),
+            "merged provider missing:\n{out}"
+        );
+        assert!(
+            !out.contains("sk-ant-LIVE-SECRET") && out.contains("***"),
+            "the api key must be redacted in the preview:\n{out}"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial(wayland_home_env)]
+    fn effective_config_toml_stamps_cli_overrides() {
+        let wh_key = "WAYLAND_HOME";
+        let prev_wh = std::env::var_os(wh_key);
+        // Empty sandbox (no config.toml) so the merge starts from defaults and
+        // never reads the host's real config.
+        let sandbox = tempfile::tempdir().expect("tempdir sandbox");
+        // SAFETY: serialized by the `wayland_home_env` serial group.
+        unsafe { std::env::set_var(wh_key, sandbox.path()) };
+
+        let cli = CliArgs {
+            provider: Some("openai".to_string()),
+            model: Some("gpt-sentinel".to_string()),
+            ..CliArgs::default()
+        };
+        let rendered = effective_config_toml(&cli);
+
+        match prev_wh {
+            Some(v) => unsafe { std::env::set_var(wh_key, v) },
+            None => unsafe { std::env::remove_var(wh_key) },
+        }
+
+        let out = rendered.expect("effective config should render");
+        assert!(
+            out.contains("provider = \"openai\""),
+            "CLI provider override not stamped:\n{out}"
+        );
+        assert!(
+            out.contains("gpt-sentinel"),
+            "CLI model override not stamped:\n{out}"
         );
     }
 
