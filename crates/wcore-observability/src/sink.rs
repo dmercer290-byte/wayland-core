@@ -106,11 +106,14 @@ impl InMemorySink {
     }
 
     pub fn snapshot(&self) -> Vec<Value> {
-        self.inner.lock().map(|g| g.clone()).unwrap_or_default()
+        // Recover the buffer on poison rather than coercing to empty —
+        // a poisoning panic elsewhere must not hide already-captured
+        // traces from diagnostics tooling.
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn len(&self) -> usize {
-        self.inner.lock().map(|g| g.len()).unwrap_or(0)
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -336,6 +339,32 @@ mod tests {
         assert_eq!(snap[0]["turn"], 0);
         assert_eq!(snap[1]["turn"], 1);
         assert_eq!(snap[2]["turn"], 2);
+    }
+
+    #[test]
+    fn in_memory_sink_survives_mutex_poison() {
+        // A panic while holding the lock poisons the Mutex. snapshot()/len()
+        // must still surface the buffered traces (recover via into_inner)
+        // rather than masking them as empty.
+        let s = InMemorySink::new();
+        s.emit(&json!({ "turn": 0 }));
+        s.emit(&json!({ "turn": 1 }));
+
+        let s_poison = s.clone();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = s_poison.inner.lock().unwrap();
+            panic!("poison the mutex while holding the guard");
+        }));
+
+        assert!(
+            s.inner.is_poisoned(),
+            "mutex must be poisoned after the panic"
+        );
+        assert_eq!(s.len(), 2, "len must recover buffered traces after poison");
+        let snap = s.snapshot();
+        assert_eq!(snap.len(), 2, "snapshot must recover traces after poison");
+        assert_eq!(snap[0]["turn"], 0);
+        assert_eq!(snap[1]["turn"], 1);
     }
 
     #[test]

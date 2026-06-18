@@ -127,7 +127,8 @@ impl WhatsappChannel {
         }
         let mut inbox = self.inbox.lock().await;
         for ev in events {
-            inbox.push_back(ev);
+            // F9 — bounded, drop-oldest inbox against a flood.
+            wcore_channels::push_bounded(&mut inbox, ev);
         }
         Ok(())
     }

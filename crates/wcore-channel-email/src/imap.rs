@@ -301,7 +301,8 @@ fn poll_once(
         runtime_handle.block_on(async {
             let mut guard = inbox.lock().await;
             for e in new_events {
-                guard.push_back(e);
+                // F9 — bounded, drop-oldest inbox against a flood.
+                wcore_channels::push_bounded(&mut guard, e);
             }
         });
     }

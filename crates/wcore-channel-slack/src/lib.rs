@@ -125,7 +125,9 @@ impl SlackChannel {
         match inbound::parse_webhook(raw_body)? {
             inbound::Parsed::Challenge(c) => Ok(Some(c)),
             inbound::Parsed::Event(ev) => {
-                self.inbox.lock().await.push_back(ev);
+                // F9 — bounded, drop-oldest inbox against a flood.
+                let mut guard = self.inbox.lock().await;
+                wcore_channels::push_bounded(&mut guard, ev);
                 Ok(None)
             }
             inbound::Parsed::Ignored => Ok(None),

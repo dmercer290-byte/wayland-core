@@ -910,12 +910,23 @@ impl DiagnosticsSurface {
         self.start_health_probe();
     }
 
-    /// Start the async system + provider-health probe (idempotent: replacing
-    /// any in-flight handle). Marks both results not-yet-collected so the
-    /// render shows the "probing…" state until [`Self::poll_health`] applies
-    /// each. The prior rows are kept until then, so a re-run (`r`) updates in
-    /// place rather than flashing to empty.
+    /// Start the async system + provider-health probe. Marks both results
+    /// not-yet-collected so the render shows the "probing…" state until
+    /// [`Self::poll_health`] applies each. The prior rows are kept until then,
+    /// so a re-run (`r`) updates in place rather than flashing to empty.
+    ///
+    /// F40: a probe that is still in flight is NOT replaced. Each
+    /// `spawn_health_probe` spins up a detached `std::thread` with its own
+    /// `current_thread` runtime running an uncapped provider-health check;
+    /// mashing `r` (or re-entering `/doctor`) while the egress layer stalls the
+    /// HTTP probe would otherwise leak one such thread+runtime per trigger.
+    /// `health_pending` is `Some` exactly while a probe is unresolved
+    /// ([`Self::poll_health`] clears it to `None` once both results settle or
+    /// the UI timeout fires), so an in-flight probe short-circuits the re-start.
     fn start_health_probe(&mut self) {
+        if self.health_pending.is_some() {
+            return;
+        }
         self.doctor_collected = false;
         self.health_collected = false;
         self.health_timed_out = false;

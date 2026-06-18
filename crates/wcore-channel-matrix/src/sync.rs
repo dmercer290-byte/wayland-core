@@ -219,7 +219,8 @@ pub(crate) async fn sync_loop(args: SyncArgs) {
                     if !events.is_empty() {
                         let mut guard = inbox.lock().await;
                         for e in events {
-                            guard.push_back(e);
+                            // F9 — bounded, drop-oldest inbox against a flood.
+                            wcore_channels::push_bounded(&mut guard, e);
                         }
                     }
                 }

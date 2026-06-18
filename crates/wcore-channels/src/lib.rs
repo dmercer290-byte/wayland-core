@@ -33,8 +33,8 @@ pub use dispatch::{
 };
 pub use error::ChannelError;
 pub use event::{
-    Attachment, ChannelEvent, ChatType, ConnectionState, IncomingMessage, MediaKind, MentionKind,
-    MessageReceipt,
+    Attachment, ChannelEvent, ChatType, ConnectionState, IncomingMessage, MAX_INBOX, MediaKind,
+    MentionKind, MessageReceipt, push_bounded,
 };
 pub use manager::{ChannelManager, TaggedEvent};
 pub use mock::MockChannel;

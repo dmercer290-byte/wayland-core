@@ -585,14 +585,6 @@ pub struct ConfigSurface {
     providers_focus: usize,
     /// `Some` while the Tools & Providers credentials modal is open.
     credentials_modal: Option<CredentialsModal>,
-    /// H1: one-shot signal that a credentials-modal save just wrote a
-    /// provider key to `~/.wayland/.env`. The credentials write happens deep
-    /// inside `handle_providers_key` with no `App` access; this flag lets
-    /// `handle_key` (which holds `&mut App`) raise `App::rebind_request` so the
-    /// router rebinds the live engine — `Config::resolve` re-reads the `.env`
-    /// file, so the freshly entered key reaches the wire via `create_provider`
-    /// without a restart. Consumed (reset) by `handle_key` after dispatch.
-    credential_saved: bool,
 }
 
 impl Default for ConfigSurface {
@@ -622,7 +614,6 @@ impl ConfigSurface {
             save_error: None,
             providers_focus: 0,
             credentials_modal: None,
-            credential_saved: false,
         }
     }
 
@@ -1675,7 +1666,11 @@ impl CredentialsModal {
         };
         match wcore_config::env_file::write_env_var(&env_path, key, &value) {
             Ok(()) => {
-                self.status = format!("Saved {key} to ~/.wayland/.env · applying to this session");
+                // F21: `resolve_api_key` reads cli→config→store→process-env and
+                // never the `.env` file, so a key written here is invisible until
+                // a restart reloads `.env` into the process env. The status must
+                // not claim a live application that does not happen.
+                self.status = "Saved to ~/.wayland/.env · applies on next launch".into();
                 self.last_ok = true;
                 true
             }
@@ -1725,7 +1720,6 @@ impl Surface for ConfigSurface {
         self.expert_editor = None;
         self.providers_focus = 0;
         self.credentials_modal = None;
-        self.credential_saved = false;
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
@@ -1831,14 +1825,6 @@ impl Surface for ConfigSurface {
         };
         if self.baseline != baseline_before && !self.is_dirty() {
             app.rebind_request = crate::tui::app::RebindRequest::Tier1Save;
-        }
-        // H1: a credentials-modal write also requires a rebind so the new
-        // provider key reaches the wire live. The write happens inside
-        // `handle_providers_key` (no `App` access); consume its one-shot flag
-        // here where `&mut App` is in scope.
-        if self.credential_saved {
-            self.credential_saved = false;
-            app.rebind_request = crate::tui::app::RebindRequest::Credential;
         }
         action
     }
@@ -2979,13 +2965,11 @@ impl ConfigSurface {
             match key.code {
                 KeyCode::Enter => {
                     if let Some(modal) = self.credentials_modal.as_mut() {
-                        // H1: a successful credential write must rebind the
-                        // live engine (so the new key takes effect without a
-                        // restart). Raise the one-shot flag `handle_key`
-                        // consumes into `App::rebind_request`.
-                        if modal.save() {
-                            self.credential_saved = true;
-                        }
+                        // F21: this writes the key to `~/.wayland/.env`, which
+                        // `resolve_api_key` does not read until a restart — so
+                        // there is intentionally no live rebind here. The modal
+                        // status reflects "applies on next launch".
+                        modal.save();
                     }
                     // Stay on the modal so the user can see the status
                     // message. Esc closes.

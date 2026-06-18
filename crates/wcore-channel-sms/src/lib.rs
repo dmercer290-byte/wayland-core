@@ -135,10 +135,9 @@ impl SmsChannel {
 
         let pairs = inbound::verify_signature(auth_token, full_url, raw_body, signature)?;
         let msg = inbound::pairs_to_incoming(&pairs)?;
-        self.inbox
-            .lock()
-            .await
-            .push_back(ChannelEvent::MessageReceived { msg });
+        // F9 — bounded, drop-oldest inbox against a flood.
+        let mut guard = self.inbox.lock().await;
+        wcore_channels::push_bounded(&mut guard, ChannelEvent::MessageReceived { msg });
         Ok(())
     }
 }

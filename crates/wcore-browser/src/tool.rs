@@ -297,11 +297,33 @@ impl BrowserTool {
         if let Some(s) = self.sessions.lock().get(&key) {
             return Ok(s.clone());
         }
+        // The lock is released across this `await` (we must not hold a
+        // `parking_lot::Mutex` guard over an await point). Two concurrent
+        // first-calls for the same key can therefore both miss above and both
+        // open a backend session. F38: re-check the map under the lock after
+        // opening — if a racing call already inserted a session, we are the
+        // loser; close the session we just opened (so it isn't orphaned) and
+        // use the winner's id.
         let sess = self.provider.open_session(false).await?;
-        self.sessions
-            .lock()
-            .insert(key, sess.ctx.session_id.clone());
-        Ok(sess.ctx.session_id)
+        let winner = {
+            let mut guard = self.sessions.lock();
+            match guard.get(&key) {
+                Some(existing) => Some(existing.clone()),
+                None => {
+                    guard.insert(key, sess.ctx.session_id.clone());
+                    None
+                }
+            }
+        };
+        match winner {
+            Some(existing) => {
+                // We lost the race: close our just-opened session to avoid
+                // leaking it, then return the winner's id.
+                let _ = self.provider.close_session(&sess.ctx).await;
+                Ok(existing)
+            }
+            None => Ok(sess.ctx.session_id),
+        }
     }
 
     /// Apply policy for URL-bearing ops. Non-URL ops always pass.
@@ -790,6 +812,89 @@ mod tests {
             r.is_error,
             "symlink-escape dest must be rejected: {}",
             r.content
+        );
+    }
+
+    /// F38: two concurrent first-calls to `ensure_session` for the same key
+    /// must converge on ONE session. The losing call closes the backend
+    /// session it opened (no orphan) and both callers see the same id.
+    #[tokio::test]
+    async fn ensure_session_race_closes_loser_and_converges() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CountingBackend {
+            next_id: AtomicUsize,
+            opened: Arc<AtomicUsize>,
+            closed: Arc<AtomicUsize>,
+        }
+
+        #[async_trait]
+        impl BrowserProvider for CountingBackend {
+            async fn open_session(
+                &self,
+                persistent_profile: bool,
+            ) -> Result<BrowserSession, BrowserOpError> {
+                // Yield so two concurrent callers interleave past the initial
+                // miss before either inserts — reproducing the race.
+                tokio::task::yield_now().await;
+                let n = self.next_id.fetch_add(1, Ordering::SeqCst);
+                self.opened.fetch_add(1, Ordering::SeqCst);
+                Ok(BrowserSession {
+                    ctx: SessionCtx::for_test(format!("sess-{n}")),
+                    persistent_profile,
+                })
+            }
+            async fn close_session(&self, _ctx: &SessionCtx) -> Result<(), BrowserOpError> {
+                self.closed.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            async fn dispatch(
+                &self,
+                _ctx: &SessionCtx,
+                _op: BrowserOp,
+            ) -> Result<OpResult, BrowserOpError> {
+                Ok(OpResult::Ok)
+            }
+            fn backend_name(&self) -> &'static str {
+                "counting"
+            }
+        }
+
+        let opened = Arc::new(AtomicUsize::new(0));
+        let closed = Arc::new(AtomicUsize::new(0));
+        let tool = Arc::new(BrowserTool::new(
+            Arc::new(CountingBackend {
+                next_id: AtomicUsize::new(0),
+                opened: opened.clone(),
+                closed: closed.clone(),
+            }),
+            BrowserPolicy::default(),
+            Arc::new(BrowserSupervisor::new()),
+        ));
+
+        let t1 = {
+            let tool = tool.clone();
+            tokio::spawn(async move { tool.ensure_session(Some("writer")).await })
+        };
+        let t2 = {
+            let tool = tool.clone();
+            tokio::spawn(async move { tool.ensure_session(Some("writer")).await })
+        };
+        let id1 = t1.await.unwrap().unwrap();
+        let id2 = t2.await.unwrap().unwrap();
+
+        // Both callers converge on the same surviving session id.
+        assert_eq!(id1, id2, "both callers must see the same session id");
+        // Exactly one session remains tracked for the key.
+        assert_eq!(tool.sessions.lock().get("writer"), Some(&id1));
+        // If both raced to open (the common case under yield_now), the loser
+        // must have been closed. We never close more than we opened, and the
+        // surviving id is never the one that got closed.
+        let n_opened = opened.load(Ordering::SeqCst);
+        let n_closed = closed.load(Ordering::SeqCst);
+        assert!(
+            n_closed == n_opened.saturating_sub(1),
+            "expected exactly one fewer close than open (opened={n_opened}, closed={n_closed})"
         );
     }
 

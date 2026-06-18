@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -35,6 +35,9 @@ pub struct SseTransport {
     _listener: tokio::task::JoinHandle<()>,
     /// Per-request timeout for the response `oneshot` (audit C6).
     request_timeout: std::time::Duration,
+    /// Set by `close()` so a new `request()` fast-fails instead of parking
+    /// on a `oneshot` whose listener has been aborted (audit F26).
+    closed: AtomicBool,
 }
 
 impl SseTransport {
@@ -272,6 +275,7 @@ impl SseTransport {
             next_id: AtomicU64::new(1),
             _listener: listener,
             request_timeout,
+            closed: AtomicBool::new(false),
         })
     }
 
@@ -283,6 +287,13 @@ impl SseTransport {
 #[async_trait]
 impl McpTransport for SseTransport {
     async fn request(&self, req: &JsonRpcRequest) -> Result<JsonRpcResponse, McpError> {
+        // F26 — after `close()` the listener is aborted and can no longer
+        // route responses. Fast-fail rather than registering a `pending`
+        // entry that would only resolve via the per-request timeout.
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(McpError::Transport("SSE MCP transport is closed".into()));
+        }
+
         let req_id = req
             .id
             .ok_or_else(|| McpError::Transport("Request must have an id".into()))?;
@@ -380,7 +391,16 @@ impl McpTransport for SseTransport {
     }
 
     async fn close(&self) -> Result<(), McpError> {
+        // Mark closed first so any new `request()` fast-fails instead of
+        // parking on a oneshot the aborted listener can never resolve (F26).
+        self.closed.store(true, Ordering::SeqCst);
         self._listener.abort();
+        // Drain the pending map and drop every parked sender so concurrently
+        // parked `request()` futures wake immediately via their
+        // `Ok(Err(_))` ("Response channel closed unexpectedly") arm, rather
+        // than waiting out the full per-request timeout. Mirrors the
+        // listener's own drain-on-exit (Rank 26).
+        self.pending.lock().await.clear();
         Ok(())
     }
 }
@@ -547,6 +567,7 @@ mod tests {
             // oneshot for this request can only be resolved by the timeout.
             _listener: tokio::spawn(async {}),
             request_timeout: Duration::from_millis(500),
+            closed: std::sync::atomic::AtomicBool::new(false),
         };
 
         let req = JsonRpcRequest::new(1, "tools/call", None);
@@ -623,6 +644,7 @@ mod tests {
             next_id: AtomicU64::new(1),
             _listener: tokio::spawn(async {}),
             request_timeout: Duration::from_millis(500),
+            closed: std::sync::atomic::AtomicBool::new(false),
         };
 
         let req = JsonRpcRequest::new(1, "tools/call", None);
@@ -717,6 +739,7 @@ mod tests {
             // fast, this test would hang for ~30s and the elapsed assert would
             // catch the regression.
             request_timeout: Duration::from_secs(30),
+            closed: std::sync::atomic::AtomicBool::new(false),
         };
 
         let req = JsonRpcRequest::new(1, "tools/call", None);
