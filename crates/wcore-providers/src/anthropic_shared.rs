@@ -410,7 +410,22 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
                 }
                 "input_json_delta" => {
                     if let Some(partial) = delta["partial_json"].as_str() {
-                        state.tool_input_json.push_str(partial);
+                        // Bound the streaming tool-argument accumulator. A
+                        // misbehaving or hostile upstream — including the
+                        // MiniMax Anthropic-compatible endpoint, which reuses
+                        // this path — could otherwise stream `input_json_delta`
+                        // frames without end and OOM the process (the SSE buffer
+                        // cap only bounds a single event block, not the
+                        // cross-delta accumulation). Past the cap we stop
+                        // appending; the truncated buffer then fails the JSON
+                        // parse in `content_block_stop`'s existing fail-closed
+                        // branch, so the tool call is rejected, not run with
+                        // partial input. (deep-sweep F39)
+                        const MAX_TOOL_INPUT_JSON_BYTES: usize = 8 * 1024 * 1024;
+                        let projected = state.tool_input_json.len() + partial.len();
+                        if projected <= MAX_TOOL_INPUT_JSON_BYTES {
+                            state.tool_input_json.push_str(partial);
+                        }
                     }
                 }
                 "thinking_delta" => {

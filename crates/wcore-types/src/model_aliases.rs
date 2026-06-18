@@ -293,6 +293,7 @@ pub fn known_providers() -> &'static [&'static str] {
         "vertex",
         "gemini",
         "openai-chatgpt",
+        "minimax",
     ]
 }
 
@@ -418,6 +419,20 @@ mod tests {
                 "known provider `{p}` has no models"
             );
         }
+    }
+
+    #[test]
+    fn minimax_is_a_known_provider() {
+        // Regression guard (deep-sweep F41): MiniMax is a registered built-in
+        // provider with a model catalog, but was omitted from known_providers()
+        // — which the /provider and /model TUI pickers iterate — so it never
+        // appeared in the picker. Every built-in with model aliases must be
+        // listed here to be reachable from the UI.
+        assert!(
+            known_providers().contains(&"minimax"),
+            "minimax must be in known_providers() or it is invisible in the pickers"
+        );
+        assert!(!models_for_provider("minimax").is_empty());
     }
 
     fn assert_bedrock_format(id: &str) {
