@@ -28,6 +28,13 @@ use crate::protocol::{
 /// the open SSE connection.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Hard cap on the SSE reassembly buffer in [`parse_sse_events`]. The streaming
+/// endpoint uses an effectively-infinite (24h) read timeout, so a hostile
+/// server could stream delimiter-free bytes forever; bound the accumulator so
+/// it fails the stream instead of OOMing. 4 MiB matches the MCP streamable-HTTP
+/// SSE cap and exceeds any legitimate single ACP event frame.
+const MAX_ACP_SSE_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+
 /// ACP client over HTTP/SSE. Construct one per base URL + bearer
 /// token; reuse it across requests so connection pooling kicks in.
 #[derive(Debug, Clone)]
@@ -187,6 +194,21 @@ where
                     }
                     // Empty heartbeat — keep looping.
                     continue;
+                }
+                // Bound the reassembly buffer. The HTTP/SSE endpoint sets a 24h
+                // read timeout, so a hostile server streaming delimiter-free
+                // bytes would otherwise accumulate without bound until the host
+                // OOMs. Once the buffer exceeds the cap with no `\n\n` event
+                // boundary in sight, fail the stream. Matches the MCP
+                // streamable-HTTP SSE cap (`MAX_SSE_BUFFER_BYTES`, 4 MiB).
+                if buf.len() > MAX_ACP_SSE_BUFFER_BYTES {
+                    return Some((
+                        Err(AcpError::Transport(format!(
+                            "SSE reassembly buffer exceeded {MAX_ACP_SSE_BUFFER_BYTES} bytes \
+                             without an event boundary — server is misbehaving"
+                        ))),
+                        (stream, buf),
+                    ));
                 }
                 match stream.next().await {
                     Some(Ok(b)) => buf.extend_from_slice(&b),
@@ -352,5 +374,32 @@ mod tests {
             .expect("at least one event")
             .expect("event ok");
         assert!(matches!(first, MessageEvent::Done { .. }), "got {first:?}");
+    }
+
+    /// F8 — a server streaming delimiter-free bytes past the reassembly cap
+    /// must fail the stream with a Transport error rather than accumulating
+    /// without bound (24h read timeout would otherwise OOM the process).
+    #[tokio::test]
+    async fn sse_parser_fails_on_unbounded_delimiterless_stream() {
+        // Each chunk is 64 KiB of non-`\n` bytes; feed enough to exceed the cap.
+        let chunk = bytes::Bytes::from(vec![b'x'; 64 * 1024]);
+        let n = (MAX_ACP_SSE_BUFFER_BYTES / chunk.len()) + 2;
+        let upstream =
+            futures::stream::iter(std::iter::repeat_with(move || Ok(chunk.clone())).take(n));
+
+        let mut events = Box::pin(parse_sse_events(upstream));
+        let item = events
+            .next()
+            .await
+            .expect("the parser must yield a terminal error item");
+        match item {
+            Err(AcpError::Transport(msg)) => {
+                assert!(
+                    msg.contains("reassembly buffer exceeded"),
+                    "expected buffer-cap error, got: {msg}"
+                );
+            }
+            other => panic!("expected a Transport buffer-cap error, got {other:?}"),
+        }
     }
 }

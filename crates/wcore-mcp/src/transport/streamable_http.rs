@@ -15,6 +15,26 @@ use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 /// single JSON-RPC response frame.
 const MAX_SSE_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
+/// Max length of a response-body preview surfaced in a parse-error message.
+const MAX_BODY_PREVIEW_BYTES: usize = 256;
+
+/// Render a bounded, redacted preview of a response body for inclusion in a
+/// parse-error message. The full body is never logged: it may be arbitrarily
+/// large (the cap is megabytes) and may carry secrets. Truncates to
+/// [`MAX_BODY_PREVIEW_BYTES`] on a char boundary and appends an ellipsis when
+/// the body was longer.
+fn redacted_body_preview(body: &[u8]) -> String {
+    let text = String::from_utf8_lossy(body);
+    if text.len() <= MAX_BODY_PREVIEW_BYTES {
+        return text.into_owned();
+    }
+    let mut end = MAX_BODY_PREVIEW_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}… ({} bytes total, truncated)", &text[..end], body.len())
+}
+
 /// Streamable HTTP transport: uses HTTP POST for both requests and responses
 /// Supports optional SSE streaming for server responses
 #[derive(Debug)]
@@ -161,13 +181,21 @@ impl StreamableHttpTransport {
             // SSE response: parse events to find the JSON-RPC response
             self.parse_sse_response(response).await
         } else {
-            // Direct JSON response
-            let text = response
-                .text()
+            // Direct JSON response. Read with the same hard cap the SSE branch
+            // uses (mcp-40) so a server answering `application/json` with an
+            // unbounded body cannot OOM the host.
+            let body = wcore_egress::read_body_capped(response, MAX_SSE_BUFFER_BYTES)
                 .await
                 .map_err(|e| McpError::Transport(format!("Read response body failed: {}", e)))?;
-            serde_json::from_str(&text).map_err(|e| {
-                McpError::Transport(format!("Parse JSON response failed: {} — raw: {}", e, text))
+            serde_json::from_slice(&body).map_err(|e| {
+                // On parse error include only a bounded, redacted preview of the
+                // body — never the full raw payload (which may carry secrets or
+                // be arbitrarily large).
+                McpError::Transport(format!(
+                    "Parse JSON response failed: {} — preview: {}",
+                    e,
+                    redacted_body_preview(&body)
+                ))
             })
         }
     }
@@ -416,5 +444,22 @@ mod tests {
     fn unrelated_json_frame_is_skipped() {
         let frame = r#"{"notification":"progress"}"#;
         assert!(matches!(classify_sse_frame(frame), SseFrame::Skip));
+    }
+
+    /// A short body is previewed verbatim; an oversize body is truncated to a
+    /// bounded preview and never surfaced in full (mcp-40 direct-JSON branch).
+    #[test]
+    fn redacted_body_preview_bounds_oversize_body() {
+        let short = b"{\"ok\":true}";
+        assert_eq!(redacted_body_preview(short), "{\"ok\":true}");
+
+        let big = vec![b'x'; MAX_BODY_PREVIEW_BYTES * 4];
+        let preview = redacted_body_preview(&big);
+        assert!(
+            preview.len() < big.len(),
+            "preview must be shorter than the full body"
+        );
+        assert!(preview.contains("truncated"));
+        assert!(preview.contains(&big.len().to_string()));
     }
 }

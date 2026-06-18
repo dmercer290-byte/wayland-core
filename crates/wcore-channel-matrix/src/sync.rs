@@ -26,6 +26,16 @@ use crate::error::MatrixError;
 /// timeout is this plus a buffer so a wedged proxy can't park us forever.
 const SYNC_TIMEOUT_MS: u64 = 30_000;
 
+/// Hard cap on a single `/sync` response body. The body is buffered fully to
+/// parse `SyncResponse`, so without a cap a homeserver (or a wedged proxy)
+/// streaming an unbounded body inside this infinite long-poll loop could OOM
+/// the host. 32 MiB comfortably exceeds any legitimate `/sync` payload.
+const MAX_SYNC_BODY_BYTES: usize = 32 * 1024 * 1024;
+
+/// Max length of a homeserver error body we retain in `MatrixError::Http`.
+/// Truncated so a large error payload can't bloat the error/log path.
+const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
+
 /// Constructor arguments — flatter than a struct, easier to spawn.
 pub(crate) struct SyncArgs {
     pub http: wcore_egress::EgressClient,
@@ -273,13 +283,27 @@ async fn sync_once(
         .map_err(|e| MatrixError::Network(e.to_string()))?;
 
     let status = resp.status().as_u16();
-    if !resp.status().is_success() {
-        let body = resp.text().await.unwrap_or_default();
+    // Read the body through a capped helper so neither the error nor the
+    // success path can buffer an unbounded body inside this long-poll loop.
+    let body_bytes = wcore_egress::read_body_capped(resp, MAX_SYNC_BODY_BYTES)
+        .await
+        .map_err(|e| MatrixError::Network(format!("sync body read: {e}")))?;
+
+    if !(200..300).contains(&status) {
+        // Truncate the retained error body so a large payload can't bloat the
+        // error/log path. Slice on a char boundary to keep the string valid.
+        let mut body = String::from_utf8_lossy(&body_bytes).into_owned();
+        if body.len() > MAX_ERROR_BODY_BYTES {
+            let mut end = MAX_ERROR_BODY_BYTES;
+            while !body.is_char_boundary(end) {
+                end -= 1;
+            }
+            body.truncate(end);
+        }
         return Err(MatrixError::Http { status, body });
     }
 
-    resp.json::<SyncResponse>()
-        .await
+    serde_json::from_slice::<SyncResponse>(&body_bytes)
         .map_err(|e| MatrixError::Parse(e.to_string()))
 }
 

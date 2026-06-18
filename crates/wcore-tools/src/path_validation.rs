@@ -225,6 +225,61 @@ fn is_denied_system_path(path: &Path) -> bool {
         return true;
     }
 
+    // Windows read-path deny list. The POSIX suffixes above use forward
+    // slashes and case-sensitive matching, so they give ZERO protection on
+    // Windows where secrets live under `%USERPROFILE%\.ssh\`, `%APPDATA%`,
+    // and the `%WINDIR%\System32\config` registry hives, and paths are
+    // backslash-separated and case-insensitive. Mirror `file_safety.rs`'s
+    // Windows technique here for the READ path: lowercase the path (NTFS is
+    // case-insensitive) and match backslash-form denied substrings. Keep the
+    // POSIX entries above intact — they still apply to `\\?\`-style mixed
+    // inputs and to cross-platform test fixtures.
+    #[cfg(windows)]
+    {
+        let lower = s.to_ascii_lowercase();
+        // Backslash-form credential suffixes under the user profile / appdata.
+        const WINDOWS_DENIED_SUFFIXES: &[&str] = &[
+            r"\.ssh\id_rsa",
+            r"\.ssh\id_ed25519",
+            r"\.ssh\id_ecdsa",
+            r"\.ssh\id_dsa",
+            r"\.ssh\authorized_keys",
+            r"\.ssh\known_hosts",
+            r"\.aws\credentials",
+            r"\.gnupg\private-keys-v1.d",
+            r"\.kube\config",
+            r"\.config\wayland-core\credentials.toml",
+            r"\.wayland\credentials.toml",
+            r"\wayland-core\auth.json",
+            r"\wayland-core\credentials.enc",
+            r"\wayland-core\credentials.key.json",
+            r"\.wayland\cron\",
+            r"\.netrc",
+            r"\.npmrc",
+            r"\.pypirc",
+            r"\.docker\config.json",
+            r"\.gcloud\credentials.db",
+            r"\.azure\",
+        ];
+        if WINDOWS_DENIED_SUFFIXES
+            .iter()
+            .any(|sfx| lower.contains(sfx))
+        {
+            return true;
+        }
+        // `%WINDIR%\System32\config` registry hives (SAM / SYSTEM / SECURITY).
+        // Match component-wise on the lowercased path so a different
+        // SystemDrive (`D:\Windows\...`) is still caught.
+        const WINDOWS_HIVE_SUFFIXES: &[&str] = &[
+            r"\system32\config\sam",
+            r"\system32\config\system",
+            r"\system32\config\security",
+        ];
+        if WINDOWS_HIVE_SUFFIXES.iter().any(|sfx| lower.contains(sfx)) {
+            return true;
+        }
+    }
+
     // M-19 (residual bypass): the `/.wayland/cron/` suffix above only matches
     // the DEFAULT cron dir. The cron store resolves `$WAYLAND_HOME` first
     // (`wcore_cron::store::default_store_path`), so a relocated home puts
@@ -570,6 +625,60 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // ----- Windows read-path deny list (F2) -----
+    //
+    // These mirror file_safety.rs's Windows write-deny tests for the READ
+    // guard. They use Windows-shaped absolute paths (`C:\Users\...`,
+    // `C:\Windows\System32\config\SAM`) which only validate as absolute on
+    // Windows, so they're gated to cfg(windows) and verified via CI.
+    #[cfg(windows)]
+    #[test]
+    fn windows_ssh_private_key_rejected() {
+        let err = validate_user_path(Path::new(r"C:\Users\alice\.ssh\id_rsa")).unwrap_err();
+        assert!(matches!(err, PathValidationError::SystemPath(_)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_ssh_private_key_case_insensitive_rejected() {
+        // NTFS is case-insensitive; an upper/mixed-case spelling must still
+        // be denied.
+        let err = validate_user_path(Path::new(r"C:\Users\Alice\.SSH\ID_RSA")).unwrap_err();
+        assert!(matches!(err, PathValidationError::SystemPath(_)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_aws_credentials_rejected() {
+        let err = validate_user_path(Path::new(
+            r"C:\Users\alice\AppData\Roaming\.aws\credentials",
+        ))
+        .unwrap_err();
+        assert!(matches!(err, PathValidationError::SystemPath(_)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_sam_hive_rejected() {
+        let err = validate_user_path(Path::new(r"C:\Windows\System32\config\SAM")).unwrap_err();
+        assert!(matches!(err, PathValidationError::SystemPath(_)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_system_hive_on_other_drive_rejected() {
+        // A relocated SystemDrive must still be caught (component-wise match).
+        let err = validate_user_path(Path::new(r"D:\Windows\System32\config\SYSTEM")).unwrap_err();
+        assert!(matches!(err, PathValidationError::SystemPath(_)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_ordinary_path_allowed() {
+        let p = validate_user_path(Path::new(r"C:\work\notes.txt")).unwrap();
+        assert_eq!(p, PathBuf::from(r"C:\work\notes.txt"));
     }
 
     // Companion: a symlink to a benign file is still allowed (no

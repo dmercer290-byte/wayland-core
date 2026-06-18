@@ -4,12 +4,23 @@
 //! Transaction IDs use a process-local counter (monotonic u64) to make retries idempotent.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::MatrixError;
 
 static TXN_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// Hard cap on a single media download. The `mxc://` URI is attacker-controlled
+/// (it arrives on an inbound message), so the body is streamed with a byte cap
+/// to prevent an OOM-DoS from a homeserver that omits/lies about
+/// `Content-Length`. Matches the 100 MiB cap used by the Discord/Slack/Telegram
+/// media paths.
+const MAX_MEDIA_BYTES: usize = 100 * 1024 * 1024;
+
+/// Wall-clock timeout for a media download request (including the body read).
+const MEDIA_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Serialize)]
 struct TextMessageBody<'a> {
@@ -180,6 +191,7 @@ pub async fn download_media(
     let resp = http
         .get(&url)
         .bearer_auth(access_token)
+        .timeout(MEDIA_DOWNLOAD_TIMEOUT)
         .send()
         .await
         .map_err(|e| MatrixError::Network(e.to_string()))?;
@@ -188,11 +200,12 @@ pub async fn download_media(
         let body = resp.text().await.unwrap_or_default();
         return Err(MatrixError::Http { status, body });
     }
-    let bytes = resp
-        .bytes()
+    // Stream the body with a hard cap so a homeserver that omits/lies about
+    // Content-Length on an attacker-supplied mxc:// URI cannot OOM the host.
+    let bytes = wcore_egress::read_body_capped(resp, MAX_MEDIA_BYTES)
         .await
         .map_err(|e| MatrixError::Network(format!("media body read: {e}")))?;
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 // ---------------------------------------------------------------------------

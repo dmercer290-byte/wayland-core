@@ -128,6 +128,29 @@ impl Tool for GlobTool {
     /// through `ctx.vfs.exists()` first. Top-level RealFs is a no-op;
     /// sandboxed sub-agents are clamped to their root.
     async fn execute_with_ctx(&self, input: Value, ctx: &ToolContext) -> ToolResult {
+        // The sandboxed path validates `path` via the VFS, but `execute()`
+        // builds the glob from `pattern` directly against the real filesystem.
+        // An absolute pattern (`/etc/**`) or one containing `..` escapes the
+        // jail and enumerates paths outside it, so reject those shapes here —
+        // only on the sandboxed entry, leaving the direct `execute()` path
+        // unchanged.
+        if let Some(pattern) = input["pattern"].as_str() {
+            let pattern_path = Path::new(pattern);
+            if pattern_path.is_absolute()
+                || pattern_path
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                return ToolResult {
+                    content: format!(
+                        "Glob refused: pattern {pattern:?} is absolute or contains `..` traversal, \
+                         which would escape the sandbox"
+                    ),
+                    is_error: true,
+                };
+            }
+        }
+
         let path_arg = input["path"].as_str().unwrap_or(".");
         let path = Path::new(path_arg);
         if let Err(e) = ctx.vfs.exists(path).await {
@@ -228,6 +251,50 @@ mod tests {
         assert!(!result.is_error, "glob should succeed");
         let lines: Vec<&str> = result.content.lines().collect();
         assert_eq!(lines.len(), 5, "all 5 files should be returned");
+    }
+
+    #[tokio::test]
+    async fn test_glob_rejects_absolute_and_traversal_patterns_under_sandbox() {
+        use std::sync::Arc;
+        use tokio_util::sync::CancellationToken;
+
+        use crate::context::ToolContext;
+        use crate::vfs::{RealFs, SandboxedFs};
+        use crate::{NullToolOutputSink, ToolOutputSink};
+
+        let dir = tempdir().unwrap();
+        let base = dir.path();
+        fs::write(base.join("main.rs"), "fn main() {}").unwrap();
+
+        let vfs = Arc::new(SandboxedFs::new(RealFs, base));
+        let ctx = ToolContext::new(
+            "test",
+            CancellationToken::new(),
+            vfs,
+            None,
+            Arc::new(NullToolOutputSink) as Arc<dyn ToolOutputSink>,
+        );
+        let tool = GlobTool;
+
+        // Absolute pattern escapes the jail and must be refused.
+        let abs = tool
+            .execute_with_ctx(
+                json!({ "pattern": "/etc/**", "path": base.to_str().unwrap() }),
+                &ctx,
+            )
+            .await;
+        assert!(abs.is_error, "absolute pattern must be rejected");
+        assert!(abs.content.contains("escape the sandbox"));
+
+        // `..` traversal in the pattern also escapes and must be refused.
+        let dotdot = tool
+            .execute_with_ctx(
+                json!({ "pattern": "../**/*.rs", "path": base.to_str().unwrap() }),
+                &ctx,
+            )
+            .await;
+        assert!(dotdot.is_error, "traversal pattern must be rejected");
+        assert!(dotdot.content.contains("escape the sandbox"));
     }
 
     #[tokio::test]

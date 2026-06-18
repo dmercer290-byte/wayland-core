@@ -130,7 +130,43 @@ fn build_input(messages: &[Message]) -> Vec<Value> {
         }
     }
 
+    // Drop orphaned `function_call_output` items. The Responses API 400s with
+    // "No tool call found for function call output" on any function_call_output
+    // whose `call_id` has no matching `function_call` item in the same input
+    // set — the same failure the Chat Completions path closes via
+    // `clean_orphaned_tool_results` (FerroxLabs/wayland#85). An orphan arises
+    // when history trimming drops the parent assistant `function_call` while
+    // keeping its result. Stripping it is strictly correct; an orphaned output
+    // is unconditionally invalid to send.
+    clean_orphaned_function_call_outputs(&mut input);
+
     input
+}
+
+/// Remove `function_call_output` items whose `call_id` matches no
+/// `function_call` item in the same input set — the Responses-shape
+/// counterpart to `openai.rs::clean_orphaned_tool_results`.
+fn clean_orphaned_function_call_outputs(input: &mut Vec<Value>) {
+    use std::collections::HashSet;
+
+    let called_ids: HashSet<String> = input
+        .iter()
+        .filter(|item| item["type"].as_str() == Some("function_call"))
+        .filter_map(|item| item["call_id"].as_str().map(String::from))
+        .collect();
+
+    input.retain(|item| {
+        if item["type"].as_str() == Some("function_call_output")
+            && let Some(id) = item["call_id"].as_str()
+        {
+            // Keep only outputs whose call survives in the input set.
+            called_ids.contains(id)
+        } else {
+            // Non-output items, and any malformed output without a call_id,
+            // are out of scope for this pass.
+            true
+        }
+    });
 }
 
 /// A user message becomes either a `message` item with `input_text` content,
@@ -746,6 +782,56 @@ mod tests {
         assert_eq!(input[1]["type"], json!("function_call_output"));
         assert_eq!(input[1]["call_id"], json!("call_abc"));
         assert_eq!(input[1]["output"], json!("file contents"));
+    }
+
+    #[test]
+    fn build_input_drops_orphaned_function_call_output() {
+        // A tool result whose parent assistant function_call was trimmed from
+        // history is an orphan: the Responses API 400s on it. It must be
+        // dropped, while a matched call/output pair is preserved.
+        let orphan_result = Message::new(
+            Role::Tool,
+            vec![ContentBlock::ToolResult {
+                tool_use_id: "call_orphan".into(),
+                content: "stale result".into(),
+                is_error: false,
+            }],
+        );
+        let assistant = Message::new(
+            Role::Assistant,
+            vec![ContentBlock::ToolUse {
+                id: "call_live".into(),
+                name: "read".into(),
+                input: json!({ "path": "x.txt" }),
+                extra: None,
+            }],
+        );
+        let matched_result = Message::new(
+            Role::Tool,
+            vec![ContentBlock::ToolResult {
+                tool_use_id: "call_live".into(),
+                content: "file contents".into(),
+                is_error: false,
+            }],
+        );
+
+        let input = build_input(&[orphan_result, assistant, matched_result]);
+
+        // The orphaned function_call_output (call_orphan) is gone.
+        assert!(
+            !input.iter().any(|item| {
+                item["type"] == json!("function_call_output")
+                    && item["call_id"] == json!("call_orphan")
+            }),
+            "orphaned function_call_output must be dropped, got {input:?}"
+        );
+        // The matched function_call + function_call_output pair survives.
+        assert!(input.iter().any(|item| {
+            item["type"] == json!("function_call") && item["call_id"] == json!("call_live")
+        }));
+        assert!(input.iter().any(|item| {
+            item["type"] == json!("function_call_output") && item["call_id"] == json!("call_live")
+        }));
     }
 
     #[test]
