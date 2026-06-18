@@ -252,6 +252,11 @@ impl SandboxBackend for SandboxExecBackend {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // Reap the child if this future is dropped — e.g. when the
+        // `tokio::time::timeout` below elapses and drops the in-flight
+        // `run_fut` (which owns the Child). Without this the sandboxed
+        // process tree escapes on timeout. Mirrors no_sandbox.rs.
+        child_cmd.kill_on_drop(true);
 
         let run_fut = async {
             let child = child_cmd

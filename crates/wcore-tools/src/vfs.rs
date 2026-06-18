@@ -53,6 +53,16 @@ pub trait VirtualFs: Send + Sync {
     async fn list(&self, dir: &Path) -> Result<Vec<PathBuf>, VfsError>;
     async fn remove_file(&self, path: &Path) -> Result<(), VfsError>;
     async fn metadata(&self, path: &Path) -> Result<VfsMetadata, VfsError>;
+
+    /// The containment root for a sandboxed filesystem, or `None` for an
+    /// unconstrained one (`RealFs`, `InMemoryFs`). Tools that shell out to a
+    /// subprocess (e.g. Grep → `rg`/`grep`) can't route the scan through the
+    /// vfs, so they use this to anchor the subprocess working directory to the
+    /// jail root — making a relative search path resolve against the sandbox,
+    /// not the process cwd (F36).
+    fn root(&self) -> Option<&Path> {
+        None
+    }
 }
 
 /// Minimum metadata surface tools need (size + is_dir). Avoids leaking
@@ -317,5 +327,8 @@ impl<F: VirtualFs + 'static> VirtualFs for SandboxedFs<F> {
     async fn metadata(&self, path: &Path) -> Result<VfsMetadata, VfsError> {
         let p = self.contain(path)?;
         self.inner.metadata(&p).await
+    }
+    fn root(&self) -> Option<&Path> {
+        Some(&self.root)
     }
 }

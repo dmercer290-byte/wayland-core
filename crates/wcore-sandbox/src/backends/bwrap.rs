@@ -256,7 +256,12 @@ impl SandboxBackend for BubblewrapBackend {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .env_clear();
+            .env_clear()
+            // Reap the bwrap process if our Child handle is dropped — the
+            // timeout arm below relies on this to kill the namespace tree
+            // instead of leaking it. Mirrors no_sandbox.rs. bwrap's
+            // --die-with-parent then tears down the inner sandboxed process.
+            .kill_on_drop(true);
 
         // S3 — Landlock (feature-gated, Linux-only). Apply the ruleset
         // inside the child via `pre_exec` so it propagates across execve()
@@ -306,12 +311,11 @@ impl SandboxBackend for BubblewrapBackend {
                 return Err(SandboxError::ExecFailed(format!("bwrap wait failed: {e}")));
             }
             Err(_elapsed) => {
-                // child has already moved into wait_with_output; pid escapes
-                // our handle. bwrap's --die-with-parent will kill the
-                // namespace tree once the engine drops the handle, but since
-                // wait_with_output owns the child we cannot signal here.
-                // Best we can do is return Timeout; the bwrap parent will
-                // exit when its child does.
+                // `timeout` dropped `wait_fut` on elapse, which drops the
+                // Child it owns. With `kill_on_drop(true)` set above, that
+                // drop reaps the bwrap process; bwrap's --die-with-parent
+                // then tears down the inner namespace tree — no pid escapes
+                // our handle.
                 return Err(SandboxError::Timeout);
             }
         };

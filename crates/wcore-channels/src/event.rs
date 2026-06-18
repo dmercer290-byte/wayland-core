@@ -1,6 +1,42 @@
 //! `ChannelEvent` — uniform event shape across platforms.
 
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use serde::{Deserialize, Serialize};
+
+/// Maximum number of buffered inbound events held in a channel adapter's
+/// inbox before `poll_events` drains it. A remote peer can flood inbound
+/// messages faster than the host polls; without a cap the inbox
+/// `VecDeque` grows unbounded and OOMs the process (audit F9). 1024 events
+/// is far more than any healthy poll cadence leaves un-drained, yet small
+/// enough to bound memory.
+pub const MAX_INBOX: usize = 1024;
+
+/// Tracks whether the drop-oldest overflow warning has already been logged
+/// so a sustained flood emits exactly one warning rather than one per
+/// dropped event.
+static INBOX_OVERFLOW_WARNED: AtomicBool = AtomicBool::new(false);
+
+/// Push `event` onto a channel adapter's inbox with a bounded, drop-oldest
+/// overflow policy (audit F9). When the inbox is already at [`MAX_INBOX`]
+/// the oldest buffered event is dropped before the new one is pushed, and a
+/// warning is logged once. Shared by every channel adapter so the bound is
+/// applied uniformly (no per-crate copy of the cap logic).
+pub fn push_bounded(inbox: &mut VecDeque<ChannelEvent>, event: ChannelEvent) {
+    if inbox.len() >= MAX_INBOX {
+        inbox.pop_front();
+        if !INBOX_OVERFLOW_WARNED.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                target: "wcore_channels::inbox",
+                max_inbox = MAX_INBOX,
+                "channel inbox full — dropping oldest buffered event; \
+                 poll_events is not draining fast enough"
+            );
+        }
+    }
+    inbox.push_back(event);
+}
 
 /// Connection state for a channel. Surfaces through
 /// `ChannelEvent::ConnectionStateChanged` so the UI can show online
@@ -246,4 +282,77 @@ pub enum ChannelEvent {
     ConnectionStateChanged { state: ConnectionState },
     AuthExpired { reason: String },
     PlatformWarning { message: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Cheap, distinguishable event tagged with `n` so FIFO order is
+    /// observable without constructing a full `IncomingMessage`.
+    fn ev(n: usize) -> ChannelEvent {
+        ChannelEvent::AuthExpired {
+            reason: n.to_string(),
+        }
+    }
+
+    fn tag(e: &ChannelEvent) -> usize {
+        match e {
+            ChannelEvent::AuthExpired { reason } => reason.parse().unwrap(),
+            _ => unreachable!("test only pushes AuthExpired events"),
+        }
+    }
+
+    #[test]
+    fn push_bounded_keeps_under_cap_in_order() {
+        let mut inbox = VecDeque::new();
+        for n in 0..10 {
+            push_bounded(&mut inbox, ev(n));
+        }
+        assert_eq!(inbox.len(), 10, "below cap, nothing is dropped");
+        assert_eq!(tag(&inbox[0]), 0, "oldest stays at the front");
+        assert_eq!(tag(&inbox[9]), 9, "newest at the back");
+    }
+
+    #[test]
+    fn push_bounded_drops_oldest_on_overflow() {
+        let mut inbox = VecDeque::new();
+        // Push one more than the cap. The first event (0) must be evicted.
+        for n in 0..=MAX_INBOX {
+            push_bounded(&mut inbox, ev(n));
+        }
+        assert_eq!(inbox.len(), MAX_INBOX, "length is capped at MAX_INBOX");
+        assert_eq!(
+            tag(inbox.front().unwrap()),
+            1,
+            "the oldest event (0) was dropped, so the front is now 1"
+        );
+        assert_eq!(
+            tag(inbox.back().unwrap()),
+            MAX_INBOX,
+            "the newest event is retained at the back"
+        );
+    }
+
+    #[test]
+    fn push_bounded_sustained_overflow_stays_capped() {
+        let mut inbox = VecDeque::new();
+        // Flood well past the cap; the inbox must never exceed MAX_INBOX and
+        // must retain the most-recent MAX_INBOX events (drop-oldest).
+        let total = MAX_INBOX * 3;
+        for n in 0..total {
+            push_bounded(&mut inbox, ev(n));
+        }
+        assert_eq!(inbox.len(), MAX_INBOX);
+        assert_eq!(
+            tag(inbox.front().unwrap()),
+            total - MAX_INBOX,
+            "front is the oldest of the retained tail window"
+        );
+        assert_eq!(
+            tag(inbox.back().unwrap()),
+            total - 1,
+            "back is the most-recent event"
+        );
+    }
 }

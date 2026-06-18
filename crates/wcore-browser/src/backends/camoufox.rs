@@ -180,7 +180,7 @@ impl BrowserProvider for CamoufoxBackend {
                 url,
                 wait_until_loaded,
             } => {
-                let body = json!({ "url": url, "wait_until_loaded": wait_until_loaded });
+                let body = json!({ "url": &url, "wait_until_loaded": wait_until_loaded });
                 // The Camoufox sidecar's /navigate endpoint MUST return the
                 // post-redirect landing URL as `final_url`. We re-check it
                 // against the policy so a 3xx chain that lands on
@@ -191,9 +191,21 @@ impl BrowserProvider for CamoufoxBackend {
                 let resp: serde_json::Value = self
                     .post_json_lenient(&format!("/sessions/{sid}/navigate"), &body)
                     .await?;
-                if let Some(policy) = self.policy.as_ref()
-                    && let Some(final_url) = resp.get("final_url").and_then(|v| v.as_str())
-                {
+                if let Some(policy) = self.policy.as_ref() {
+                    // FAIL CLOSED: when a policy is in force, the sidecar MUST
+                    // hand back a parseable `final_url`. If it's absent or
+                    // non-string we cannot re-check the post-redirect landing
+                    // URL — the `and_then` short-circuit would otherwise SKIP
+                    // `policy.evaluate` and return Ok, silently bypassing
+                    // BLOCKER #3's redirect-SSRF defense. Deny instead.
+                    let Some(final_url) = resp.get("final_url").and_then(|v| v.as_str()) else {
+                        return Err(BrowserOpError::PolicyDenied {
+                            url: url.clone(),
+                            reason: "post-redirect final_url missing/unparseable; \
+                                     failing closed to enforce redirect policy"
+                                .to_string(),
+                        });
+                    };
                     match policy.evaluate(final_url) {
                         PolicyOutcome::Allow => {}
                         PolicyOutcome::Deny { reason } => {
@@ -443,6 +455,68 @@ mod tests {
             }
             other => panic!("unexpected: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn navigate_fails_closed_when_final_url_missing_under_policy() {
+        // F18: when a policy is installed, a navigate response that lacks a
+        // parseable `final_url` MUST be denied (fail closed) instead of the
+        // `and_then` short-circuit silently skipping the policy re-check.
+        use crate::policy::{BrowserPolicy, PolicyAction};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/sessions/sess-fc/navigate"))
+            // No `final_url` field in the body.
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+            .mount(&server)
+            .await;
+        // Allow-everything policy: proves the deny is the missing-final_url
+        // fail-closed guard, not the policy decision itself.
+        let policy = BrowserPolicy::new(PolicyAction::Allow, vec!["example.com".into()], vec![]);
+        let cf = CamoufoxBackend::with_policy(server.uri(), policy);
+        let r = cf
+            .dispatch(
+                &SessionCtx::for_test("sess-fc"),
+                BrowserOp::Navigate {
+                    url: "https://example.com/".into(),
+                    wait_until_loaded: true,
+                },
+            )
+            .await;
+        match r {
+            Err(BrowserOpError::PolicyDenied { reason, .. }) => {
+                assert!(
+                    reason.contains("final_url") && reason.contains("failing closed"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected PolicyDenied fail-closed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn navigate_without_policy_tolerates_missing_final_url() {
+        // The fail-closed guard only applies when a policy is present. With no
+        // policy (legacy "trust the sidecar" mode), a missing `final_url` must
+        // still return Ok.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/sessions/sess-np/navigate"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+            .mount(&server)
+            .await;
+        let cf = CamoufoxBackend::new(server.uri());
+        let r = cf
+            .dispatch(
+                &SessionCtx::for_test("sess-np"),
+                BrowserOp::Navigate {
+                    url: "https://example.com/".into(),
+                    wait_until_loaded: true,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(matches!(r, OpResult::Ok));
     }
 
     #[tokio::test]

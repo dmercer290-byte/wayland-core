@@ -29,6 +29,7 @@
 use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc::UnboundedSender;
@@ -773,6 +774,17 @@ pub struct TuiEngine {
     /// before a submit so the spawned turn task can resolve an `@output`
     /// reference. Consumed (`take`n) per submit; `None` between turns.
     pending_at_ref_output: Option<String>,
+    /// F37: monotonic generation counter for deferred rebinds. When the
+    /// engine lock is contended, `rebind_with_config` spawns a task that
+    /// applies the new binding once the in-flight turn releases the lock.
+    /// Two binding-changing commands during one turn each spawn such a task,
+    /// and tokio does not order their lock acquisitions — so the
+    /// later-issued config could land first, leaving the engine on a stale
+    /// binding. Each deferred rebind bumps this counter and captures its own
+    /// generation; after acquiring the lock the task re-checks the counter
+    /// and skips its swap if a newer rebind has superseded it, so only the
+    /// most recently requested config is ever applied.
+    rebind_generation: Arc<AtomicU64>,
 }
 
 impl TuiEngine {
@@ -806,6 +818,7 @@ impl TuiEngine {
             repo_root: PathBuf::from("."),
             session_store: None,
             pending_at_ref_output: None,
+            rebind_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -1398,6 +1411,12 @@ impl TuiEngine {
         // the session is force-pinned, preserve the live posture by skipping the
         // approval set_mode below.
         let apply_mode = !force_pinned;
+        // F37: claim a generation for THIS rebind request. A later rebind
+        // issued while a turn still holds the engine lock will claim a higher
+        // generation; the deferred task below checks this before applying so a
+        // superseded (older) config never lands after a newer one.
+        let my_generation = self.rebind_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let rebind_generation = self.rebind_generation.clone();
         // N3: swap synchronously when the engine lock is uncontended (the common
         // case right after onboarding completion or a /config save, when no turn
         // is in flight) so an immediate first submit cannot race onto the old
@@ -1428,6 +1447,14 @@ impl TuiEngine {
                     // in-flight turn wholly on the old binding; the new posture
                     // lands atomically with the swap, for the next turn.
                     let mut guard = engine_for_task.lock().await;
+                    // F37: a newer rebind may have been issued (and may have
+                    // already applied) while this task waited for the lock.
+                    // Applying this now-stale config would clobber the newer
+                    // binding. Skip if superseded — only the latest desired
+                    // config wins.
+                    if rebind_generation.load(Ordering::SeqCst) != my_generation {
+                        return;
+                    }
                     if apply_mode {
                         approval.set_mode(task_mode);
                     }
@@ -1749,15 +1776,33 @@ impl TuiEngine {
         name: String,
         mut config: wcore_config::config::McpServerConfig,
     ) {
-        // Resolve `${cred:KEY}` header references just before connecting.
-        // Best-effort: if the store can't be opened, the literal header is left
-        // in place and the connect fails honestly below (no silent empty bearer).
-        // A no-reference header (the plain `/mcp add` path) never touches the store.
+        // Resolve `${cred:KEY}` header references just before connecting. This
+        // is the single-server live-add path: per the `mcp_cred_refs` contract,
+        // a resolution failure (missing key / store error / malformed ref) is a
+        // HARD error the user must see — the user just asked to connect THIS
+        // server, so silently falling through to a literal `${cred:...}` bearer
+        // would be a confusing mis-connect (F22). A no-reference header (the
+        // plain `/mcp add` path) never touches the store and never errors.
         if let Ok(cfg) =
             wcore_config::config::Config::resolve(&wcore_config::config::CliArgs::default())
             && let Ok(store) = cfg.open_credentials_store()
+            && let Err(e) =
+                wcore_config::mcp_cred_refs::resolve_server_headers(&mut config, &*store)
         {
-            let _ = wcore_config::mcp_cred_refs::resolve_server_headers(&mut config, &*store);
+            let reason = format!("{e}");
+            let _ = tx.send(ProtocolEvent::McpFailed {
+                name: name.clone(),
+                reason: reason.clone(),
+            });
+            let _ = tx.send(ProtocolEvent::Error {
+                msg_id: None,
+                error: ErrorInfo {
+                    code: "mcp_add".to_string(),
+                    message: format!("Couldn't connect MCP server '{name}': {reason}"),
+                    retryable: false,
+                },
+            });
+            return;
         }
 
         let mut single = std::collections::HashMap::new();

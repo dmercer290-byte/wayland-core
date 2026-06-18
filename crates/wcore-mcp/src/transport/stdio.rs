@@ -196,12 +196,22 @@ fn windows_cmd_quote(arg: &str) -> String {
 /// resolves it against PATH/PATHEXT itself (`node` → `node.exe`/`node.cmd`).
 /// Running it through [`windows_cmd_quote`] produced `^"node^"`, which cmd read
 /// as a literal-quoted name and failed to resolve, so the MCP server never
-/// started (wayland#164). A bare name passes through unchanged; a path with
-/// whitespace is wrapped in the plain double quotes `cmd /C` expects for the
-/// executable token (no caret-escaping). Pure + platform-independent so it is
-/// unit-testable on any host.
+/// started (wayland#164). A bare name passes through unchanged; a name with
+/// whitespace OR any cmd metacharacter is wrapped in the plain double quotes
+/// `cmd /C` expects for the executable token (no caret-escaping). Pure +
+/// platform-independent so it is unit-testable on any host.
+///
+/// F34: whitespace alone was not enough. A whitespace-free program token such
+/// as `foo&calc` would otherwise reach `cmd /C foo&calc` unquoted, where cmd
+/// reads `&` as a command separator and runs `calc`. Wrapping the token in `"`
+/// makes cmd treat `& | < > ^ ( ) %` etc. inside it as literal filename
+/// characters (the executable token is parsed as a single quoted name), so a
+/// metachar-bearing name can't smuggle a second command onto the line.
 fn windows_program_token(command: &str) -> String {
-    if command.chars().any(char::is_whitespace) {
+    // cmd.exe metacharacters that, unquoted, would be interpreted on the
+    // command line rather than treated as part of the program name.
+    const CMD_META: &[char] = &['&', '|', '<', '>', '^', '(', ')', '%', '!', '"'];
+    if command.chars().any(char::is_whitespace) || command.chars().any(|c| CMD_META.contains(&c)) {
         format!("\"{command}\"")
     } else {
         command.to_string()
@@ -327,6 +337,31 @@ mod cmd_quote_tests {
             !out.contains('^'),
             "program token must never be caret-escaped: {out:?}"
         );
+    }
+
+    // F34: a whitespace-FREE program token carrying a cmd metacharacter must be
+    // wrapped in quotes so cmd cannot interpret it. Without the fix `foo&calc`
+    // reached `cmd /C foo&calc` and cmd ran `calc`.
+    #[test]
+    fn program_token_quotes_metachar_bearing_bare_names() {
+        for (input, expected) in [
+            ("foo&calc", "\"foo&calc\""),
+            ("a|b", "\"a|b\""),
+            ("x>y", "\"x>y\""),
+            ("p(q)", "\"p(q)\""),
+            ("z^w", "\"z^w\""),
+            ("v%PATH%", "\"v%PATH%\""),
+        ] {
+            let out = windows_program_token(input);
+            assert_eq!(out, expected, "metachar token {input:?} must be quoted");
+            // The quoting must be plain double quotes — never caret-escaped.
+            assert!(
+                !out.contains('^') || input.contains('^'),
+                "program token must not introduce carets: {out:?}"
+            );
+        }
+        // A clean bare name still passes through untouched (fast path).
+        assert_eq!(windows_program_token("node"), "node");
     }
 }
 
@@ -765,11 +800,17 @@ impl McpTransport for StdioTransport {
 
         // Join the background tasks so they don't leak (audit C9).
         if let Some(handle) = self.reader_task.lock().await.take() {
+            // F33 — `timeout` consumes `handle`, so capture an abort handle
+            // first; otherwise the timeout arm only DROPS the JoinHandle
+            // (which detaches, not aborts) and the reader task leaks. This
+            // mirrors how `stderr_task` below aborts its handle.
+            let abort = handle.abort_handle();
             match timeout(Duration::from_secs(1), handle).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => warn!(error = %e, "[mcp] stdio reader join error"),
                 Err(_) => {
                     warn!("[mcp] stdio reader did not finish within 1s — aborting");
+                    abort.abort();
                 }
             }
         }

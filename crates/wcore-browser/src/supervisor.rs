@@ -135,10 +135,11 @@ impl BrowserSupervisor {
         });
         drop(guard);
         if let Some(h) = removed {
-            terminate_pid(h.pid);
-            // Drop the stashed Child handle so its fds + zombie slot are
-            // released instead of being held for the host process lifetime.
-            release_child(session_id);
+            // F25: kill through the stashed Child handle when present (race-free
+            // vs PID reuse), falling back to the raw PID for orphan recovery.
+            // `terminate_session` also removes the stashed handle, releasing its
+            // fds + zombie slot instead of holding them for the host lifetime.
+            terminate_session(session_id, h.pid);
             let pid_path = self.config.pid_dir.join(format!("{session_id}.pid"));
             let _ = std::fs::remove_file(&pid_path);
             true
@@ -168,7 +169,13 @@ impl BrowserSupervisor {
         let interval = self.config.reaper_interval;
         let sessions = Arc::clone(&self.sessions);
         let pid_dir = self.config.pid_dir.clone();
-        *self.reaper_cancel.lock() = Some(cancel.clone());
+        // F24: a second `start_reaper` would otherwise overwrite the stored
+        // token, orphaning the prior reaper + healthcheck tasks (they hold the
+        // OLD token and never get cancelled). Cancel and replace atomically so
+        // the previous task pair shuts down before the new one starts.
+        if let Some(prev) = self.reaper_cancel.lock().replace(cancel.clone()) {
+            prev.cancel();
+        }
 
         // Schedule the healthcheck loop on the same cancellation token. A
         // zero interval means "disabled" — `tokio::time::interval` panics on a
@@ -176,7 +183,12 @@ impl BrowserSupervisor {
         if !self.config.healthcheck_interval.is_zero() {
             let cancel_for_health = cancel.clone();
             let hc_interval = self.config.healthcheck_interval;
-            let sup = Arc::clone(self);
+            // F23: capture a `Weak<Self>` (not a strong `Arc`). A strong ref
+            // here forms a refcount cycle that keeps the supervisor alive
+            // forever, so `Drop` (which cancels the reaper) never runs. With a
+            // Weak we `upgrade()` per tick and stop the loop the moment the
+            // supervisor is dropped — breaking the cycle.
+            let sup = Arc::downgrade(self);
             tokio::spawn(async move {
                 let mut ticker = tokio::time::interval(hc_interval);
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -187,6 +199,8 @@ impl BrowserSupervisor {
                     tokio::select! {
                         _ = cancel_for_health.cancelled() => break,
                         _ = ticker.tick() => {
+                            // Stop probing once the supervisor is gone.
+                            let Some(sup) = sup.upgrade() else { break };
                             // Best-effort liveness probe; errors are non-fatal
                             // (sidecar may be starting/restarting).
                             let _ = sup.healthcheck(hc_interval).await;
@@ -207,7 +221,10 @@ impl BrowserSupervisor {
                         let mut orphan_sessions: Vec<String> = Vec::new();
                         for h in &snapshot {
                             if !process_alive(h.parent_pid) {
-                                terminate_pid(h.pid);
+                                // F25: prefer the stashed Child handle (race-free
+                                // vs PID reuse); fall back to the raw PID for
+                                // cross-boot orphans with no handle.
+                                terminate_session(&h.session_id, h.pid);
                                 orphan_sessions.push(h.session_id.clone());
                             }
                         }
@@ -298,11 +315,22 @@ fn retain_child(session: &str, child: tokio::process::Child) {
     children_map().lock().insert(session.to_string(), child);
 }
 
-/// Drop the stashed `Child` handle for `session`, releasing its fds + zombie
-/// slot so the OS can reap it. Called by `on_session_end` after `terminate_pid`
-/// so the handle no longer loiters for the host process lifetime.
-fn release_child(session: &str) {
-    children_map().lock().remove(session);
+/// Terminate the backend for `session` race-free. When a stashed
+/// [`tokio::process::Child`] handle exists (the in-process spawn path) we kill
+/// THROUGH it — the kernel guarantees the signal targets that exact child even
+/// if the recorded numeric PID has since been recycled by the OS (F25). Only
+/// when no handle exists (cross-boot orphan recovery, where the child was
+/// spawned by a previous host process) do we fall back to signalling the raw
+/// `pid`.
+fn terminate_session(session: &str, pid: u32) {
+    let mut map = children_map().lock();
+    if let Some(mut child) = map.remove(session) {
+        // start_kill targets the Child by handle — immune to PID reuse.
+        let _ = child.start_kill();
+    } else {
+        drop(map);
+        terminate_pid(pid);
+    }
 }
 
 /// Returns `true` if the process with `pid` is alive. Implementation:
@@ -551,6 +579,33 @@ mod tests {
             !children_map().lock().contains_key(sid),
             "on_session_end must remove the stashed child handle"
         );
+    }
+
+    #[tokio::test]
+    async fn start_reaper_twice_cancels_prior_task_pair() {
+        // F24: a second `start_reaper` must cancel the first token so the prior
+        // reaper + healthcheck tasks shut down instead of leaking. Assert the
+        // first-returned token is cancelled once the second call runs.
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = SupervisorConfig {
+            pid_dir: tmp.path().to_path_buf(),
+            reaper_interval: Duration::from_secs(3600),
+            healthcheck_interval: Duration::from_secs(3600),
+            healthcheck_url: "http://unused.invalid/".into(),
+        };
+        let sup = Arc::new(BrowserSupervisor::with_config(cfg));
+        let first = sup.start_reaper();
+        assert!(
+            !first.is_cancelled(),
+            "first token live before second start"
+        );
+        let second = sup.start_reaper();
+        assert!(
+            first.is_cancelled(),
+            "second start_reaper must cancel the first token (F24)"
+        );
+        assert!(!second.is_cancelled(), "second token must be live");
+        second.cancel();
     }
 
     #[tokio::test]

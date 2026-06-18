@@ -133,10 +133,9 @@ impl MsTeamsChannel {
     /// some other way.
     pub async fn ingest_activity(&self, raw_body: &str) -> Result<(), MsTeamsError> {
         if let Some(msg) = inbound::activity_to_incoming(raw_body, &self.config.service_url)? {
-            self.inbox
-                .lock()
-                .await
-                .push_back(ChannelEvent::MessageReceived { msg });
+            // F9 — bounded, drop-oldest inbox against a flood.
+            let mut guard = self.inbox.lock().await;
+            wcore_channels::push_bounded(&mut guard, ChannelEvent::MessageReceived { msg });
         }
         Ok(())
     }

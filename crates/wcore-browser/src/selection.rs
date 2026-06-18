@@ -59,7 +59,27 @@ pub fn select_provider(inputs: SelectionInputs) -> Arc<dyn BrowserProvider> {
             && matches!(inputs.hint, ProviderHint::Browserbase)
             && let Some(bb) = BrowserbaseBackend::from_env()
         {
-            return Arc::new(bb) as Arc<dyn BrowserProvider>;
+            // F17: Browserbase navigation happens server-side in the cloud
+            // browser, so a client-side `reqwest::redirect::Policy` on our
+            // calls to `api.browserbase.com` CANNOT constrain where the
+            // remote browser is redirected — the BLOCKER #3 redirect-SSRF
+            // defense (and the always-on metadata/loopback/private blocks)
+            // are unenforceable for this backend. When a `BrowserPolicy` is
+            // in force we therefore REFUSE Browserbase and fall through to
+            // Camoufox, which does enforce the policy. Only `policy == None`
+            // (the legacy "trust the sidecar" mode with no enforcement
+            // expectation) permits the cloud backend.
+            if inputs.policy.is_some() {
+                tracing::warn!(
+                    "ProviderHint::Browserbase requested with a BrowserPolicy set, but the \
+                     Browserbase backend cannot enforce the URL policy (navigation + redirects \
+                     happen server-side in the cloud browser). Refusing Browserbase and falling \
+                     back to Camoufox so the policy is enforced. Clear the policy to use \
+                     Browserbase, or use Camoufox/Chromium for policy-enforced browsing."
+                );
+            } else {
+                return Arc::new(bb) as Arc<dyn BrowserProvider>;
+            }
         }
     }
     // 2. Chromium: explicit hint AND feature on.
@@ -131,6 +151,26 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(p.backend_name(), "camoufox");
+    }
+
+    #[cfg(feature = "browserbase")]
+    #[test]
+    fn browserbase_refused_when_policy_set_falls_back_to_camoufox() {
+        // F17: Browserbase cannot enforce a BrowserPolicy (navigation +
+        // redirects are server-side in the cloud browser). When a policy is
+        // present, selection must refuse Browserbase and fall back to Camoufox
+        // — regardless of whether BROWSERBASE_* creds are set in the env.
+        let p = select_provider(SelectionInputs {
+            hint: ProviderHint::Browserbase,
+            allow_cloud: true,
+            policy: Some(BrowserPolicy::default()),
+            ..Default::default()
+        });
+        assert_eq!(
+            p.backend_name(),
+            "camoufox",
+            "a set policy must refuse the policy-incapable Browserbase backend"
+        );
     }
 
     #[test]

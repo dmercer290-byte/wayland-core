@@ -965,10 +965,13 @@ async fn run_one_session(
                             && let Some(im) =
                                 map_message_create(mc, allowed_channel_ids, bot_id)
                         {
-                            inbox
-                                .lock()
-                                .await
-                                .push_back(ChannelEvent::MessageReceived { msg: im });
+                            // F9 — bounded, drop-oldest inbox so a message
+                            // flood cannot grow the queue unbounded.
+                            let mut guard = inbox.lock().await;
+                            wcore_channels::push_bounded(
+                                &mut guard,
+                                ChannelEvent::MessageReceived { msg: im },
+                            );
                         }
                         // Other DISPATCH events (GUILD_CREATE, …) are not
                         // surfaced.

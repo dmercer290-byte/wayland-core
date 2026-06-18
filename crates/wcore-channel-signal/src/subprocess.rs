@@ -200,10 +200,12 @@ async fn dispatch_line(
             match serde_json::from_value::<ReceiveParams>(params) {
                 Ok(parsed) => {
                     if let Some(msg) = build_incoming(&parsed) {
-                        inbox
-                            .lock()
-                            .await
-                            .push_back(ChannelEvent::MessageReceived { msg });
+                        // F9 — bounded, drop-oldest inbox against a flood.
+                        let mut guard = inbox.lock().await;
+                        wcore_channels::push_bounded(
+                            &mut guard,
+                            ChannelEvent::MessageReceived { msg },
+                        );
                     }
                 }
                 Err(e) => {
