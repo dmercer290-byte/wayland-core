@@ -252,6 +252,7 @@ pub fn config_view_from(config: &wcore_config::config::Config) -> app::ConfigVie
         obs_online_evolution: config.observability.online_evolution,
         obs_workflow_live: config.observability.workflow_live_mode,
         storage_backend: match &config.storage.credentials.backend {
+            wcore_config::credentials::CredentialsBackend::Auto => "auto",
             wcore_config::credentials::CredentialsBackend::Plaintext => "plaintext",
             wcore_config::credentials::CredentialsBackend::Keyring => "keyring",
             wcore_config::credentials::CredentialsBackend::EncryptedFile { .. } => "encrypted-file",

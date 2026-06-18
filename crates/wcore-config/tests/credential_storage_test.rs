@@ -9,6 +9,7 @@ use tempfile::tempdir;
 
 use wcore_config::credentials::{
     CredentialsBackend, CredentialsStorageConfig, CredentialsStore, PlaintextCredentialsStore,
+    open_store,
 };
 // `secure_credential_file` uses Unix file permissions (0o600) and is only
 // exercised by `secure_credential_file_tightens_loose_perms` below, which
@@ -18,9 +19,27 @@ use wcore_config::credentials::{
 use wcore_config::credentials::secure_credential_file;
 
 #[test]
-fn default_backend_is_plaintext() {
+fn default_backend_is_auto() {
+    // F16: the default flipped from Plaintext to Auto (keyring primary,
+    // plaintext fallback) so secrets are not cleartext-by-default. Explicit
+    // `backend = "plaintext"` remains available as an opt-out.
     let cfg = CredentialsStorageConfig::default();
-    assert_eq!(cfg.backend, CredentialsBackend::Plaintext);
+    assert_eq!(cfg.backend, CredentialsBackend::Auto);
+}
+
+#[test]
+fn open_store_with_auto_default_constructs_a_usable_store() {
+    // open_store must succeed for the Auto default on any host: a keyring-backed
+    // fallback store where a keyring exists, a bare plaintext store where it
+    // does not (headless/CI). We only assert construction here — exercising
+    // put() would write into the real OS keyring on keyring-available hosts.
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("creds.toml");
+    let cfg = CredentialsStorageConfig::default();
+    assert!(
+        open_store(&cfg, &path).is_ok(),
+        "Auto default must construct a store on every platform"
+    );
 }
 
 #[test]

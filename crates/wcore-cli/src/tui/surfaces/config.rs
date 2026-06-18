@@ -2425,6 +2425,9 @@ impl ConfigSurface {
                 self.current.storage_backend = match self.current.storage_backend.as_str() {
                     "plaintext" => "keyring".to_string(),
                     "keyring" => "plaintext".to_string(),
+                    // From the "auto" default, step to an explicit choice
+                    // (keyring — the more-secure side) so the toggle isn't stuck.
+                    "auto" => "keyring".to_string(),
                     other => other.to_string(),
                 };
             }

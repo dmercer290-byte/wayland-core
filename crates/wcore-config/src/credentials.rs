@@ -7,8 +7,9 @@
 //!
 //! * `PlaintextCredentialsStore` — backs onto the existing
 //!   `~/.config/wayland-core/config.toml` path; every save enforces
-//!   `0o600` perms on Unix and tries a deny-all ACL on Windows. Default
-//!   backend when no `[storage.credentials]` block is present.
+//!   `0o600` perms on Unix and tries a deny-all ACL on Windows. The
+//!   fallback half of the default `Auto` backend (and the explicit
+//!   `backend = "plaintext"` opt-out).
 //! * `KeyringCredentialsStore` — uses the OS credential store via the
 //!   `keyring` crate (macOS Keychain, Windows Credential Manager, Linux
 //!   Secret Service). Behind the `keyring` cargo feature (on by default
@@ -33,8 +34,17 @@ use thiserror::Error;
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialsBackend {
-    /// Plaintext TOML on disk with `0o600` perms enforced.
+    /// Default: prefer the OS keyring, transparently falling back to the
+    /// plaintext `0o600` file when no keyring is available (headless Linux,
+    /// CI). Reads consult the keyring first, then plaintext, so credentials
+    /// written by either backend — including pre-existing plaintext keys —
+    /// stay resolvable; new writes prefer the keyring. Closes the
+    /// "secrets cleartext by default" finding (deep-sweep F16) without
+    /// breaking headless or stranding existing keys. Set `backend =
+    /// "plaintext"` to opt back in to the legacy always-plaintext store.
     #[default]
+    Auto,
+    /// Plaintext TOML on disk with `0o600` perms enforced.
     Plaintext,
     /// OS-native keyring (Keychain / Credential Manager / Secret Service).
     Keyring,
@@ -223,6 +233,68 @@ impl CredentialsStore for KeyringCredentialsStore {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(CredentialsError::Keyring(e.to_string())),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Auto backend (keyring primary, plaintext fallback) — the default
+// ---------------------------------------------------------------------------
+
+/// Probe whether the OS keyring is actually usable on this host. Returns
+/// `false` on headless Linux without a running Secret Service, in CI, etc., so
+/// the [`CredentialsBackend::Auto`] default can fall back to plaintext rather
+/// than error. A `NoEntry` result means the keyring works (the probe key simply
+/// does not exist); any other error means the keyring is unavailable.
+fn keyring_available(service: &str) -> bool {
+    match keyring::Entry::new(service, "__wayland_core_keyring_probe__") {
+        Ok(entry) => matches!(entry.get_password(), Ok(_) | Err(keyring::Error::NoEntry)),
+        Err(_) => false,
+    }
+}
+
+/// The [`CredentialsBackend::Auto`] store: keyring primary, plaintext fallback.
+///
+/// Reads check the keyring first, then plaintext, so pre-existing plaintext
+/// keys remain resolvable after the default flips to keyring. Writes prefer the
+/// keyring and fall back to plaintext only if the keyring write fails. Built
+/// only when [`keyring_available`] returned `true`; otherwise `open_store` uses
+/// a bare [`PlaintextCredentialsStore`].
+struct FallbackCredentialsStore {
+    keyring: KeyringCredentialsStore,
+    plaintext: PlaintextCredentialsStore,
+}
+
+impl FallbackCredentialsStore {
+    fn new(service: String, plaintext_path: PathBuf) -> Self {
+        Self {
+            keyring: KeyringCredentialsStore::new(service),
+            plaintext: PlaintextCredentialsStore::new(plaintext_path),
+        }
+    }
+}
+
+impl CredentialsStore for FallbackCredentialsStore {
+    fn get(&self, key: &str) -> Result<Option<String>, CredentialsError> {
+        // Keyring first; a keyring read error must not hide a plaintext key.
+        if let Ok(Some(v)) = self.keyring.get(key) {
+            return Ok(Some(v));
+        }
+        self.plaintext.get(key)
+    }
+
+    fn put(&self, key: &str, value: &str) -> Result<(), CredentialsError> {
+        match self.keyring.put(key, value) {
+            Ok(()) => Ok(()),
+            // Keyring became unavailable mid-session — persist to plaintext so
+            // the write is not silently lost.
+            Err(_) => self.plaintext.put(key, value),
+        }
+    }
+
+    fn delete(&self, key: &str) -> Result<(), CredentialsError> {
+        // Remove from both so a deleted key cannot resurface from the fallback.
+        let _ = self.keyring.delete(key);
+        self.plaintext.delete(key)
     }
 }
 
@@ -533,6 +605,24 @@ pub fn open_store(
     plaintext_path: &Path,
 ) -> Result<Box<dyn CredentialsStore>, CredentialsError> {
     match &cfg.backend {
+        // Default: keyring primary + plaintext fallback when a keyring exists;
+        // a bare plaintext store on headless/CI hosts where it does not. (F16)
+        CredentialsBackend::Auto => {
+            let service = cfg
+                .service_name
+                .clone()
+                .unwrap_or_else(|| "wayland-core".to_string());
+            if keyring_available(&service) {
+                Ok(Box::new(FallbackCredentialsStore::new(
+                    service,
+                    plaintext_path.to_path_buf(),
+                )))
+            } else {
+                Ok(Box::new(PlaintextCredentialsStore::new(
+                    plaintext_path.to_path_buf(),
+                )))
+            }
+        }
         CredentialsBackend::Plaintext => Ok(Box::new(PlaintextCredentialsStore::new(
             plaintext_path.to_path_buf(),
         ))),
@@ -988,9 +1078,11 @@ mod tests {
     }
 
     #[test]
-    fn default_backend_is_plaintext() {
+    fn default_backend_is_auto() {
+        // F16: default flipped Plaintext → Auto (keyring primary, plaintext
+        // fallback) so secrets are not cleartext-by-default.
         let cfg = CredentialsStorageConfig::default();
-        assert_eq!(cfg.backend, CredentialsBackend::Plaintext);
+        assert_eq!(cfg.backend, CredentialsBackend::Auto);
     }
 
     /// Hold the env-var passphrase while the test runs; cooperates with the
