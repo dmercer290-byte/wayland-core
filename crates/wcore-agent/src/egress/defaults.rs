@@ -34,6 +34,12 @@ const WELL_KNOWN_DOMAINS: &[&str] = &[
     "voyageai.com",
     "moonshot.cn",
     "moonshot.ai",
+    // First-party Wayland router + shipped providers whose default base URL is
+    // internal to the provider crate, so `config.base_url` is empty and the host
+    // is NOT auto-derived below. Without these, configuring the provider blocks
+    // its very first request under the default egress policy.
+    "fluxrouter.ai",
+    "minimax.io",
     // built-in tool backends (web search / code hosts / docs APIs)
     "tavily.com",
     "brave.com",
@@ -57,8 +63,8 @@ const WELL_KNOWN_DOMAINS: &[&str] = &[
 /// 2. the active provider host from `config.base_url` (exact host AND its
 ///    registrable domain — covers Bedrock/Vertex regional hosts that live under
 ///    shared-platform suffixes and so must be exact-allowed),
-/// 3. the operator's `[security] egress_allow` entries (registrable domain, or
-///    exact host for shared-platform entries).
+/// 3. the operator's `[security] egress_allow` entries (each allowed as the
+///    exact host AND, for non-shared-platform entries, its registrable domain).
 pub fn build_allowlist(config: &Config) -> AllowList {
     let mut allow = AllowList::default();
 
@@ -103,7 +109,16 @@ pub fn build_allowlist(config: &Config) -> AllowList {
         if is_shared_platform(e) {
             allow.allow_host(e);
         } else {
-            allow.allow_domain(e);
+            // Allow the EXACT host the operator typed (so a full host like
+            // `api.example.com` works as users naturally expect, not only the
+            // apex), AND its registrable domain (so the apex form keeps covering
+            // sibling subdomains). Previously only `allow_domain(e)` ran, so a
+            // full-host entry never matched and users had to know to drop down
+            // to the apex.
+            allow.allow_host(e);
+            if let Some(reg) = super::classify::registrable_domain(e) {
+                allow.allow_domain(&reg);
+            }
         }
     }
 
@@ -147,6 +162,37 @@ mod tests {
                 &allow
             ),
             EgressVerdict::Allow
+        );
+    }
+
+    #[test]
+    fn flux_router_host_is_allowlisted_with_empty_base_url() {
+        // flux-router (and other providers whose default base URL is internal to
+        // the provider crate) resolves to an EMPTY config.base_url, so the host
+        // is not auto-derived. It must be covered by the well-known list or its
+        // first request is blocked out of the box. Regression for the live-E2E
+        // egress finding.
+        let allow = build_allowlist(&cfg("", &[]));
+        assert_eq!(
+            classify(
+                &Method::POST,
+                &u("https://api.fluxrouter.ai/v1/chat/completions"),
+                &allow
+            ),
+            EgressVerdict::Allow,
+            "flux-router must be reachable out of the box (empty base_url)"
+        );
+    }
+
+    #[test]
+    fn operator_egress_allow_accepts_a_full_host() {
+        // A full host the operator types (`api.example.com`) must work, not only
+        // the apex `example.com`. Previously only the registrable domain matched.
+        let allow = build_allowlist(&cfg("https://api.anthropic.com", &["api.custom.example"]));
+        assert_eq!(
+            classify(&Method::POST, &u("https://api.custom.example/v1/x"), &allow),
+            EgressVerdict::Allow,
+            "an exact-host egress_allow entry must match that host"
         );
     }
 

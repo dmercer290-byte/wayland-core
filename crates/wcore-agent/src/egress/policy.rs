@@ -134,7 +134,7 @@ impl AgentEgressPolicy {
                 reason: format!(
                     "Egress to `{host}` was declined at the consent prompt. \
                      Approve it next time, or add it under \
-                     `[security.egress] allow = [..]` in your config."
+                     `[security] egress_allow = [..]` in your config."
                 ),
             },
         }
@@ -145,7 +145,7 @@ impl AgentEgressPolicy {
         EgressDecision::Deny {
             reason: format!(
                 "{reason}. Egress to `{host}` is blocked by the security policy. \
-                 Add it under `[security.egress] allow = [..]` in your config, or \
+                 Add it under `[security] egress_allow = [..]` in your config, or \
                  disable the policy with `[security] enabled = false` + \
                  `--i-accept-exfil-risk` if you accept the exfiltration risk."
             ),
