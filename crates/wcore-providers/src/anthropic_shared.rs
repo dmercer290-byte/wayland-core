@@ -28,11 +28,11 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
         let mut content: Vec<Value> = msg
             .content
             .iter()
-            .map(|block| match block {
-                ContentBlock::Text { text } => json!({
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(json!({
                     "type": "text",
                     "text": text
-                }),
+                })),
                 ContentBlock::ToolUse {
                     id, name, input, ..
                 } => {
@@ -41,27 +41,31 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                     } else {
                         id.clone()
                     };
-                    json!({
+                    Some(json!({
                         "type": "tool_use",
                         "id": tool_id,
                         "name": name,
                         "input": input
-                    })
+                    }))
                 }
                 ContentBlock::ToolResult {
                     tool_use_id,
                     content,
                     is_error,
-                } => json!({
+                } => Some(json!({
                     "type": "tool_result",
                     "tool_use_id": tool_use_id,
                     "content": content,
                     "is_error": is_error
-                }),
-                ContentBlock::Thinking { thinking } => json!({
-                    "type": "thinking",
-                    "thinking": thinking
-                }),
+                })),
+                // wayland#161: a `thinking` block replayed in message history
+                // must carry a valid `signature` — which we never capture, and
+                // which a model switch would invalidate anyway. Anthropic 400s
+                // on an unsigned thinking block
+                // (`messages[n].content[m].thinking.signature`), stranding the
+                // whole conversation as unrecoverable. Omitting thinking on
+                // replay is always accepted, so drop it.
+                ContentBlock::Thinking { .. } => None,
             })
             .collect();
 
@@ -78,6 +82,14 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                     item["text"] = json!(cleaned);
                 }
             }
+        }
+
+        // wayland#161: an assistant turn truncated mid-thinking (or one that
+        // held only a thinking block) is now empty after the drop above.
+        // Anthropic rejects a message with empty `content`, so skip the turn
+        // rather than emit `content: []` and 400 the request.
+        if content.is_empty() {
+            continue;
         }
 
         // W1 Task 4: translate MessageCacheHint::Breakpoint into Anthropic
@@ -587,20 +599,56 @@ mod tests {
         assert_eq!(content[0]["is_error"], false);
     }
 
+    /// wayland#161: thinking blocks must NOT be replayed — they lack the
+    /// `signature` Anthropic requires (we never capture it, and a model switch
+    /// would invalidate it), so replaying one 400s and strands the conversation.
     #[test]
-    fn test_build_messages_with_thinking() {
+    fn test_build_messages_drops_thinking_blocks() {
+        // A turn with text + thinking keeps only the text.
         let messages = vec![Message::new(
             Role::Assistant,
-            vec![ContentBlock::Thinking {
-                thinking: "Let me think...".to_string(),
-            }],
+            vec![
+                ContentBlock::Thinking {
+                    thinking: "Let me think...".to_string(),
+                },
+                ContentBlock::Text {
+                    text: "Here is the answer.".to_string(),
+                },
+            ],
         )];
         let result = build_messages(&messages, &default_compat());
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0]["role"], "assistant");
         let content = result[0]["content"].as_array().unwrap();
-        assert_eq!(content[0]["type"], "thinking");
-        assert_eq!(content[0]["thinking"], "Let me think...");
+        assert_eq!(content.len(), 1, "thinking block must be dropped");
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "Here is the answer.");
+        // No thinking block may survive into the request.
+        assert!(content.iter().all(|b| b["type"] != "thinking"));
+    }
+
+    /// A turn truncated mid-thinking (only a thinking block) becomes empty and
+    /// must be skipped entirely — Anthropic rejects empty `content`. This is the
+    /// exact wayland#161 reproduction (truncation then continue/model-switch).
+    #[test]
+    fn test_build_messages_skips_thinking_only_turn() {
+        let messages = vec![
+            Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "hi".to_string(),
+                }],
+            ),
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::Thinking {
+                    thinking: "interrupted...".to_string(),
+                }],
+            ),
+        ];
+        let result = build_messages(&messages, &default_compat());
+        // Only the user turn survives; the thinking-only assistant turn is gone.
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0]["role"], "user");
     }
 
     // --- compat-driven behavior tests ---
