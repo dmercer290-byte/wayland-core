@@ -2064,8 +2064,12 @@ fn lookup_store_api_key(
 /// restart and without mutating process environment variables.
 ///
 /// The storage backend (keyring / plaintext-0600 / encrypted-file) is read
-/// from the on-disk `[storage.credentials]` block, exactly as resolution will
-/// read it. Returns an error for providers with no store slot
+/// from the on-disk `[storage.credentials]` block of the *profile-active*
+/// config — `load_global_config_file()` and `credentials_storage_path()` both
+/// honour `WAYLAND_HOME`, so under an isolated profile this reads that
+/// profile's config and writes into that profile's in-home store (the Auto
+/// default resolves to the in-home vault, never the shared keyring). Returns
+/// an error for providers with no store slot
 /// ([`credentials_store_key`] returns `None`) or on a store write failure. The
 /// value is never logged.
 pub fn store_provider_api_key(provider: ProviderType, api_key: &str) -> anyhow::Result<()> {
@@ -2134,6 +2138,18 @@ pub fn wayland_config_dir() -> PathBuf {
 /// Delegates to [`wayland_config_dir`] so `WAYLAND_HOME` is always honoured.
 pub fn app_config_dir() -> Option<PathBuf> {
     Some(wayland_config_dir())
+}
+
+/// The OS-native config root (`dirs::config_dir()`), deliberately NOT
+/// `WAYLAND_HOME`-scoped. This is the single sanctioned bypass of
+/// [`wayland_config_dir`] for the profiles control plane: `profiles_root()`
+/// (see [`crate::profile`]) must resolve OUTSIDE any one profile home — a
+/// profile home is a *child* of the profiles root — so it cannot route through
+/// the `WAYLAND_HOME`-aware resolver without becoming self-referential. Kept
+/// here in `config.rs` (the one file allow-listed by the hermeticity audit for
+/// raw `dirs::config_dir()`), so the audit's single-call-site invariant holds.
+pub(crate) fn os_native_config_root() -> Option<PathBuf> {
+    dirs::config_dir()
 }
 
 /// Canonical `~/.wayland` profile home.
