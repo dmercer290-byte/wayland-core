@@ -143,7 +143,7 @@ members = [
 exclude = ["templates/**", "examples/**"]
 
 [workspace.package]
-version = "0.12.12"
+version = "0.12.13"
 edition = "2024"
 rust-version = "1.95"
 license = "Apache-2.0"
@@ -219,6 +219,10 @@ reqwest = { version = "0.12", features = ["json", "stream", "multipart", "rustls
 # Serialization
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
+# #326: surface unknown / mis-sectioned config keys as warnings (rather
+# than silently dropping them) without the breaking-change risk of
+# `deny_unknown_fields`.
+serde_ignored = "0.1"
 
 # OpenAPI 3.0.3 document generation for the REST transport (wcore-acp).
 # Pinned to 4.x for axum 0.7 compatibility; utoipa 5 requires axum 0.8

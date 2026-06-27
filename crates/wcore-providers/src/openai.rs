@@ -676,6 +676,25 @@ impl OpenAIProvider {
     }
 }
 
+/// True when a provider HTTP error means "this model does not support tool
+/// calling" — the request was otherwise valid and would succeed if the `tools`
+/// array were dropped.
+///
+/// Ollama models without tool support (e.g. `smollm2:135m`) reject the OpenAI-
+/// compatible chat request with a 400 `... does not support tools`
+/// (`type: invalid_request_error`). Unlike Groq's Compound family — a small,
+/// known set we can name-gate in [`openai_compat::model_supports_tool_calling`]
+/// — local Ollama no-tool models are open-ended (any small model the user has
+/// pulled), so we cannot enumerate them. Detect the error and retry once
+/// without tools so the turn still completes. See FerroxLabs/wayland#389.
+///
+/// Matched conservatively: a 400 whose body mentions "does not support tools"
+/// (case-insensitive). The phrasing is Ollama's; the substring is specific
+/// enough not to collide with unrelated 400s.
+fn is_tools_unsupported_error(status: u16, body: &str) -> bool {
+    status == 400 && body.to_ascii_lowercase().contains("does not support tools")
+}
+
 /// Strip configured patterns from text content
 fn strip_patterns_from_text(text: &str, compat: &ProviderCompat) -> String {
     match &compat.strip_patterns {
@@ -1081,12 +1100,49 @@ impl LlmProvider for OpenAIProvider {
             None => self.select_key()?,
         };
 
+        // Whether the body we are about to send actually carries a `tools`
+        // array. Used to gate the tools-unsupported retry below: dropping tools
+        // only helps if tools were attached in the first place.
+        let body_has_tools = body.get("tools").is_some();
+
         let primary = self.effective_base_url();
         let response = match self
             .try_send(&primary, use_responses, &body, &key, using_bearer, request)
             .await
         {
             Ok(resp) => resp,
+            // Tools-unsupported retry (#389): an Ollama model without tool
+            // support rejects the request with a 400 `... does not support
+            // tools`. The request is otherwise valid, so rebuild the body
+            // without the `tools` array and retry once on the same host so the
+            // turn completes instead of surfacing a raw provider 400. Only fires
+            // when tools were actually attached.
+            Err(ProviderError::Api {
+                status,
+                ref message,
+            }) if body_has_tools && is_tools_unsupported_error(status, message) => {
+                tracing::warn!(
+                    model = %request.model,
+                    "model does not support tools; retrying request without tools (#389)"
+                );
+                let mut no_tools_request = request.clone();
+                no_tools_request.tools.clear();
+                no_tools_request.web_search = false;
+                let no_tools_body = if use_responses {
+                    openai_responses::build_responses_body(&no_tools_request, &self.compat)
+                } else {
+                    self.build_request_body(&no_tools_request)
+                };
+                self.try_send(
+                    &primary,
+                    use_responses,
+                    &no_tools_body,
+                    &key,
+                    using_bearer,
+                    &no_tools_request,
+                )
+                .await?
+            }
             // Region-locked-key failover: a credential rejected here (401/403)
             // may belong to the provider's alternate platform (e.g. Moonshot's
             // `api.moonshot.cn` vs `.ai`). When a fallback host is configured
@@ -1506,6 +1562,21 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
     };
 
     let delta = &choice["delta"];
+
+    // Per-turn thinking SUBJECT (#318). Flux's Chat Completions stream emits
+    // `delta.reasoning_summary` — a short opaque display string (a gerund
+    // phrase like "Reasoning through the problem") exactly once per turn,
+    // immediately BEFORE the first `delta.reasoning_content` chunk, only on
+    // turns that produce reasoning. Surface it as a distinct subject event
+    // that the host attaches as the heading of the in-flight thinking block.
+    // Opaque — never switch on the value. Absent ⇒ no subject (never
+    // synthesized). This mirrors the Responses-API `reasoning_summary` path
+    // in `openai_responses.rs`, unified on the same thinking channel.
+    if let Some(summary) = delta["reasoning_summary"].as_str()
+        && !summary.is_empty()
+    {
+        events.push(LlmEvent::ThinkingSubject(summary.to_string()));
+    }
 
     // Reasoning content (OpenAI reasoning models). OpenAI o-series and
     // most reasoning-capable openai-compat providers (incl. Gemini Pro
@@ -1946,6 +2017,41 @@ mod tests {
 
     fn no_compat() -> ProviderCompat {
         ProviderCompat::default()
+    }
+
+    // --- is_tools_unsupported_error (#389) --------------------------------
+
+    #[test]
+    fn tools_unsupported_matches_ollama_400() {
+        // The exact provider error from #389.
+        let body = r#"{"error":{"message":"registry.ollama.ai/library/smollm2:135m does not support tools","type":"invalid_request_error"}}"#;
+        assert!(is_tools_unsupported_error(400, body));
+    }
+
+    #[test]
+    fn tools_unsupported_is_case_insensitive() {
+        assert!(is_tools_unsupported_error(
+            400,
+            "Model Does Not Support Tools"
+        ));
+    }
+
+    #[test]
+    fn tools_unsupported_ignores_other_400s() {
+        // A 400 unrelated to tool support must NOT trigger the retry.
+        assert!(!is_tools_unsupported_error(
+            400,
+            r#"{"error":{"message":"invalid api key"}}"#
+        ));
+    }
+
+    #[test]
+    fn tools_unsupported_ignores_non_400_status() {
+        // Same wording on a non-400 status is not the case we retry.
+        assert!(!is_tools_unsupported_error(
+            500,
+            "model does not support tools"
+        ));
     }
 
     // --- FluxRouter typed 402 / entitlement error parsing -----------------
@@ -3994,6 +4100,60 @@ mod tests {
         match &events[0] {
             LlmEvent::ThinkingDelta(t) => assert_eq!(t, "weighing options"),
             other => panic!("expected ThinkingDelta, got {other:?}"),
+        }
+    }
+
+    // --- #318 Flux reasoning_summary → thinking SUBJECT ------------------
+
+    /// #318: a chunk carrying only `delta.reasoning_summary` (Flux's per-turn
+    /// opaque subject label, emitted just before the first reasoning_content)
+    /// must yield exactly one `LlmEvent::ThinkingSubject`, NOT a ThinkingDelta
+    /// or TextDelta. Mirrors `parse_reasoning_summary_delta_is_thinking` on
+    /// the Responses-API path.
+    #[test]
+    fn parse_reasoning_summary_delta_is_thinking_subject() {
+        let mut state = StreamState::new();
+        let chunk = r#"{"choices":[{"delta":{"reasoning_summary":"Reasoning through the problem"},"index":0}]}"#;
+        let events = parse_sse_chunk(chunk, &mut state);
+        assert_eq!(events.len(), 1, "expected exactly one ThinkingSubject");
+        match &events[0] {
+            LlmEvent::ThinkingSubject(s) => assert_eq!(s, "Reasoning through the problem"),
+            other => panic!("expected ThinkingSubject, got {other:?}"),
+        }
+    }
+
+    /// #318: a normal `delta.reasoning_content` chunk (no reasoning_summary)
+    /// still yields `ThinkingDelta` — the subject path is additive and must
+    /// not disturb the established reasoning-text routing.
+    #[test]
+    fn reasoning_content_without_summary_still_thinking_delta() {
+        let mut state = StreamState::new();
+        let chunk = r#"{"choices":[{"delta":{"reasoning_content":"step 1: parse"},"index":0}]}"#;
+        let events = parse_sse_chunk(chunk, &mut state);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            LlmEvent::ThinkingDelta(t) => assert_eq!(t, "step 1: parse"),
+            other => panic!("expected ThinkingDelta, got {other:?}"),
+        }
+    }
+
+    /// #318: an absent `reasoning_summary` field is a clean no-op — a plain
+    /// text chunk produces only its `TextDelta`, never a stray subject.
+    #[test]
+    fn absent_reasoning_summary_is_noop() {
+        let mut state = StreamState::new();
+        let chunk = r#"{"choices":[{"delta":{"content":"hello"},"index":0}]}"#;
+        let events = parse_sse_chunk(chunk, &mut state);
+        assert_eq!(events.len(), 1);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, LlmEvent::ThinkingSubject(_))),
+            "absent reasoning_summary must not synthesize a subject, got {events:?}"
+        );
+        match &events[0] {
+            LlmEvent::TextDelta(t) => assert_eq!(t, "hello"),
+            other => panic!("expected TextDelta, got {other:?}"),
         }
     }
 
