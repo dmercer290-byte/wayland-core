@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.14](https://github.com/FerroxLabs/wayland-core/compare/v0.12.13...v0.12.14) (2026-06-28)
+
+A focused Windows reliability release: it makes the sandboxed shell tool work end-to-end on Windows, fixing two AppContainer defects that left tool-use broken in the field.
+
+### Highlights
+
+- **Windows shell tools no longer hard-fail on machines without dev caches.** The AppContainer filesystem allowlist always includes optional developer caches (`~/.cache`, `~/.cargo`, `~/.npm`, `~/.rustup`). On any machine that doesn't have them — i.e. virtually every non-developer Windows box — applying the DACL grant aborted the *entire* command with `GetNamedSecurityInfoW … 0x2`, so every sandboxed shell command failed before it ran. Absent allowlist paths are now skipped, the grant succeeds, and commands execute normally. This is why the earlier AppContainer subprocess fixes ([#321](https://github.com/FerroxLabs/wayland-core/issues/321)–[#324](https://github.com/FerroxLabs/wayland-core/issues/324)) didn't translate into working shells in the field.
+- **Sandboxed commands can no longer hang past their timeout.** `cmd.exe` spawns a console host (`conhost.exe`) that can outlive the command and keep the captured stdout/stderr pipes open; the output drain then blocked waiting for an EOF that never arrived — observed as a 120-second "command timed out" with no output on disconnected RDP sessions. The backend now reaps the entire job tree before draining, so output always flushes and the call returns a bounded result (or a clean, prompt timeout) instead of hanging. ([#100](https://github.com/FerroxLabs/wayland-core/issues/100))
+
 ## [0.12.13](https://github.com/FerroxLabs/wayland-core/compare/v0.12.12...v0.12.13) (2026-06-27)
 
 A reliability-focused release: a new **capability-first tools gate** so models that can't do function calling degrade gracefully instead of failing the turn, a major Windows sandbox fix, and a round of audited provider- and config-layer hardening.
