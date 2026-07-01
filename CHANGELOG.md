@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.18](https://github.com/FerroxLabs/wayland-core/compare/v0.12.17...v0.12.18) (2026-07-01)
+
+
+### Bug Fixes
+
+* **providers:** never send a role:"tool" message without a matching assistant tool_calls id — make truncation tool-pair aware and strip orphaned tool results/calls in both directions so native DeepSeek no longer 400s on long agentic conversations ([#123](https://github.com/FerroxLabs/wayland-core/issues/123)) ([#124](https://github.com/FerroxLabs/wayland-core/issues/124)) ([bf82b05](https://github.com/FerroxLabs/wayland-core/commit/bf82b050))
+* **providers:** keep an assistant message valid after its last tool_call is stripped (stamp empty content) so native DeepSeek no longer 400s with "content or tool_calls must be set" — found via live verification against api.deepseek.com ([#123](https://github.com/FerroxLabs/wayland-core/issues/123)) ([#124](https://github.com/FerroxLabs/wayland-core/issues/124)) ([bf82b05](https://github.com/FerroxLabs/wayland-core/commit/bf82b050))
+
 ## [0.12.17](https://github.com/FerroxLabs/wayland-core/compare/v0.12.16...v0.12.17) (2026-06-30)
 
 
