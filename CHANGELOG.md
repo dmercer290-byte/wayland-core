@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.12.20](https://github.com/FerroxLabs/wayland-core/compare/v0.12.19...v0.12.20) (2026-07-02)
+
+
+### Features
+
+* **agent:** host-delegated send_message hook (host-send-transport) with a hard approval gate — `WAYLAND_SEND_MESSAGE_HOST_DELEGATE=1` routes sends through a call_id-correlated json-stream round-trip; approval always fronts the request (Exec category, never auto-approved, Always-scope downgrades to Once) ([#141](https://github.com/FerroxLabs/wayland-core/issues/141)) ([#144](https://github.com/FerroxLabs/wayland-core/issues/144)) ([5bb5899](https://github.com/FerroxLabs/wayland-core/commit/5bb5899e))
+
+
+### Bug Fixes
+
+* **agent:** honor omitted `--max-tokens` with per-model output sizing — known models size to their real ceiling; unknown models on omit-safe providers (gemini/openrouter/flux) omit the wire field so the provider's natural ceiling applies; anthropic/generic keep the sized floor; explicit caps and per-spawn sub-agent caps always bind ([#112](https://github.com/FerroxLabs/wayland-core/issues/112)) ([#138](https://github.com/FerroxLabs/wayland-core/issues/138)) ([3ecbc2c](https://github.com/FerroxLabs/wayland-core/commit/3ecbc2c4))
+* **providers:** call_id stability for parallel/builtin/skill tool calls on the OpenAI-responses (ChatGPT/Codex) adapter — never-empty ids, no cross-wiring of interleaved items, bounded accumulators; fixes the desktop stuck-spinner class ([#133](https://github.com/FerroxLabs/wayland-core/issues/133)) ([#137](https://github.com/FerroxLabs/wayland-core/issues/137)) ([90e0fb2](https://github.com/FerroxLabs/wayland-core/commit/90e0fb2e))
+* **sandbox:** bound the Windows AppContainer availability probe (15s wall-clock guard) with a short-TTL negative cache — commands no longer hang ~120s per invocation when the probe stalls; fail-closed posture unchanged ([#125](https://github.com/FerroxLabs/wayland-core/issues/125)) ([#127](https://github.com/FerroxLabs/wayland-core/issues/127)) ([263793b](https://github.com/FerroxLabs/wayland-core/commit/263793b9))
+* **npm:** staleness self-heal in the npx launcher — warns with the exact-version cache-busting command when the spec-keyed npx cache serves an old engine; docs pinned to `@latest` ([#126](https://github.com/FerroxLabs/wayland-core/issues/126)) ([#134](https://github.com/FerroxLabs/wayland-core/issues/134)) ([3ebbc72](https://github.com/FerroxLabs/wayland-core/commit/3ebbc72c))
+
+
+### Tests & Hardening
+
+* **providers:** tool-name codec round-trip regression suite incl. the direct-DeepSeek delegation pin ([#139](https://github.com/FerroxLabs/wayland-core/issues/139)) ([#140](https://github.com/FerroxLabs/wayland-core/issues/140)) ([abe516e](https://github.com/FerroxLabs/wayland-core/commit/abe516e2))
+* **security:** quick-xml RUSTSEC-2026-0194/0195 dispositioned (unreachable — embedded-dump-only syntect path), time-boxed with tracking ([#142](https://github.com/FerroxLabs/wayland-core/issues/142)) ([#143](https://github.com/FerroxLabs/wayland-core/issues/143)) ([4e74ddb](https://github.com/FerroxLabs/wayland-core/commit/4e74ddb5))
+
 ## [0.12.19](https://github.com/FerroxLabs/wayland-core/compare/v0.12.18...v0.12.19) (2026-07-01)
 
 A security-hardening release. Wayland Core tightens every seam where an untrusted
