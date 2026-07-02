@@ -688,7 +688,18 @@ impl OpenAIProvider {
         if self.compat.include_usage_in_stream() {
             body["stream_options"] = json!({ "include_usage": true });
         }
-        body[max_tokens_field] = json!(request.max_tokens);
+        // #112: when the engine flagged this turn omit-safe (user omitted the
+        // cap + model unknown to the registry + provider tolerates the absent
+        // field), skip the wire field so the served model's natural output
+        // ceiling applies. `request.max_tokens` still carries the sized
+        // internal budget for the x-wl-expected-output header below.
+        // Belt-and-braces: the request flag is ALSO gated on THIS provider's
+        // own compat, so a request built against another provider's compat
+        // (or a future direct caller) can never strip the field from an
+        // endpoint that requires a sized value.
+        if !(request.omit_max_tokens && self.compat.omit_max_tokens_when_unsized()) {
+            body[max_tokens_field] = json!(request.max_tokens);
+        }
 
         // FluxRouter web_search grounding (contract §5.2 / §5.8). Grounding only
         // fires when the model is a tier alias (the customer let Flux pick) AND
@@ -3034,10 +3045,73 @@ mod tests {
             conversation_id: None,
             client_context_tokens: None,
             temperature: None,
+            omit_max_tokens: false,
         };
         let body = provider.build_request_body(&req);
         assert_eq!(body["max_tokens"], 1024);
         assert!(body.get("max_completion_tokens").is_none());
+    }
+
+    /// #112: when the engine flags `omit_max_tokens` AND this provider's own
+    /// compat is omit-safe, the chat body carries NEITHER `max_tokens` NOR
+    /// `max_completion_tokens` — the served model's natural ceiling applies.
+    #[test]
+    fn test_omit_max_tokens_drops_the_wire_field() {
+        // Omit-safe provider compat (flux-router preset).
+        let provider = OpenAIProvider::new(
+            "key",
+            "http://localhost",
+            ProviderCompat::flux_router_defaults(),
+            DebugConfig::default(),
+        );
+        let req = LlmRequest {
+            model: "flux-auto".into(),
+            max_tokens: 8_192, // sized internal budget stays positive
+            omit_max_tokens: true,
+            ..Default::default()
+        };
+        let body = provider.build_request_body(&req);
+        assert!(
+            body.get("max_tokens").is_none(),
+            "omit_max_tokens must drop max_tokens from the wire body"
+        );
+        assert!(body.get("max_completion_tokens").is_none());
+
+        // And a reasoning-family model (max_completion_tokens path) omits too.
+        let req_reasoning = LlmRequest {
+            model: "o3-pro-unlisted".into(),
+            max_tokens: 32_768,
+            omit_max_tokens: true,
+            ..Default::default()
+        };
+        let body = provider.build_request_body(&req_reasoning);
+        assert!(body.get("max_completion_tokens").is_none());
+        assert!(body.get("max_tokens").is_none());
+    }
+
+    /// #112 belt-and-braces: the request flag alone is NOT enough — a provider
+    /// whose OWN compat is not omit-safe (plain openai / generic openai-compat)
+    /// keeps sending the sized value even if a cross-compat request arrives
+    /// with `omit_max_tokens = true`.
+    #[test]
+    fn test_omit_max_tokens_ignored_when_provider_compat_not_omit_safe() {
+        let provider = OpenAIProvider::new(
+            "key",
+            "http://localhost",
+            openai_compat(), // openai_defaults: omit_max_tokens_when_unsized off
+            DebugConfig::default(),
+        );
+        let req = LlmRequest {
+            model: "some-self-hosted-model".into(),
+            max_tokens: 8_192,
+            omit_max_tokens: true,
+            ..Default::default()
+        };
+        let body = provider.build_request_body(&req);
+        assert_eq!(
+            body["max_tokens"], 8_192,
+            "a non-omit-safe provider must keep sending the sized value"
+        );
     }
 
     // --- Output-side opt (Part A): stop_sequences -> body["stop"] ----------
@@ -3067,6 +3141,7 @@ mod tests {
             conversation_id: None,
             client_context_tokens: None,
             temperature: None,
+            omit_max_tokens: false,
         }
     }
 
@@ -3278,6 +3353,25 @@ mod tests {
         assert!(headers.get("x-wl-conversation-id").is_none());
         assert_eq!(headers.get("x-wl-context-managed").unwrap(), "true");
         assert!(headers.get("x-wl-expected-output").is_some());
+    }
+
+    /// #112: omitting the wire max-tokens field must NOT starve the Flux
+    /// headers — `x-wl-expected-output` still carries the sized internal
+    /// budget even when the body field is omitted.
+    #[test]
+    fn flux_expected_output_header_survives_omit_max_tokens() {
+        let mut req = stop_req();
+        req.model = "flux-auto".into();
+        req.max_tokens = 8_192;
+        req.omit_max_tokens = true;
+
+        let mut headers = HeaderMap::new();
+        OpenAIProvider::apply_flux_context_headers(&mut headers, &req);
+        assert_eq!(
+            headers.get("x-wl-expected-output").unwrap(),
+            "8192",
+            "the sized internal budget must still ride the header"
+        );
     }
 
     /// web_search on a tier-alias model injects the `{"type":"web_search"}`
@@ -3503,6 +3597,7 @@ mod tests {
             conversation_id: None,
             client_context_tokens: None,
             temperature: None,
+            omit_max_tokens: false,
         };
         let body = provider.build_request_body(&req);
         assert_eq!(body["max_completion_tokens"], 2048);
@@ -3541,6 +3636,7 @@ mod tests {
             conversation_id: None,
             client_context_tokens: None,
             temperature: None,
+            omit_max_tokens: false,
         };
         let body = provider.build_request_body(&req);
         assert_eq!(body["max_completion_tokens"], 1024);
@@ -3575,6 +3671,7 @@ mod tests {
             conversation_id: None,
             client_context_tokens: None,
             temperature: None,
+            omit_max_tokens: false,
         };
         let body = provider.build_request_body(&req);
         assert_eq!(body["max_tokens"], 1024);
@@ -3607,6 +3704,7 @@ mod tests {
             conversation_id: None,
             client_context_tokens: None,
             temperature: None,
+            omit_max_tokens: false,
         };
         let body = provider.build_request_body(&req);
         assert!(
@@ -3639,6 +3737,7 @@ mod tests {
             conversation_id: None,
             client_context_tokens: None,
             temperature: None,
+            omit_max_tokens: false,
         };
         let body = provider.build_request_body(&req);
         assert_eq!(body["reasoning_effort"], "medium");
