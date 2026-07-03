@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.12.21](https://github.com/FerroxLabs/wayland-core/compare/v0.12.20...v0.12.21) (2026-07-03)
+
+A security and reliability release. It closes GHSA-8r7g end-to-end on the ACP
+transport — the secret approval `resume_token` is now carried to the host and
+required on the wire, so a model can no longer self-approve a bridge-backed gate
+— and it fixes a Windows regression that had left users unable to run any
+command at all.
+
+
+### Security
+
+* **acp:** carry + accept the secret `resume_token` end-to-end on the ACP transport (GHSA-8r7g M2) — the projection now surfaces the server-minted `apr-` secret to the host, and the `/resolve` endpoint routes it to the approval bridge (secret-preferred, falling back to the manager's `call_id` path). Bridge-backed gates (Crucible council / egress consent) raised during an ACP turn are now resolvable instead of hanging to their TTL, and the model-self-approval class is closed for them ([#152](https://github.com/FerroxLabs/wayland-core/issues/152)) ([ce63ca6](https://github.com/FerroxLabs/wayland-core/commit/ce63ca64))
+* **acp:** stamp the bridge secret `resume_token` on the ACP relay (GHSA-8r7g M1) — bridge-backed gate frames on the ACP relay now carry the secret token at parity with the stdin/TUI transports ([#147](https://github.com/FerroxLabs/wayland-core/issues/147)) ([98c387b](https://github.com/FerroxLabs/wayland-core/commit/98c387b4))
+
+
+### Bug Fixes
+
+* **sandbox:** drain the Windows AppContainer stdout/stderr pipes concurrently with the child — a P1 that had left Windows users unable to run **any** command: output past the ~4 KB pipe buffer blocked the child, which timed the wait out and returned blank or truncated results. Reader threads now drain both pipes while the child runs; live-verified on the Windows CI leg ([#151](https://github.com/FerroxLabs/wayland-core/issues/151)) ([1619632](https://github.com/FerroxLabs/wayland-core/commit/1619632d))
+* **sandbox:** skip missing bwrap bind sources instead of fail-spawning — a manifest-declared mount whose source is absent on a fresh HOME no longer aborts the sandbox spawn (`--bind-try` / `--ro-bind-try`); fixes a model-agnostic empty-bash hang ([#148](https://github.com/FerroxLabs/wayland-core/issues/148)) ([d434dd5](https://github.com/FerroxLabs/wayland-core/commit/d434dd51))
+* **cli:** a mid-turn Stop must not strand the json-stream session — Stop now cancels the in-flight turn but keeps the session alive; only EOF and `/exit` end it, restoring the json-stream protocol §2.2 contract ([#150](https://github.com/FerroxLabs/wayland-core/issues/150)) ([d2dd423](https://github.com/FerroxLabs/wayland-core/commit/d2dd4238))
+* **cli:** honor the config `[default] approval_mode` in json-stream mode — json-stream sessions now apply the configured approval posture, not only `--force` ([#149](https://github.com/FerroxLabs/wayland-core/issues/149)) ([b042e32](https://github.com/FerroxLabs/wayland-core/commit/b042e32e))
+* **cli:** emit the json-stream `ready` frame before config MCP servers connect — the host sees `ready` immediately; configured MCP servers integrate in the background and settle at the next command boundary ([#146](https://github.com/FerroxLabs/wayland-core/issues/146)) ([56953b6](https://github.com/FerroxLabs/wayland-core/commit/56953b6e))
+
+
+### Features
+
+* **channels:** per-conversation autonomous-send rate cap — a runaway ping-pong backstop that caps autonomous auto-replies per conversation (default 30 / 10 min) so two agents wired to the same channel can't loop forever burning cost and quota. Human and operator sends bypass it entirely ([#154](https://github.com/FerroxLabs/wayland-core/issues/154)) ([876f4e5](https://github.com/FerroxLabs/wayland-core/commit/876f4e52))
+
 ## [0.12.20](https://github.com/FerroxLabs/wayland-core/compare/v0.12.19...v0.12.20) (2026-07-02)
 
 
