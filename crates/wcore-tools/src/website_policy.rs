@@ -1,8 +1,8 @@
 //! T3-3.3.3 — Website access policy helpers for URL-capable tools.
 //!
-//! Ported from the prior Wayland Python engine.
+//! Ported from the prior Genesis Python engine.
 //!
-//! Loads a user-managed website blocklist from `~/.wayland-core/config.yaml`
+//! Loads a user-managed website blocklist from `~/.genesis-core/config.yaml`
 //! plus any referenced shared list files, and enforces it on URLs the
 //! agent's web/browser tools resolve. Kept deliberately lightweight so
 //! callers do NOT have to pull the heavier `wcore-config` cascading
@@ -24,7 +24,7 @@
 //!
 //! ## Differences from the Python original
 //!
-//! * `get_wayland_home()` is replaced by `wcore_config::config::app_config_dir()`
+//! * `get_genesis_home()` is replaced by `wcore_config::config::app_config_dir()`
 //!   which returns `Option<PathBuf>` — when the OS has no config dir
 //!   (rare embedded targets) the policy is treated as disabled.
 //! * Cache uses `parking_lot::Mutex` instead of a `threading.Lock` +

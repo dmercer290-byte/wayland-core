@@ -23,8 +23,8 @@ impl AnthropicVisionBackend {
     pub fn new(api_key: String) -> Self {
         // Default to Sonnet 4.6 — cheaper than Opus for image-look tasks
         // and still very strong at vision. Users can override via
-        // `WAYLAND_VISION_MODEL` env var.
-        let model = std::env::var("WAYLAND_VISION_MODEL")
+        // `GENESIS_VISION_MODEL` env var.
+        let model = std::env::var("GENESIS_VISION_MODEL")
             .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
         Self {
             client: build_ssrf_safe_tool_client(),

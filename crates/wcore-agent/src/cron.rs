@@ -191,7 +191,7 @@ impl JobHandler for EngineJobHandler {
 ///   scan is copied verbatim from bootstrap so an unattended daemon fire is
 ///   held to the same execution-boundary denylist.
 /// - a **channel sink** — a [`wcore_channels::ChannelManager`] auto-registered
-///   from `~/.wayland/channels/*.toml` and `start_all`'d, so Channel cron jobs
+///   from `~/.genesis/channels/*.toml` and `start_all`'d, so Channel cron jobs
 ///   dispatch.
 ///
 /// Slash stays `None` (the cross-session slash dispatcher is out of scope for
@@ -292,7 +292,7 @@ pub async fn build_headless_cron_handler(cwd: &str) -> EngineJobHandler {
     };
 
     // --- Channel sink ----------------------------------------------------
-    // Auto-register channels from ~/.wayland/channels and start their poll
+    // Auto-register channels from ~/.genesis/channels and start their poll
     // loops so Channel cron jobs dispatch. Every failure is non-fatal — the
     // handler still has a working skill sink.
     let mut channel_manager_inner = wcore_channels::ChannelManager::new();
@@ -308,7 +308,7 @@ pub async fn build_headless_cron_handler(cwd: &str) -> EngineJobHandler {
                 Ok(count) => info!(
                     target: "wcore_agent::cron",
                     count,
-                    "headless cron handler: channels auto-registered from ~/.wayland/channels"
+                    "headless cron handler: channels auto-registered from ~/.genesis/channels"
                 ),
                 Err(e) => warn!(
                     target: "wcore_agent::cron",

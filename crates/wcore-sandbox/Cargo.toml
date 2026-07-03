@@ -1,6 +1,6 @@
 [package]
 name = "wcore-sandbox"
-description = "Container-isolated tool execution for wayland-core (M5.1)"
+description = "Container-isolated tool execution for genesis-core (M5.1)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

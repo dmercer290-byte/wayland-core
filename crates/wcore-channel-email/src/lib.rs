@@ -1,4 +1,4 @@
-//! `wcore-channel-email` — production email adapter for Wayland-Core.
+//! `wcore-channel-email` — production email adapter for Genesis-Core.
 //!
 //! Outbound goes through SMTP via `lettre` (rustls-tls); inbound polls
 //! IMAP via the sync `imap` crate run on `tokio::task::spawn_blocking`.
@@ -60,7 +60,7 @@ pub struct EmailChannel {
     /// Outbound Message-ID index: `send_message` records every id it
     /// stamps; the IMAP poll task marks a matching inbound `is_self` so the
     /// dispatch kernel's loop guard drops the channel's own echoed mail
-    /// (wayland#547). Shared `std::Mutex` because the poll task is sync.
+    /// (genesis#547). Shared `std::Mutex` because the poll task is sync.
     sent_ids: crate::sent_index::SentIdIndex,
     /// Credentials store used to resolve SMTP+IMAP creds at `start()`.
     creds: Arc<dyn CredentialsStore>,
@@ -176,7 +176,7 @@ impl EmailChannel {
     }
 }
 
-/// Own-address set for the inbound self-mail guard (wayland#547): the
+/// Own-address set for the inbound self-mail guard (genesis#547): the
 /// configured From address, plus the IMAP account when it is address-shaped
 /// (some servers use bare usernames — skip those). Normalized (bare
 /// addr-spec, lowercased) and deduplicated.
@@ -361,7 +361,7 @@ impl Channel for EmailChannel {
         )
         .map_err(ChannelError::from)?;
 
-        // Loop guard (wayland#547): remember the outbound Message-ID BEFORE
+        // Loop guard (genesis#547): remember the outbound Message-ID BEFORE
         // the wire send so the IMAP poll task can never race ahead of the
         // recording — by the time the mail can possibly be delivered (and
         // echo back into a monitored mailbox) the id is already indexed. A
@@ -540,7 +540,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // wayland#547 loop guard: the outbound Message-ID is stamped on the
+    // genesis#547 loop guard: the outbound Message-ID is stamped on the
     // wire message, recorded in the sent index, and an inbound echo of it
     // is marked `is_self` (so the dispatch kernel's loop guard drops it).
     // -----------------------------------------------------------------
@@ -584,7 +584,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // wayland#547: own-address set construction (fed to the IMAP poll
+    // genesis#547: own-address set construction (fed to the IMAP poll
     // task by respawn_imap_poll).
     // -----------------------------------------------------------------
     #[test]

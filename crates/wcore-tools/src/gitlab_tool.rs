@@ -1,8 +1,8 @@
 //! T4 (v0.6.3 Tier 2B) — GitLab REST API v4 operations tool.
 //!
-//! Ported from the prior Wayland Python engine and modeled
+//! Ported from the prior Genesis Python engine and modeled
 //! on `discord_tool.rs`. The Python original talks to GitLab's REST API
-//! directly (an HTTP client + a `PRIVATE-TOKEN` header). Wayland's
+//! directly (an HTTP client + a `PRIVATE-TOKEN` header). Genesis's
 //! engine MUST NOT initiate HTTP from inside `wcore-tools` — HTTP is a
 //! `wcore-providers` / plugin / host concern (the crate ships no
 //! `reqwest`/`hyper` dependency by design). This port therefore covers
@@ -246,7 +246,7 @@ fn str_field(input: &Value, key: &str) -> String {
         .to_string()
 }
 
-/// `gitlab_api` tool — Wayland engine port of `gitlab_tool.py`.
+/// `gitlab_api` tool — Genesis engine port of `gitlab_tool.py`.
 pub struct GitLabTool {
     backend: Arc<dyn GitLabBackend>,
     /// REST API base URL, no trailing slash. Defaults to GitLab.com.

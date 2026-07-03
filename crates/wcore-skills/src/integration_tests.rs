@@ -566,7 +566,7 @@ async fn tc_e2e_10_multi_dir_dedup_first_wins() {
 
 // ---------------------------------------------------------------------------
 // TC-E2E-11: Legacy commands directory — flat .md files loaded as skills
-// AC-14: legacy command files from .wayland-core/commands/ are loaded as SkillDefinition
+// AC-14: legacy command files from .genesis-core/commands/ are loaded as SkillDefinition
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -576,8 +576,8 @@ async fn tc_e2e_11_legacy_commands_loaded() {
     let tmp = TempDir::new().unwrap();
 
     // Create the legacy commands directory structure under a fake project root.
-    // load_all_skills looks for .wayland-core/commands/ relative to cwd.
-    let commands_dir = tmp.path().join(".wayland-core").join("commands");
+    // load_all_skills looks for .genesis-core/commands/ relative to cwd.
+    let commands_dir = tmp.path().join(".genesis-core").join("commands");
     fs::create_dir_all(&commands_dir).unwrap();
 
     // Flat .md file (no subdirectory, no SKILL.md) — legacy format
@@ -599,7 +599,7 @@ async fn tc_e2e_11_legacy_commands_loaded() {
     let skill = skills
         .iter()
         .find(|s| s.name == "legacy-cmd")
-        .expect("legacy-cmd should be loaded from flat .md file in .wayland-core/commands/");
+        .expect("legacy-cmd should be loaded from flat .md file in .genesis-core/commands/");
 
     assert_eq!(skill.name, "legacy-cmd");
     assert!(

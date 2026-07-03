@@ -50,14 +50,14 @@ fn make_plugin_dir(
 
 /// Process-global mutex to serialize env-mutating tests. `cargo test`
 /// runs `#[test]`s on multiple threads within one process; the env vars
-/// `WAYLAND_PLUGINS_DIR` / `WAYLAND_PLUGIN_TRUST_UNSIGNED` are global
+/// `GENESIS_PLUGINS_DIR` / `GENESIS_PLUGIN_TRUST_UNSIGNED` are global
 /// and therefore must be held exclusively.
 fn env_mutex() -> &'static Mutex<()> {
     static M: OnceLock<Mutex<()>> = OnceLock::new();
     M.get_or_init(|| Mutex::new(()))
 }
 
-/// Pin `$WAYLAND_PLUGINS_DIR` for the duration of a test. Helper
+/// Pin `$GENESIS_PLUGINS_DIR` for the duration of a test. Helper
 /// because env mutation is unsafe and we want to remove it on drop.
 /// Holds the global env mutex for the lifetime of the guard.
 struct EnvGuard {
@@ -67,10 +67,10 @@ impl EnvGuard {
     fn set(dir: &Path) -> Self {
         let lock = env_mutex().lock().unwrap_or_else(|p| p.into_inner());
         unsafe {
-            std::env::set_var("WAYLAND_PLUGINS_DIR", dir);
+            std::env::set_var("GENESIS_PLUGINS_DIR", dir);
             // Disable signing so the focus stays on dispatch routing,
             // not key management (Task 1.3 has its own dedicated tests).
-            std::env::set_var("WAYLAND_PLUGIN_TRUST_UNSIGNED", "1");
+            std::env::set_var("GENESIS_PLUGIN_TRUST_UNSIGNED", "1");
         }
         Self { _lock: lock }
     }
@@ -78,8 +78,8 @@ impl EnvGuard {
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         unsafe {
-            std::env::remove_var("WAYLAND_PLUGINS_DIR");
-            std::env::remove_var("WAYLAND_PLUGIN_TRUST_UNSIGNED");
+            std::env::remove_var("GENESIS_PLUGINS_DIR");
+            std::env::remove_var("GENESIS_PLUGIN_TRUST_UNSIGNED");
         }
     }
 }
@@ -328,7 +328,7 @@ binary_path = "does-not-exist"
 //      plugin dir. We reject any binary_path that is absolute or contains
 //      a `..` component, and canonicalize+starts_with check when the
 //      file exists (symlink escape).
-//   2. A symlink in `~/.wayland/plugins/<name>` pointing at an
+//   2. A symlink in `~/.genesis/plugins/<name>` pointing at an
 //      attacker-controlled directory bypasses the allowed-roots check.
 //      We skip symlink entries in the plugins root with a warn log.
 // ---------------------------------------------------------------------------
@@ -650,14 +650,14 @@ binary_path = "does-not-exist"
 
 // ---------------------------------------------------------------------------
 // C3 — multi-root discovery: the C3 profile home (`profile_home()/plugins`)
-// is scanned in ADDITION to `<data_dir>/wayland/plugins` when the
-// `$WAYLAND_PLUGINS_DIR` override is NOT set. This exercises the multi-root
+// is scanned in ADDITION to `<data_dir>/genesis/plugins` when the
+// `$GENESIS_PLUGINS_DIR` override is NOT set. This exercises the multi-root
 // branch of `resolved_plugins_roots()` — a declarative plugin installed by
-// IJFW's installer under `~/.wayland/plugins` must be discovered.
+// IJFW's installer under `~/.genesis/plugins` must be discovered.
 // ---------------------------------------------------------------------------
 
-/// Pin `$WAYLAND_HOME` (so `profile_home()` resolves to a tempdir) while
-/// ensuring `$WAYLAND_PLUGINS_DIR` is UNSET, so discovery takes the multi-root
+/// Pin `$GENESIS_HOME` (so `profile_home()` resolves to a tempdir) while
+/// ensuring `$GENESIS_PLUGINS_DIR` is UNSET, so discovery takes the multi-root
 /// path instead of the single-dir override. Holds the global env mutex and
 /// restores both vars on drop.
 struct ProfileHomeEnvGuard {
@@ -667,13 +667,13 @@ struct ProfileHomeEnvGuard {
 impl ProfileHomeEnvGuard {
     fn set(home: &Path) -> Self {
         let lock = env_mutex().lock().unwrap_or_else(|p| p.into_inner());
-        let saved_plugins_dir = std::env::var_os("WAYLAND_PLUGINS_DIR");
+        let saved_plugins_dir = std::env::var_os("GENESIS_PLUGINS_DIR");
         unsafe {
             // Force the multi-root branch: no single-dir override.
-            std::env::remove_var("WAYLAND_PLUGINS_DIR");
-            std::env::set_var("WAYLAND_HOME", home);
+            std::env::remove_var("GENESIS_PLUGINS_DIR");
+            std::env::set_var("GENESIS_HOME", home);
             // Disable signing so the focus stays on discovery routing.
-            std::env::set_var("WAYLAND_PLUGIN_TRUST_UNSIGNED", "1");
+            std::env::set_var("GENESIS_PLUGIN_TRUST_UNSIGNED", "1");
         }
         Self {
             _lock: lock,
@@ -684,11 +684,11 @@ impl ProfileHomeEnvGuard {
 impl Drop for ProfileHomeEnvGuard {
     fn drop(&mut self) {
         unsafe {
-            std::env::remove_var("WAYLAND_HOME");
-            std::env::remove_var("WAYLAND_PLUGIN_TRUST_UNSIGNED");
+            std::env::remove_var("GENESIS_HOME");
+            std::env::remove_var("GENESIS_PLUGIN_TRUST_UNSIGNED");
             match self.saved_plugins_dir.take() {
-                Some(v) => std::env::set_var("WAYLAND_PLUGINS_DIR", v),
-                None => std::env::remove_var("WAYLAND_PLUGINS_DIR"),
+                Some(v) => std::env::set_var("GENESIS_PLUGINS_DIR", v),
+                None => std::env::remove_var("GENESIS_PLUGINS_DIR"),
             }
         }
     }
@@ -696,12 +696,12 @@ impl Drop for ProfileHomeEnvGuard {
 
 /// C3 — a declarative plugin under `profile_home()/plugins` (the C3 profile
 /// home, where IJFW's installer drops it) is discovered via the multi-root
-/// path, WITHOUT setting `$WAYLAND_PLUGINS_DIR`.
+/// path, WITHOUT setting `$GENESIS_PLUGINS_DIR`.
 #[tokio::test]
 async fn on_disk_declarative_plugin_under_profile_home_discovered() {
     use wcore_agent::plugins::LoadedRuntimeHandle;
 
-    // profile_home() == $WAYLAND_HOME (directly), so the plugins root is
+    // profile_home() == $GENESIS_HOME (directly), so the plugins root is
     // `<home>/plugins`.
     let home = tempfile::TempDir::new().unwrap();
     let _guard = ProfileHomeEnvGuard::set(home.path());

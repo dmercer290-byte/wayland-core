@@ -1,4 +1,4 @@
-//! #426 / wayland#422 — the reasoning budget must never starve the visible
+//! #426 / genesis#422 — the reasoning budget must never starve the visible
 //! answer. These drive a real `engine.run()` with extended thinking enabled on
 //! an UNKNOWN (router-aliased) model and capture the `LlmRequest` actually sent
 //! to the provider, proving the engine's output-sizing + budget-separation hold

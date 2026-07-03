@@ -315,8 +315,8 @@ async fn tc_11_1_bare_mode_only_loads_add_dirs() {
     let user_tmp = TempDir::new().unwrap();
     let add_tmp = TempDir::new().unwrap();
 
-    // Put a skill in add_dir's .wayland-core/skills/
-    let add_skills_dir = add_tmp.path().join(".wayland-core").join("skills");
+    // Put a skill in add_dir's .genesis-core/skills/
+    let add_skills_dir = add_tmp.path().join(".genesis-core").join("skills");
     fs::create_dir_all(&add_skills_dir).unwrap();
     write_skill(&add_skills_dir, "add-skill/SKILL.md", "---\n---\n");
 
@@ -338,7 +338,7 @@ async fn tc_11_1_bare_mode_only_loads_add_dirs() {
 #[tokio::test]
 async fn tc_11_4_nonexistent_dirs_silently_skipped() {
     let add_tmp = TempDir::new().unwrap();
-    let add_skills_dir = add_tmp.path().join(".wayland-core").join("skills");
+    let add_skills_dir = add_tmp.path().join(".genesis-core").join("skills");
     fs::create_dir_all(&add_skills_dir).unwrap();
     write_skill(&add_skills_dir, "extra/SKILL.md", "---\n---\n");
 
@@ -359,7 +359,7 @@ async fn tc_11_4_nonexistent_dirs_silently_skipped() {
 async fn tc_11_5_empty_scenario_returns_empty_vec() {
     // All dirs nonexistent, no add_dirs
     let tmp = TempDir::new().unwrap();
-    // tmp exists but has no .wayland-core/skills
+    // tmp exists but has no .genesis-core/skills
     let result = load_all_skills(tmp.path(), &[], false, None).await;
     // May have skills from user dir if it exists, but must not panic
     let _ = result;
@@ -371,7 +371,7 @@ async fn tc_11_6_empty_add_dirs_no_effect() {
     let root = tmp.path();
     fs::create_dir(root.join(".git")).unwrap();
 
-    let skills_dir = root.join(".wayland-core").join("skills");
+    let skills_dir = root.join(".genesis-core").join("skills");
     fs::create_dir_all(&skills_dir).unwrap();
     write_skill(&skills_dir, "proj-skill/SKILL.md", "---\n---\n");
 
@@ -502,7 +502,7 @@ async fn tc_4_5_mcp_manager_none_returns_no_mcp_skills() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
     fs::create_dir(root.join(".git")).unwrap();
-    let skills_dir = root.join(".wayland-core").join("skills");
+    let skills_dir = root.join(".genesis-core").join("skills");
     fs::create_dir_all(&skills_dir).unwrap();
     write_skill(
         &skills_dir,

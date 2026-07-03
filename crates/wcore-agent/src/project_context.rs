@@ -1,6 +1,6 @@
 //! Project context file auto-detection — walks up the directory tree
-//! from `cwd` looking for known project-context files (WAYLAND.md,
-//! AGENTS.md, `.wayland/context.md`, CLAUDE.md) and concatenates them.
+//! from `cwd` looking for known project-context files (GENESIS.md,
+//! AGENTS.md, `.genesis/context.md`, CLAUDE.md) and concatenates them.
 //!
 //! Phase 1.C.1: synchronous scan + concat. Hot-reload via notify-rs is
 //! deferred — engine re-runs `scan` at session start.
@@ -12,9 +12,9 @@ use wcore_skills::paths::stop_boundary;
 
 /// File names checked at each ancestor directory.
 pub const CONTEXT_FILE_NAMES: &[&str] = &[
-    "WAYLAND.md",
+    "GENESIS.md",
     "AGENTS.md",
-    ".wayland/context.md",
+    ".genesis/context.md",
     "CLAUDE.md",
 ];
 
@@ -51,7 +51,7 @@ impl ProjectContext {
 
 pub fn scan(start: &Path) -> std::io::Result<ProjectContext> {
     let mut ctx = ProjectContext::default();
-    // F-046: dedup by canonical path so `./WAYLAND.md` and `WAYLAND.md`
+    // F-046: dedup by canonical path so `./GENESIS.md` and `GENESIS.md`
     // (which both resolve to the same inode when `start` is `.`) are not
     // added twice. `canonicalize` follows symlinks and resolves `..`/`.`
     // components. If `canonicalize` fails (e.g. path is a dangling
@@ -62,7 +62,7 @@ pub fn scan(start: &Path) -> std::io::Result<ProjectContext> {
     // Bound the ancestor walk to the *project*, mirroring `collect_agents_md`:
     // stop at the nearest git root, or the user home directory when there is
     // no repo. Without this, the walk runs to the filesystem root and slurps
-    // context files (WAYLAND.md / AGENTS.md / .wayland/context.md / CLAUDE.md)
+    // context files (GENESIS.md / AGENTS.md / .genesis/context.md / CLAUDE.md)
     // that happen to live in unrelated ancestor directories — which is both
     // wrong product behavior (PROJECT context should be project-scoped; the
     // global ~/.claude/CLAUDE.md is read elsewhere) and a source of
@@ -127,13 +127,13 @@ mod tests {
         fs::create_dir(root.path().join(".git")).expect("git marker");
         let child = root.path().join("a").join("b").join("c");
         fs::create_dir_all(&child).expect("create_dir_all");
-        fs::write(root.path().join("WAYLAND.md"), "ROOT").expect("root");
+        fs::write(root.path().join("GENESIS.md"), "ROOT").expect("root");
         fs::write(child.join("AGENTS.md"), "LEAF").expect("leaf");
         let ctx = scan(&child).expect("scan");
         assert_eq!(ctx.files.len(), 2);
         assert!(ctx.files[0].path.ends_with("AGENTS.md"));
         assert_eq!(ctx.files[0].body, "LEAF");
-        assert!(ctx.files[1].path.ends_with("WAYLAND.md"));
+        assert!(ctx.files[1].path.ends_with("GENESIS.md"));
         assert_eq!(ctx.files[1].body, "ROOT");
     }
 
@@ -143,34 +143,34 @@ mod tests {
         // Bound the walk to this tempdir so ambient ancestor context files
         // cannot leak into `rendered()` on any platform.
         fs::create_dir(root.path().join(".git")).expect("git marker");
-        fs::write(root.path().join("WAYLAND.md"), "alpha\n").expect("file");
+        fs::write(root.path().join("GENESIS.md"), "alpha\n").expect("file");
         let ctx = scan(root.path()).expect("scan");
         let rendered = ctx.rendered().expect("rendered");
-        assert!(rendered.contains("WAYLAND.md"));
+        assert!(rendered.contains("GENESIS.md"));
         assert!(rendered.contains("alpha"));
     }
 
     #[test]
-    fn nested_wayland_dir_context_discovered() {
+    fn nested_genesis_dir_context_discovered() {
         let root = tempfile::tempdir().expect("tempdir");
         fs::create_dir(root.path().join(".git")).expect("git marker");
-        let wayland = root.path().join(".wayland");
-        fs::create_dir_all(&wayland).expect("mkdir");
-        fs::write(wayland.join("context.md"), "wayland-ctx").expect("write");
+        let genesis = root.path().join(".genesis");
+        fs::create_dir_all(&genesis).expect("mkdir");
+        fs::write(genesis.join("context.md"), "genesis-ctx").expect("write");
         let ctx = scan(root.path()).expect("scan");
-        assert!(ctx.files.iter().any(|f| f.body == "wayland-ctx"));
+        assert!(ctx.files.iter().any(|f| f.body == "genesis-ctx"));
     }
 
     /// F-046: scanning from Path::new(".") must NOT produce duplicate entries.
-    /// The bug: `Path::new(".").parent()` is `Some("")`, and `"".join("WAYLAND.md")`
-    /// resolves to `WAYLAND.md` — same inode as `./WAYLAND.md`. Without
+    /// The bug: `Path::new(".").parent()` is `Some("")`, and `"".join("GENESIS.md")`
+    /// resolves to `GENESIS.md` — same inode as `./GENESIS.md`. Without
     /// canonical-path dedup, both paths pass the NotFound check and the file
     /// is emitted twice.
     #[test]
     fn no_duplicates_when_scanning_from_dot() {
         let root = tempfile::tempdir().expect("tempdir");
         fs::create_dir(root.path().join(".git")).expect("git marker");
-        let file_path = root.path().join("WAYLAND.md");
+        let file_path = root.path().join("GENESIS.md");
         fs::write(&file_path, "dedup-check").expect("write");
 
         // Run scan from the temp dir itself (not from `.` so the path is

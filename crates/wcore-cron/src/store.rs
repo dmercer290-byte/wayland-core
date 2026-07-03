@@ -2,7 +2,7 @@
 //!
 //! [`CronStore`] is the trait the runner reads/writes through. A
 //! production [`FileCronStore`] persists to a JSON file under
-//! `~/.wayland/cron/jobs.json` (honoring `WAYLAND_HOME` when set, like
+//! `~/.genesis/cron/jobs.json` (honoring `GENESIS_HOME` when set, like
 //! the rest of the codebase). Writes go through a tempfile + rename so
 //! concurrent crashes don't corrupt the file.
 
@@ -16,8 +16,8 @@ use tokio::sync::Mutex;
 use crate::{CronError, CronJob, Result};
 
 /// File / env constants. Mirrors the rest of the codebase.
-const WAYLAND_HOME_ENV: &str = "WAYLAND_HOME";
-const WAYLAND_HOME_DIRNAME: &str = ".wayland";
+const GENESIS_HOME_ENV: &str = "GENESIS_HOME";
+const GENESIS_HOME_DIRNAME: &str = ".genesis";
 const CRON_SUBDIR: &str = "cron";
 const JOBS_FILE: &str = "jobs.json";
 const HISTORY_FILE: &str = "history.jsonl";
@@ -28,22 +28,22 @@ const HISTORY_FILE: &str = "history.jsonl";
 const INTEGRITY_KEY_FILE: &str = ".integrity.key";
 
 /// Resolve the default JSON store path:
-/// `$WAYLAND_HOME/cron/jobs.json` if `WAYLAND_HOME` is set, else
-/// `~/.wayland/cron/jobs.json`. Returns `None` only if neither
-/// `WAYLAND_HOME` nor `$HOME` can be resolved (extremely rare).
+/// `$GENESIS_HOME/cron/jobs.json` if `GENESIS_HOME` is set, else
+/// `~/.genesis/cron/jobs.json`. Returns `None` only if neither
+/// `GENESIS_HOME` nor `$HOME` can be resolved (extremely rare).
 pub fn default_store_path() -> Option<PathBuf> {
-    let home = std::env::var_os(WAYLAND_HOME_ENV)
+    let home = std::env::var_os(GENESIS_HOME_ENV)
         .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join(WAYLAND_HOME_DIRNAME)))?;
+        .or_else(|| dirs::home_dir().map(|h| h.join(GENESIS_HOME_DIRNAME)))?;
     Some(home.join(CRON_SUBDIR).join(JOBS_FILE))
 }
 
 /// Resolve the default JSONL history path:
-/// `$WAYLAND_HOME/cron/history.jsonl` (parallel to `jobs.json`).
+/// `$GENESIS_HOME/cron/history.jsonl` (parallel to `jobs.json`).
 pub fn default_history_path() -> Option<PathBuf> {
-    let home = std::env::var_os(WAYLAND_HOME_ENV)
+    let home = std::env::var_os(GENESIS_HOME_ENV)
         .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join(WAYLAND_HOME_DIRNAME)))?;
+        .or_else(|| dirs::home_dir().map(|h| h.join(GENESIS_HOME_DIRNAME)))?;
     Some(home.join(CRON_SUBDIR).join(HISTORY_FILE))
 }
 
@@ -182,7 +182,7 @@ impl FileCronStore {
     /// store path can't be resolved.
     pub fn from_default_path() -> Result<Self> {
         let path = default_store_path().ok_or_else(|| {
-            CronError::Store("cannot resolve WAYLAND_HOME or $HOME for cron store".into())
+            CronError::Store("cannot resolve GENESIS_HOME or $HOME for cron store".into())
         })?;
         Ok(Self::new(path))
     }

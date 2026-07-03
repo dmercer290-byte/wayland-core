@@ -17,7 +17,7 @@ use crate::user_model_spec::UserModelSpec;
 
 /// Host-side trait the wcore-agent adapter implements. Receives the
 /// plain-data `UserModelSpec`; the host adapter reifies into a backend
-/// client. Nothing here names `wayland-honcho` — that lives in the host.
+/// client. Nothing here names `genesis-honcho` — that lives in the host.
 pub trait UserModelRegistrar: Send {
     /// Register one user-model spec. Returns `Err` on host-side duplicate
     /// (the host enforces cross-plugin uniqueness on `spec.name`).

@@ -141,7 +141,7 @@ mod tests {
         let server = McpServer::new(default_tool_set(), Box::new(DenyAll));
         let input = format!(
             "{}\n",
-            json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "wayland_memory_recall"}})
+            json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "genesis_memory_recall"}})
         );
         let out = drive(server, &input).await;
         let responses = parse_responses(&out);

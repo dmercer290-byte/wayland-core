@@ -3,7 +3,7 @@
 //! desktop input injection.
 //!
 //! The test simulates what the engine does at boot:
-//!   1. Construct a `CuaToolSpec` (the shape `wayland-cua` would emit).
+//!   1. Construct a `CuaToolSpec` (the shape `genesis-cua` would emit).
 //!   2. Hand it to a `CuaToolSpecLocal` through `from_api_spec`.
 //!   3. Reify into a concrete `CuaTool` via `from_spec` (refused on
 //!      restricted Wayland; succeeds on macOS / Windows / permissive

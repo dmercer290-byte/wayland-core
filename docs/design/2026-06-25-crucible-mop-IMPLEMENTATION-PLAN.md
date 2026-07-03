@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **Compiles ONLY on Hetzner `hetzner-dsm`** (`/root/wayland`), NEVER the Mac. `cargo fmt` works on the Mac. Every build/clippy/test verification = `bash ~/dev/waylandcore/.gate-branch.sh <branch> -p <crate>` (or no `-p` for full-workspace).
+- **Compiles ONLY on Hetzner `hetzner-dsm`** (`/root/genesis`), NEVER the Mac. `cargo fmt` works on the Mac. Every build/clippy/test verification = `bash ~/dev/genesiscore/.gate-branch.sh <branch> -p <crate>` (or no `-p` for full-workspace).
 - **NEVER run `cargo nextest`/`cargo build` locally** (orphaned binaries have crashed the Mac). Push to the branch; gate on Hetzner.
 - **Backward compatible:** every new field is `Option`, default `None`; `[crucible].enabled` defaults `false`. `provider:None` + `enabled:false` ⇒ today's exact behavior, asserted by non-regression tests.
 - **No reverse crate deps:** `wcore-types` stays leaf — only plain `String`/`Option<String>` fields there; resolution (`String`→`Arc<dyn LlmProvider>`) lives in `wcore-agent`/`wcore-providers`.
@@ -86,7 +86,7 @@ fn sub_agent_config_carries_optional_provider_and_model() {
     assert_eq!(c.model.as_deref(), Some("gpt-5.5"));
 }
 ```
-- [ ] **Step 2: Gate (expect FAIL — missing fields).** `git push`; `bash ~/dev/waylandcore/.gate-branch.sh feat/crucible-mop-slice1 -p wcore-types`. Expected: compile error (no field `provider`).
+- [ ] **Step 2: Gate (expect FAIL — missing fields).** `git push`; `bash ~/dev/genesiscore/.gate-branch.sh feat/crucible-mop-slice1 -p wcore-types`. Expected: compile error (no field `provider`).
 - [ ] **Step 3: Add the fields** to `SubAgentConfig` (default-construct sites elsewhere must add `provider: None, model: None` — grep `SubAgentConfig {` across the workspace and fix each; expected sites: `runner.rs:~1096`, `runner.rs:~335`, `runner.rs:~1529`, plus tests).
 ```rust
 pub struct SubAgentConfig {
@@ -495,7 +495,7 @@ pub struct LlmSynthesisAggregator { provider: Arc<dyn LlmProvider>, model: Optio
   - **non-regression:** existing consensus/workflow/spawn tests green with `provider:None`, `enabled:false`.
 - [ ] **Step 2: Gate (FAIL where new behavior missing; otherwise these lock current behavior).** `-p wcore-agent`.
 - [ ] **Step 3: Fix any gaps surfaced.**
-- [ ] **Step 4: FULL-WORKSPACE gate (no `-p`).** `bash ~/dev/waylandcore/.gate-branch.sh feat/crucible-mop-slice1` — fmt + clippy `--workspace -D warnings` + full nextest, zero non-flake failures.
+- [ ] **Step 4: FULL-WORKSPACE gate (no `-p`).** `bash ~/dev/genesiscore/.gate-branch.sh feat/crucible-mop-slice1` — fmt + clippy `--workspace -D warnings` + full nextest, zero non-flake failures.
 - [ ] **Step 5: Commit.** `"test(council): crucible Slice-1 integration/property/non-regression suite (crucible T12)"`
 
 ---

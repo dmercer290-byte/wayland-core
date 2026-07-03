@@ -57,7 +57,7 @@ impl A2aHandler for DefaultA2aHandler {
         if h.agent_id.is_empty() {
             return Ok(A2aHandshake {
                 agent_id: String::new(),
-                agent_kind: "wayland-core".to_string(),
+                agent_kind: "genesis-core".to_string(),
                 version: String::new(),
                 capabilities: A2aCapabilities::default(),
             });
@@ -65,7 +65,7 @@ impl A2aHandler for DefaultA2aHandler {
 
         Ok(A2aHandshake {
             agent_id: self.agent_id.clone(),
-            agent_kind: "wayland-core".to_string(),
+            agent_kind: "genesis-core".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             capabilities: self.caps_snapshot(),
         })

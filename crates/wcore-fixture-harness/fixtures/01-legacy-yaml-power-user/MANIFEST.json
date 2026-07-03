@@ -2,7 +2,7 @@
   "archetype": "01-legacy-yaml-power-user",
   "generated": "2026-05-24",
   "sanitization_rules": ".blackboard/E2E-FIXTURE-SANITIZATION-2026-05-24.md",
-  "source_description": "Derived from a machine state where both the legacy ~/.wayland/config.yaml (Desktop-app era) and the canonical ~/Library/Application Support/wayland-core/config.toml coexist. Two MCP servers registered. Two sessions with different providers. Two cron jobs (one with the Desktop-app 'schedule' field alias, one smoke-check job). Two plan files. All PII and secrets removed.",
+  "source_description": "Derived from a machine state where both the legacy ~/.genesis/config.yaml (Desktop-app era) and the canonical ~/Library/Application Support/genesis-core/config.toml coexist. Two MCP servers registered. Two sessions with different providers. Two cron jobs (one with the Desktop-app 'schedule' field alias, one smoke-check job). Two plan files. All PII and secrets removed.",
   "files_sanitized": [
     {
       "path": "config.yaml",
@@ -12,11 +12,11 @@
     },
     {
       "path": "config.toml",
-      "source_type": "canonical wayland-core TOML config (engine writes)",
+      "source_type": "canonical genesis-core TOML config (engine writes)",
       "redactions": [
-        "mcp.servers.wayland-image-generation.env.WAYLAND_IMG_API_KEY (was AIza... pattern)",
+        "mcp.servers.genesis-image-generation.env.GENESIS_IMG_API_KEY (was AIza... pattern)",
         "mcp.servers.local-tools.env.SOME_API_KEY",
-        "session.directory path (was a real absolute home path — replaced with <<WAYLAND_HOME>>)"
+        "session.directory path (was a real absolute home path — replaced with <<GENESIS_HOME>>)"
       ],
       "preserved": ["provider names", "model name", "tool allow_list", "compact settings", "mcp curation config"]
     },
@@ -55,7 +55,7 @@
   "scenarios_that_replay_this": [
     "T6: dual-config resolution order (config.yaml wins / config.toml wins / merge)",
     "T6: Desktop-app 'schedule' cron alias deserializes to 'expression' field",
-    "T6: multi-MCP server boot without leaking host WAYLAND_IMG_API_KEY into engine env",
+    "T6: multi-MCP server boot without leaking host GENESIS_IMG_API_KEY into engine env",
     "T6: cron list shows both jobs with correct next_run_at"
   ]
 }

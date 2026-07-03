@@ -1,7 +1,7 @@
 //! Identifier-preservation policy for semantic compaction.
 //!
 //! Ports the spirit of `IdentifierPolicy` from openclaw `agents/compaction.ts`,
-//! adapted to wayland-core's Rust chunk-priority compressor. The openclaw
+//! adapted to genesis-core's Rust chunk-priority compressor. The openclaw
 //! original is a *prompt-level* instruction policy (off / strict / custom)
 //! telling the summarizer LLM to preserve opaque identifiers (UUIDs, hashes,
 //! IDs, tokens, hostnames, IPs, ports, URLs, file names). Here we implement

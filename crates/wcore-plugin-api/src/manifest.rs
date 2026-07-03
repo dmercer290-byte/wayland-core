@@ -17,7 +17,7 @@ use crate::registry::hooks::HookPhase;
 /// flipped engine-level capability flags (`browser_suite`,
 /// `computer_use`) based on string matching against
 /// `PluginManifest.plugin.name`. A malicious crate could set
-/// `name = "wayland-browser"` in its manifest and impersonate the
+/// `name = "genesis-browser"` in its manifest and impersonate the
 /// real browser plugin, gaining the host's UI capability badge
 /// without owning the underlying surface.
 ///
@@ -31,9 +31,9 @@ use crate::registry::hooks::HookPhase;
 ///   recompiling the engine.
 ///
 /// - [`PluginIdentity::PathPrefix`]: the plugin was loaded from disk
-///   under `<data_dir>/wayland/plugins/`. The host validates the path
+///   under `<data_dir>/genesis/plugins/`. The host validates the path
 ///   prefix at load time; a manifest claiming
-///   `name = "wayland-browser"` from anywhere else is refused.
+///   `name = "genesis-browser"` from anywhere else is refused.
 ///
 /// **The future (v0.3.0 path).** [`PluginIdentity::Signed`] is
 /// reserved for ed25519-signed manifests with a hardcoded
@@ -51,7 +51,7 @@ pub enum PluginIdentity {
     /// Path-prefix-verified identity — the plugin was loaded from
     /// disk under the host-controlled plugins directory. The
     /// `manifest_path` is the on-disk path; the host validates that
-    /// it starts with `<data_dir>/wayland/plugins/` at load time.
+    /// it starts with `<data_dir>/genesis/plugins/` at load time.
     PathPrefix { manifest_path: PathBuf },
     /// Reserved for v0.3.0 — ed25519-signed manifest with a host
     /// allowlist. Holding the door open in the type system so the
@@ -101,10 +101,10 @@ impl PluginIdentity {
     /// [`PluginIdentity::PathPrefix`] identity. Returns
     /// `PluginError::ManifestSchema` when the prefix doesn't match —
     /// a manifest from `~/Downloads/evil-browser/manifest.toml`
-    /// CANNOT claim to be the real `wayland-browser`.
+    /// CANNOT claim to be the real `genesis-browser`.
     ///
     /// `allowed_roots` is the set of host-trusted prefixes; in
-    /// production this is `[dirs::data_dir()/wayland/plugins/]` plus
+    /// production this is `[dirs::data_dir()/genesis/plugins/]` plus
     /// any test override.
     pub fn from_path_prefix(
         manifest_path: impl AsRef<Path>,
@@ -136,7 +136,7 @@ impl PluginIdentity {
     }
 
     /// Default trusted root for dynamic plugins, rooted under the profile
-    /// home so `WAYLAND_HOME` sandboxes it: `<profile_home>/plugins/`.
+    /// home so `GENESIS_HOME` sandboxes it: `<profile_home>/plugins/`.
     ///
     /// SECURITY: this is a trust anchor — it becomes an `allowed_roots`
     /// entry for path-prefix manifest validation
@@ -307,7 +307,7 @@ pub struct PluginPermissions {
     pub register_rules: bool,
     pub register_mcp_server: bool,
     /// v0.6.4 Task 2.1 — gate for `ScopedUserModelRegistry`. Plugins that
-    /// supply a user-model backend (e.g. `wayland-honcho`) must set this.
+    /// supply a user-model backend (e.g. `genesis-honcho`) must set this.
     pub register_user_models: bool,
     pub tool_namespace: Option<String>,
     pub memory_partitions_writable: Vec<String>,
@@ -493,23 +493,23 @@ fn validate_partition(p: &str, side: &str, plugin: &str) -> PluginResult<()> {
 /// Inline mirror of `wcore_config::config::profile_home()`. Kept in sync by
 /// hand because the plugin-api isolation boundary forbids a `wcore-config`
 /// dep (`build.rs` FORBIDDEN_CORE_IMPORTS). MUST stay byte-for-byte equal:
-/// same env var, same control-char filter, same `~/.wayland` default, same
+/// same env var, same control-char filter, same `~/.genesis` default, same
 /// CWD-relative last-resort fallback. Pinned by the cross-crate equality test
 /// `default_plugin_root_matches_canonical_resolver` in `wcore-agent`.
 fn profile_home_local() -> PathBuf {
     // Reject an override carrying an ASCII control char (NUL/newline) — it
     // can't be passed safely to a child env. Fall through to the default.
-    if let Ok(wh) = std::env::var("WAYLAND_HOME")
+    if let Ok(wh) = std::env::var("GENESIS_HOME")
         && !wh.chars().any(|c| c.is_control())
     {
         return PathBuf::from(wh);
     }
     dirs::home_dir()
-        .map(|h| h.join(".wayland"))
+        .map(|h| h.join(".genesis"))
         .unwrap_or_else(|| {
             std::env::current_dir()
-                .map(|d| d.join(".wayland"))
-                .unwrap_or_else(|_| PathBuf::from(".wayland"))
+                .map(|d| d.join(".genesis"))
+                .unwrap_or_else(|_| PathBuf::from(".genesis"))
         })
 }
 
@@ -519,14 +519,14 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn default_plugin_root_honours_wayland_home() {
+    fn default_plugin_root_honours_genesis_home() {
         let tmp = tempfile::tempdir().unwrap();
-        let prev = std::env::var_os("WAYLAND_HOME");
-        unsafe { std::env::set_var("WAYLAND_HOME", tmp.path()) };
+        let prev = std::env::var_os("GENESIS_HOME");
+        unsafe { std::env::set_var("GENESIS_HOME", tmp.path()) };
         let root = PluginIdentity::default_plugin_root();
         match prev {
-            Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-            None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+            Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+            None => unsafe { std::env::remove_var("GENESIS_HOME") },
         }
         assert_eq!(root, tmp.path().join("plugins"));
     }
@@ -534,14 +534,14 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn default_plugin_root_rejects_control_char_override() {
-        let prev = std::env::var_os("WAYLAND_HOME");
-        unsafe { std::env::set_var("WAYLAND_HOME", "bad\nvalue") };
+        let prev = std::env::var_os("GENESIS_HOME");
+        unsafe { std::env::set_var("GENESIS_HOME", "bad\nvalue") };
         let root = PluginIdentity::default_plugin_root();
         match prev {
-            Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-            None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+            Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+            None => unsafe { std::env::remove_var("GENESIS_HOME") },
         }
-        // Control-char override rejected → falls back to ~/.wayland/plugins,
+        // Control-char override rejected → falls back to ~/.genesis/plugins,
         // never the literal "bad\nvalue".
         assert!(root.ends_with("plugins"));
         assert!(!root.to_string_lossy().contains('\n'));

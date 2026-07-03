@@ -1,9 +1,9 @@
 mod common;
 
-use wayland-core::hooks::{HookDef, HookEngine, HooksConfig};
-use wayland-core::tools::orchestration::execute_tool_calls;
-use wayland-core::tools::registry::ToolRegistry;
-use wayland-core::types::message::ContentBlock;
+use genesis-core::hooks::{HookDef, HookEngine, HooksConfig};
+use genesis-core::tools::orchestration::execute_tool_calls;
+use genesis-core::tools::registry::ToolRegistry;
+use genesis-core::types::message::ContentBlock;
 use common::{auto_approve_confirmer, MockTool};
 use serde_json::json;
 

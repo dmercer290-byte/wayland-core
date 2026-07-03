@@ -21,19 +21,19 @@ enabled = true
 [mcp.servers.image-gen]
 transport = "stdio"
 command = "node"
-args = ["<<WAYLAND_HOME>>/builtin-mcp-image-gen.js"]
+args = ["<<GENESIS_HOME>>/builtin-mcp-image-gen.js"]
 deferred = true
 
 [mcp.servers.image-gen.env]
-WAYLAND_IMG_API_KEY = "<<REDACTED:KEY:google>>"
-WAYLAND_IMG_PLATFORM = "gemini"
-WAYLAND_IMG_BASE_URL = "https://generativelanguage.googleapis.com"
+GENESIS_IMG_API_KEY = "<<REDACTED:KEY:google>>"
+GENESIS_IMG_PLATFORM = "gemini"
+GENESIS_IMG_BASE_URL = "https://generativelanguage.googleapis.com"
 
 # Server 2: local filesystem tool (no API key, stdio only)
 [mcp.servers.local-fs]
 transport = "stdio"
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "<<WAYLAND_HOME>>/workspace"]
+args = ["-y", "@modelcontextprotocol/server-filesystem", "<<GENESIS_HOME>>/workspace"]
 deferred = false
 
 # Server 3: SSE transport (tests the SSE code path — different from stdio)
@@ -49,7 +49,7 @@ Authorization = "Bearer <<REDACTED:BEARER>>"
 [mcp.servers.tools-pack]
 transport = "stdio"
 command = "node"
-args = ["<<WAYLAND_HOME>>/tools-pack.js"]
+args = ["<<GENESIS_HOME>>/tools-pack.js"]
 deferred = true
 
 [mcp.curation]

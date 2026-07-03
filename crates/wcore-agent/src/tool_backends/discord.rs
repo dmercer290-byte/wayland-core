@@ -377,7 +377,7 @@ fn build_request(
     builder = builder.header(reqwest::header::AUTHORIZATION, bot_auth);
     builder = builder.header(
         reqwest::header::USER_AGENT,
-        "DiscordBot (https://wayland.run, v0.9.0)",
+        "DiscordBot (https://genesis.run, v0.9.0)",
     );
     if let Some(body) = &plan.body {
         builder = builder.json(body);

@@ -1,4 +1,4 @@
-//! W5 (A.5): CLI integration smoke test for `wayland-core --doctor`.
+//! W5 (A.5): CLI integration smoke test for `genesis-core --doctor`.
 //!
 //! Asserts only what is platform-independent so the test passes on
 //! every CI matrix entry regardless of which system binaries happen
@@ -19,15 +19,15 @@
 
 use std::process::Command;
 
-/// Run the compiled `wayland-core` binary with `--doctor` and return
-/// the captured output. The harness sets `CARGO_BIN_EXE_wayland-core`
+/// Run the compiled `genesis-core` binary with `--doctor` and return
+/// the captured output. The harness sets `CARGO_BIN_EXE_genesis-core`
 /// to the path of the freshly built test binary.
 fn run_doctor() -> std::process::Output {
-    let bin = env!("CARGO_BIN_EXE_wayland-core");
+    let bin = env!("CARGO_BIN_EXE_genesis-core");
     Command::new(bin)
         .arg("--doctor")
         .output()
-        .expect("spawn wayland-core --doctor")
+        .expect("spawn genesis-core --doctor")
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn doctor_emits_header_and_summary() {
     let stdout = String::from_utf8_lossy(&out.stdout);
 
     assert!(
-        stdout.contains("wayland-core doctor v"),
+        stdout.contains("genesis-core doctor v"),
         "stdout missing header. full stdout:\n{stdout}\nstderr:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );

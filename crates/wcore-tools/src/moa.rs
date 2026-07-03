@@ -1,7 +1,7 @@
 //! T2-C2: Mixture-of-Agents tool.
 //!
 //! Port of Wang 2024 ("Mixture-of-Agents Enhances Large Language Model
-//! Capabilities", arXiv:2406.04692) from the prior Wayland Python engine.
+//! Capabilities", arXiv:2406.04692) from the prior Genesis Python engine.
 //!
 //! The MoA pattern fans a user prompt across N *proposer* providers in
 //! parallel, concatenates their answers, then hands the bundle to an

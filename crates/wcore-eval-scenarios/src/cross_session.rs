@@ -1,26 +1,26 @@
 //! D4 — cross-session keystone harness.
 //!
 //! Every persona run (see [`crate::runner::run`]) gets a throwaway tempdir with
-//! `WAYLAND_HOME` *stripped*, so nothing survives between runs — correct for
+//! `GENESIS_HOME` *stripped*, so nothing survives between runs — correct for
 //! "does one task work" but useless for "does the agent REMEMBER across
 //! sessions." The cross-session keystones (memory recall, skill learning) need
-//! a home that persists across two separate `wayland-core` processes.
+//! a home that persists across two separate `genesis-core` processes.
 //!
 //! ## The substrate
-//! `WAYLAND_HOME` → `wcore_config::config::wayland_config_dir()` drives BOTH:
+//! `GENESIS_HOME` → `wcore_config::config::genesis_config_dir()` drives BOTH:
 //! - the memory DBs (`wcore-memory` resolves its base dir from
-//!   `app_config_dir()` = `$WAYLAND_HOME`; the **global** tier — `memory.db` —
+//!   `app_config_dir()` = `$GENESIS_HOME`; the **global** tier — `memory.db` —
 //!   carries across sessions), and
-//! - the skills dir (`$WAYLAND_HOME/skills{,/auto}` — where the auto-drafter
+//! - the skills dir (`$GENESIS_HOME/skills{,/auto}` — where the auto-drafter
 //!   writes learned skills).
 //!
 //! It does NOT reroute the session dir (cross-audit C-3); that's the config's
 //! `[session].directory`. So we keep two dirs under one held `TempDir`:
-//! - **`home/`** — `WAYLAND_HOME`. Memory + skills live here, deliberately
+//! - **`home/`** — `GENESIS_HOME`. Memory + skills live here, deliberately
 //!   OUTSIDE the project watch root, so the file-watcher never sees the engine's
 //!   own `memory.db`/`sessions/*.wal` churn as "user edits."
 //! - **`project/`** — the spawn `cwd` (a fresh "user project" + the watch root).
-//!   Holds the seeded `.wayland-core/config.toml`.
+//!   Holds the seeded `.genesis-core/config.toml`.
 //!
 //! The `TempDir` is held for the lifetime of the [`CrossSessionEnv`], so both
 //! child processes share it; it's still hermetic (cleaned up on drop) — the
@@ -47,8 +47,8 @@ pub struct CrossSessionEnv {
 }
 
 impl CrossSessionEnv {
-    /// Build the env: create `home/` + `home/sessions/` + `project/.wayland-core/`
-    /// and seed `project/.wayland-core/config.toml`.
+    /// Build the env: create `home/` + `home/sessions/` + `project/.genesis-core/`
+    /// and seed `project/.genesis-core/config.toml`.
     ///
     /// The seeded config differs from the persona [`crate::tempenv`] config in
     /// three load-bearing ways:
@@ -68,7 +68,7 @@ impl CrossSessionEnv {
         let home = root.join("home");
         let project = root.join("project");
         let sessions_dir = home.join("sessions");
-        let cfg_dir = project.join(".wayland-core");
+        let cfg_dir = project.join(".genesis-core");
         fs::create_dir_all(&sessions_dir)?;
         fs::create_dir_all(&cfg_dir)?;
 
@@ -111,7 +111,7 @@ impl CrossSessionEnv {
         })
     }
 
-    /// `WAYLAND_HOME` for both sessions — the shared memory + skills root.
+    /// `GENESIS_HOME` for both sessions — the shared memory + skills root.
     pub fn home(&self) -> &Path {
         &self.home
     }
@@ -122,12 +122,12 @@ impl CrossSessionEnv {
     }
 }
 
-/// Drive a sequence of scenarios as SEPARATE `wayland-core` processes that all
+/// Drive a sequence of scenarios as SEPARATE `genesis-core` processes that all
 /// share ONE persistent home — the cross-session keystone.
 ///
 /// Each scenario boots a fresh engine (so session 2 genuinely cold-starts and
 /// must *recall* rather than carry in-memory state), but every process gets the
-/// same `WAYLAND_HOME` + `cwd`, so memory DBs and the skills dir carry over.
+/// same `GENESIS_HOME` + `cwd`, so memory DBs and the skills dir carry over.
 /// Returns one [`ScenarioResult`] per input scenario, in order, so the caller
 /// can assert on each session independently (e.g. session 2's recall).
 ///
@@ -167,7 +167,7 @@ mod tests {
     fn seeded_config_enables_memory_with_no_dream_throttle() {
         let p = ProviderConfig::new(ProviderId::DeepSeek, "deepseek-v4-pro").with_api_key("k");
         let env = CrossSessionEnv::build(&p).expect("build env");
-        let cfg = fs::read_to_string(env.project().join(".wayland-core/config.toml"))
+        let cfg = fs::read_to_string(env.project().join(".genesis-core/config.toml"))
             .expect("seeded config exists");
         assert!(cfg.contains("[memory]"), "must declare [memory]: {cfg}");
         assert!(cfg.contains("enabled = true"), "memory must be on: {cfg}");
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn session_dir_lives_under_home_not_project() {
-        // The session store must sit under WAYLAND_HOME (shared, and OUTSIDE
+        // The session store must sit under GENESIS_HOME (shared, and OUTSIDE
         // the project watch root) — not under the project cwd, or the watcher
         // would see every session save as a phantom user edit.
         let p = ProviderConfig::new(ProviderId::DeepSeek, "deepseek-v4-pro").with_api_key("k");
@@ -194,7 +194,7 @@ mod tests {
         // unused binding on Windows (clippy `-D warnings`).
         #[cfg(unix)]
         {
-            let cfg = fs::read_to_string(env.project().join(".wayland-core/config.toml"))
+            let cfg = fs::read_to_string(env.project().join(".genesis-core/config.toml"))
                 .expect("seeded config exists");
             let needle = format!("directory = \"{}", env.home().join("sessions").display());
             assert!(
@@ -214,6 +214,6 @@ mod tests {
         let env = CrossSessionEnv::build(&p).expect("build env");
         assert_ne!(env.home(), env.project());
         assert!(env.home().is_dir());
-        assert!(env.project().join(".wayland-core").is_dir());
+        assert!(env.project().join(".genesis-core").is_dir());
     }
 }

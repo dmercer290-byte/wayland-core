@@ -15,7 +15,7 @@ rust-version.workspace = true
 # be done with proper plugin-loading verification across the version
 # delta. The 18 advisories that affect 30.x are documented in
 # `.cargo/audit.toml` with threat-model rationale: they all describe
-# panics/UB triggered by malicious wasm input, but Wayland loads SIGNED
+# panics/UB triggered by malicious wasm input, but Genesis loads SIGNED
 # plugins only, so the attack surface is "compromised dev signing key",
 # not "open-internet wasm". Tracked work item: wasmtime → 44+/45+.
 wasmtime      = { version = "36", default-features = false, features = ["component-model", "cranelift", "runtime", "async"] }

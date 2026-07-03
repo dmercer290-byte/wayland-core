@@ -13,7 +13,7 @@ use wcore_types::model_aliases::{
 };
 
 /// Build a CliArgs for tests that uses an isolated empty project dir so we
-/// don't pick up the host's `.wayland-core.toml`.
+/// don't pick up the host's `.genesis-core.toml`.
 fn args(provider: &str, model: &str, project_dir: &TempDir) -> CliArgs {
     CliArgs {
         provider: Some(provider.into()),
@@ -89,10 +89,10 @@ fn default_bedrock_when_no_model_uses_alias() {
     // coded before this change.
     //
     // ISOLATION: `Config::resolve` reads the *global* config from
-    // `wayland_config_dir()/config.toml` (macOS: ~/Library/Application
-    // Support/wayland-core/config.toml).  On a developer host that has
+    // `genesis_config_dir()/config.toml` (macOS: ~/Library/Application
+    // Support/genesis-core/config.toml).  On a developer host that has
     // `model = "<something>"` in that file the default-model path is
-    // never exercised and the test fails spuriously.  Point `WAYLAND_HOME`
+    // never exercised and the test fails spuriously.  Point `GENESIS_HOME`
     // at an empty TempDir so the global config path resolves to a
     // non-existent file and `default_model_for()` wins.  The SAFETY note
     // in `std::env::set_var` applies (don't call concurrently with other
@@ -104,7 +104,7 @@ fn default_bedrock_when_no_model_uses_alias() {
     // and is not racy within this process.
     #[allow(unsafe_code)]
     unsafe {
-        std::env::set_var("WAYLAND_HOME", tmp.path());
+        std::env::set_var("GENESIS_HOME", tmp.path());
     }
     let cfg = Config::resolve(&CliArgs {
         provider: Some("bedrock".into()),
@@ -121,7 +121,7 @@ fn default_bedrock_when_no_model_uses_alias() {
     .unwrap();
     #[allow(unsafe_code)]
     unsafe {
-        std::env::remove_var("WAYLAND_HOME");
+        std::env::remove_var("GENESIS_HOME");
     }
     assert_eq!(cfg.model, BEDROCK_SONNET);
     assert!(
@@ -133,12 +133,12 @@ fn default_bedrock_when_no_model_uses_alias() {
 #[test]
 fn default_vertex_when_no_model_uses_alias() {
     // See isolation note in `default_bedrock_when_no_model_uses_alias` above —
-    // same problem, same fix: redirect WAYLAND_HOME so the host global config
+    // same problem, same fix: redirect GENESIS_HOME so the host global config
     // is not loaded and `default_model_for(Vertex)` wins.
     let tmp = TempDir::new().unwrap();
     #[allow(unsafe_code)]
     unsafe {
-        std::env::set_var("WAYLAND_HOME", tmp.path());
+        std::env::set_var("GENESIS_HOME", tmp.path());
     }
     let cfg = Config::resolve(&CliArgs {
         provider: Some("vertex".into()),
@@ -155,7 +155,7 @@ fn default_vertex_when_no_model_uses_alias() {
     .unwrap();
     #[allow(unsafe_code)]
     unsafe {
-        std::env::remove_var("WAYLAND_HOME");
+        std::env::remove_var("GENESIS_HOME");
     }
     assert_eq!(cfg.model, VERTEX_SONNET);
     assert!(

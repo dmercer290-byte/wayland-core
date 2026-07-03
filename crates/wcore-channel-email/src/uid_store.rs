@@ -7,7 +7,7 @@
 //! arrived while the process was down.
 //!
 //! This module persists the watermark per account+mailbox under the profile
-//! home (`$WAYLAND_HOME/channel-state/`) so a restart resumes exactly where it
+//! home (`$GENESIS_HOME/channel-state/`) so a restart resumes exactly where it
 //! left off. Writes are best-effort: a failure is logged and the in-session
 //! in-memory watermark still prevents same-process re-delivery.
 
@@ -23,7 +23,7 @@ fn state_path(host: &str, user: &str, mailbox: &str) -> PathBuf {
     user.hash(&mut h);
     mailbox.hash(&mut h);
     let key = h.finish();
-    wcore_config::config::wayland_config_dir()
+    wcore_config::config::genesis_config_dir()
         .join("channel-state")
         .join(format!("imap-{key:016x}.uid"))
 }

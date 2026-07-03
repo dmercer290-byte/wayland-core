@@ -3,7 +3,7 @@ name = "wcore-user-model"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "User-model backend abstraction (preferences, expertise, style, brief) for Wayland-Core"
+description = "User-model backend abstraction (preferences, expertise, style, brief) for Genesis-Core"
 
 [dependencies]
 async-trait = { workspace = true }

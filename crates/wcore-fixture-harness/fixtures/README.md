@@ -1,7 +1,7 @@
 # Fixture Catalog
 
 Each subdirectory here is a named archetype — a sanitized snapshot of a
-`$WAYLAND_HOME` directory that represents a specific user-environment shape.
+`$GENESIS_HOME` directory that represents a specific user-environment shape.
 
 The T6 fixture-replay harness (Wave 2) will spawn the release binary against
 each archetype directory and assert on emitted json-stream events, stderr
@@ -16,7 +16,7 @@ identifiable session content.
 ## Adding a new archetype
 
 1. Create `fixtures/<name>/`.
-2. Populate the `$WAYLAND_HOME` tree (config.toml, cron/, sessions/, etc.).
+2. Populate the `$GENESIS_HOME` tree (config.toml, cron/, sessions/, etc.).
 3. Run the anti-leak grep (see sanitization spec §5.1) and confirm zero matches.
 4. Write `MANIFEST.json` (schema in sanitization spec §4.2).
 5. Write `README.md` covering: purpose, bug classes targeted, scenarios that

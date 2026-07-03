@@ -1,7 +1,7 @@
 //! F.8 — when `Capabilities.computer_use = false` (host advertises no
 //! display), the engine MUST refuse to register the CUA tool. The
 //! adapter surfaces `CuaError::CapabilityDisabled` in that case;
-//! plugin-shell propagation lives in `wayland-cua` and is exercised
+//! plugin-shell propagation lives in `genesis-cua` and is exercised
 //! by the plugin's own load test.
 
 use wcore_cua::{CuaError, CuaToolSpecLocal, from_spec};

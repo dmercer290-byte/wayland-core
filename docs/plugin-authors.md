@@ -1,6 +1,6 @@
-# Wayland Plugin Authors Guide
+# Genesis Plugin Authors Guide
 
-Wayland exposes a stable plugin API that lets third parties contribute tools, hooks, providers, skills, rules, MCP servers, and user-model backends without forking the engine. This guide is the canonical onboarding doc for v0.6.5. Read it once end-to-end before you write code; come back later for the manifest and permission reference tables.
+Genesis exposes a stable plugin API that lets third parties contribute tools, hooks, providers, skills, rules, MCP servers, and user-model backends without forking the engine. This guide is the canonical onboarding doc for v0.6.5. Read it once end-to-end before you write code; come back later for the manifest and permission reference tables.
 
 The substrate is intentionally pluralist: four runtimes share one manifest schema and one permission model. Your job is to pick the right runtime, declare the right permissions, and let the host decide what actually gets granted.
 
@@ -8,10 +8,10 @@ The substrate is intentionally pluralist: four runtimes share one manifest schem
 
 ## 1. Choosing a runtime (decision tree)
 
-Every Wayland plugin runs in exactly one of four modes. Pick by answering these in order:
+Every Genesis plugin runs in exactly one of four modes. Pick by answering these in order:
 
 ```
-Are you on Wayland's first-party team and shipping with the engine binary?
+Are you on Genesis's first-party team and shipping with the engine binary?
    yes  -> static          (plug in tree, zero IPC overhead)
    no   -> next question
 
@@ -29,7 +29,7 @@ Practical guidance:
 - **static** — Compile-time-linked Rust crate discovered via `inventory::submit!`. Identity is anchored to the engine binary's link table, so impersonation is impossible (`crates/wcore-plugin-api/src/manifest.rs:43-48`). No signing required. The only choice for first-party plugins where the team owns both the engine and the plugin.
 - **wasm** — A `.wasm` Component-Model module instantiated fresh per tool call inside a wasmtime sandbox. The only runtime where host capabilities are opt-in via `Deny*` adapters (`crates/wcore-plugin-api/src/manifest.rs:79-84`). This is the canonical choice for the open ecosystem.
 - **subprocess** — A native binary the engine spawns and talks to over JSON-Lines on stdio. Required when you need raw FS, raw network sockets, child processes, or non-Rust toolchains. Inherits engine privileges by default (`crates/wcore-plugin-api/src/manifest.rs:69-71`). Use sparingly.
-- **mcp-bridge** — Manifest-only wrapper around an existing MCP server. Wayland synthesizes a `PluginTool` per discovered MCP tool. Zero plugin code; the MCP server you wrap is the implementation. Use this whenever someone has already built the integration in MCP — you do not need to port it.
+- **mcp-bridge** — Manifest-only wrapper around an existing MCP server. Genesis synthesizes a `PluginTool` per discovered MCP tool. Zero plugin code; the MCP server you wrap is the implementation. Use this whenever someone has already built the integration in MCP — you do not need to port it.
 
 When in doubt, write WASM. The sandbox is the default; you graduate to subprocess only when WASM cannot express what you need.
 
@@ -50,7 +50,7 @@ The two axes are orthogonal:
 
 The manifest's `[permissions]` block declares which capability types this plugin wants to register — `register_tools`, `register_hooks`, `register_providers`, `register_agents`, `register_skills`, `register_rules`, `register_mcp_server`, `register_user_models` (`crates/wcore-plugin-api/src/manifest.rs:266-277`). Each flag is a request, not a grant. The host decides what to honor.
 
-This means: do not name your plugin after a capability ("my-tool-plugin"). Name it after the vendor or feature boundary ("wayland-spotify", "wayland-honcho"). The capabilities are an implementation detail.
+This means: do not name your plugin after a capability ("my-tool-plugin"). Name it after the vendor or feature boundary ("genesis-spotify", "genesis-honcho"). The capabilities are an implementation detail.
 
 ---
 
@@ -62,10 +62,10 @@ The manifest is a TOML file named `plugin.toml` at the root of your plugin direc
 plugin_api_version = "1.0"                              # see line 191
 
 [plugin]                                                # see line 251
-name        = "wayland-spotify"
+name        = "genesis-spotify"
 version     = "0.1.0"
-description = "Spotify control surface as a Wayland tool"
-entry       = "wayland_spotify::plugin"                 # static: Rust path; wasm: ignored
+description = "Spotify control surface as a Genesis tool"
+entry       = "genesis_spotify::plugin"                 # static: Rust path; wasm: ignored
 authors     = ["You <you@example.com>"]
 license     = "Apache-2.0"
 deferred    = false                                     # if true, initialize() runs on first use
@@ -104,7 +104,7 @@ component_path  = "./plugin.wasm"
 fuel_per_call   = 100_000_000
 
 [runtime.subprocess]                                    # see line 237
-binary_path = "./wayland-spotify-bin"
+binary_path = "./genesis-spotify-bin"
 args        = ["--mode=stdio"]
 
 # mcp-bridge: set kind = "mcp-bridge" and use [runtime.subprocess] for the
@@ -152,10 +152,10 @@ Static plugins skip signing entirely. The engine binary is the trust anchor; imp
 
 Dynamic plugins — WASM, subprocess, and mcp-bridge — must be signed. The trust anchor is the **union** of two sources (Task 1.3 union behavior):
 
-- Files in `~/.wayland/trusted-keys/*.pub`. The default directory is anchored at `dirs::home_dir().join(".wayland").join("trusted-keys")` (`crates/wcore-agent/src/plugins/sig_verifier.rs:55-63`). Override via `WAYLAND_TRUSTED_KEYS_DIR` for tests.
+- Files in `~/.genesis/trusted-keys/*.pub`. The default directory is anchored at `dirs::home_dir().join(".genesis").join("trusted-keys")` (`crates/wcore-agent/src/plugins/sig_verifier.rs:55-63`). Override via `GENESIS_TRUSTED_KEYS_DIR` for tests.
 - Entries in `plugins.toml::trusted_plugin_keys`. Loaded into `PluginsConfig` and resolved alongside filesystem keys (`crates/wcore-agent/src/plugins/loader.rs:494-500`).
 
-A signed plugin ships a sidecar file `<plugin_dir>/wayland-plugin.sig` containing a raw 64-byte ed25519 signature over the plugin payload. The filename is the constant `PLUGIN_SIG_FILENAME` (`crates/wcore-agent/src/plugins/sig_verifier.rs:26`).
+A signed plugin ships a sidecar file `<plugin_dir>/genesis-plugin.sig` containing a raw 64-byte ed25519 signature over the plugin payload. The filename is the constant `PLUGIN_SIG_FILENAME` (`crates/wcore-agent/src/plugins/sig_verifier.rs:26`).
 
 To produce a signature:
 
@@ -165,20 +165,20 @@ openssl genpkey -algorithm ed25519 -out signing.key
 openssl pkey -in signing.key -pubout -out signing.pub
 
 # 2. Drop signing.pub into the trust anchor directory.
-mkdir -p ~/.wayland/trusted-keys
-cp signing.pub ~/.wayland/trusted-keys/
+mkdir -p ~/.genesis/trusted-keys
+cp signing.pub ~/.genesis/trusted-keys/
 
 # 3. Sign the plugin payload (the binary or .wasm).
 openssl pkeyutl -sign -inkey signing.key \
-    -in plugin.wasm -rawin -out wayland-plugin.sig
+    -in plugin.wasm -rawin -out genesis-plugin.sig
 ```
 
-A development override exists: setting `WAYLAND_PLUGIN_TRUST_UNSIGNED=1` allows the loader to accept unsigned path-based plugins (`crates/wcore-agent/src/plugins/sig_verifier.rs:29` and `crates/wcore-agent/src/plugins/loader.rs:140`). The engine logs a warning every time this happens; never set this in production.
+A development override exists: setting `GENESIS_PLUGIN_TRUST_UNSIGNED=1` allows the loader to accept unsigned path-based plugins (`crates/wcore-agent/src/plugins/sig_verifier.rs:29` and `crates/wcore-agent/src/plugins/loader.rs:140`). The engine logs a warning every time this happens; never set this in production.
 
 Discovery roots, in priority order (`crates/wcore-agent/src/plugins/loader.rs:614`):
 
-1. `$WAYLAND_PLUGINS_DIR` when set and non-empty. Constant `ENV_PLUGINS_DIR` (`crates/wcore-agent/src/plugins/loader.rs:39`).
-2. `<data_dir>/wayland/plugins/` otherwise (`crates/wcore-plugin-api/src/manifest.rs:139-144`).
+1. `$GENESIS_PLUGINS_DIR` when set and non-empty. Constant `ENV_PLUGINS_DIR` (`crates/wcore-agent/src/plugins/loader.rs:39`).
+2. `<data_dir>/genesis/plugins/` otherwise (`crates/wcore-plugin-api/src/manifest.rs:139-144`).
 
 The loader canonicalizes the manifest path and refuses any plugin whose path is not a prefix of an allowed root (`crates/wcore-plugin-api/src/manifest.rs:107-134`). This blocks the classic "drop a manifest in `~/Downloads`" impersonation vector.
 
@@ -188,7 +188,7 @@ The loader canonicalizes the manifest path and refuses any plugin whose path is 
 
 `PLUGIN_API_VERSION` is currently `"1.0"` (`crates/wcore-plugin-api/src/lib.rs:67`). Manifests that declare a different value are rejected with `PluginError::VersionMismatch` (`crates/wcore-plugin-api/src/manifest.rs:393-398`).
 
-Patch and minor bumps stay compatible as long as the WIT files do not break. **WIT files are semver.** Major changes to any `wayland:host@x.y.z` package require a manifest `plugin_api_version` bump and a coordinated migration. Treat them like a public API contract.
+Patch and minor bumps stay compatible as long as the WIT files do not break. **WIT files are semver.** Major changes to any `genesis:host@x.y.z` package require a manifest `plugin_api_version` bump and a coordinated migration. Treat them like a public API contract.
 
 Manifests that omit `plugin_api_version` are accepted as compatible with the current engine. This is intentional backward-compatibility for v0.6.4 manifests; new plugins should always set the field explicitly.
 
@@ -229,7 +229,7 @@ The output `.wasm` is what you sign and ship. Load it into a dev engine, watch t
 
 ```bash
 RUST_LOG=wcore_plugin_wasm=debug,wcore_agent::plugins=debug \
-  WAYLAND_PLUGIN_TRUST_UNSIGNED=1 \
+  GENESIS_PLUGIN_TRUST_UNSIGNED=1 \
   cargo run -p wcore-cli -- plugin list
 ```
 
@@ -239,12 +239,12 @@ If the component fails to link, the failure points at a missing or `Deny*` adapt
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-  | ./wayland-spotify-bin --mode=stdio
+  | ./genesis-spotify-bin --mode=stdio
 ```
 
 If it does not echo a well-formed response, the engine will not load it either. Debug it like any other CLI.
 
-**mcp-bridge.** All existing MCP debugging tooling applies — `mcp-inspector`, JSON-RPC tracing, server-side stdout. If the underlying MCP server works in any MCP client, it works in Wayland.
+**mcp-bridge.** All existing MCP debugging tooling applies — `mcp-inspector`, JSON-RPC tracing, server-side stdout. If the underlying MCP server works in any MCP client, it works in Genesis.
 
 ---
 
@@ -268,7 +268,7 @@ Three paths in three lengths. Pick the runtime from section 1, then run the matc
 **Static plugin in 30 seconds:**
 
 ```bash
-cargo generate --git https://github.com/FerroxLabs/wayland-core \
+cargo generate --git https://github.com/dmercer290-byte/wayland-core \
   --template templates/plugin-static --name my-plugin
 cd my-plugin
 cargo test
@@ -279,19 +279,19 @@ cargo test
 ```bash
 rustup target add wasm32-wasip1
 cargo install cargo-component
-cargo generate --git https://github.com/FerroxLabs/wayland-core \
+cargo generate --git https://github.com/dmercer290-byte/wayland-core \
   --template templates/plugin-wasm --name my-wasm-plugin
 cd my-wasm-plugin
 cargo component build --release
 ```
 
-Drop the resulting `.wasm` plus a signed `wayland-plugin.sig` into `~/.wayland/plugins/my-wasm-plugin/`.
+Drop the resulting `.wasm` plus a signed `genesis-plugin.sig` into `~/.genesis/plugins/my-wasm-plugin/`.
 
 **Wrap an MCP server in 60 seconds:**
 
 ```bash
-mkdir -p ~/.wayland/plugins/mcp-time
-cp examples/plugin-subprocess-mcp/plugin.toml ~/.wayland/plugins/mcp-time/
+mkdir -p ~/.genesis/plugins/mcp-time
+cp examples/plugin-subprocess-mcp/plugin.toml ~/.genesis/plugins/mcp-time/
 # Edit the [runtime.subprocess] block to point at your MCP server binary.
 ```
 

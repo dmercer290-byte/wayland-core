@@ -106,7 +106,7 @@ pub fn openai_config(api_key: &str) -> Config {
             // Cross-platform tempdir — never written because `enabled: false`,
             // but avoids the hardcoded `/tmp/...` literal on Windows.
             directory: std::env::temp_dir()
-                .join("wayland-core-acceptance")
+                .join("genesis-core-acceptance")
                 .to_string_lossy()
                 .into_owned(),
             max_sessions: 1,
@@ -146,7 +146,7 @@ pub fn bedrock_config() -> Config {
             // Cross-platform tempdir — never written because `enabled: false`,
             // but avoids the hardcoded `/tmp/...` literal on Windows.
             directory: std::env::temp_dir()
-                .join("wayland-core-acceptance")
+                .join("genesis-core-acceptance")
                 .to_string_lossy()
                 .into_owned(),
             max_sessions: 1,

@@ -15,7 +15,7 @@
 //!    hard crash.
 //!
 //! Wire contract is frozen + live-verified by the producer (Agent Vault):
-//! `.audit/waylandcore-mcp-fix/FORGE-MCP-DISCOVERY-SPEC.md` §2 (metadata) / §3
+//! `.audit/genesiscore-mcp-fix/FORGE-MCP-DISCOVERY-SPEC.md` §2 (metadata) / §3
 //! (grant). Do NOT change the shapes here.
 //!
 //! ## Network boundary
@@ -283,7 +283,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/grant"))
             .and(body_partial_json(
-                json!({ "client_name": "Wayland Core", "scopes": ["read", "write"] }),
+                json!({ "client_name": "Genesis Core", "scopes": ["read", "write"] }),
             ))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "token": "abc123.base64url.bearer",
@@ -295,7 +295,7 @@ mod tests {
 
         let client = loopback_http_client();
         let url = format!("{}/grant", server.uri());
-        let outcome = request_grant(&client, &url, "Wayland Core", &["read", "write"]).await;
+        let outcome = request_grant(&client, &url, "Genesis Core", &["read", "write"]).await;
 
         assert_eq!(
             outcome,
@@ -321,7 +321,7 @@ mod tests {
         let client = loopback_http_client();
         let url = format!("{}/grant", server.uri());
         assert_eq!(
-            request_grant(&client, &url, "Wayland Core", &["read", "write"]).await,
+            request_grant(&client, &url, "Genesis Core", &["read", "write"]).await,
             GrantOutcome::Denied
         );
     }
@@ -340,7 +340,7 @@ mod tests {
 
         let client = loopback_http_client();
         let url = format!("{}/grant", server.uri());
-        match request_grant(&client, &url, "Wayland Core", &[]).await {
+        match request_grant(&client, &url, "Genesis Core", &[]).await {
             GrantOutcome::BadScopes(msg) => assert!(msg.contains("Valid scopes")),
             other => panic!("expected BadScopes, got {other:?}"),
         }
@@ -361,7 +361,7 @@ mod tests {
         let client = loopback_http_client();
         let url = format!("{}/grant", server.uri());
         assert_eq!(
-            request_grant(&client, &url, "Wayland Core", &["read", "write"]).await,
+            request_grant(&client, &url, "Genesis Core", &["read", "write"]).await,
             GrantOutcome::RateLimited
         );
     }
@@ -370,7 +370,7 @@ mod tests {
     #[tokio::test]
     async fn grant_rejects_non_loopback_url() {
         let client = loopback_http_client();
-        match request_grant(&client, "http://10.0.0.5/grant", "Wayland Core", &["read"]).await {
+        match request_grant(&client, "http://10.0.0.5/grant", "Genesis Core", &["read"]).await {
             GrantOutcome::Error(msg) => assert!(msg.contains("SSRF") || msg.contains("loopback")),
             other => panic!("expected SSRF Error, got {other:?}"),
         }

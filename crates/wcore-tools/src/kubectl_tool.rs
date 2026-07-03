@@ -157,7 +157,7 @@ const KUBECTL_ENV_ALLOW: &[&str] = &["KUBECONFIG"];
 /// D.1 Round 1 (HIGH-2): the env is now a *curated* passthrough via
 /// [`crate::env_passthrough::build_sandboxed_env`] — `PATH` / `HOME` /
 /// `KUBECONFIG` reach the child so kubectl finds its config, but provider
-/// API keys, `WAYLAND_VAULT_PASSPHRASE`, and other secret-shaped vars are
+/// API keys, `GENESIS_VAULT_PASSPHRASE`, and other secret-shaped vars are
 /// dropped (previously the full host env was copied). `NetworkPolicy::Inherit`
 /// keeps the apiserver reachable; filesystem / syscall confinement still
 /// applies through the real backend.

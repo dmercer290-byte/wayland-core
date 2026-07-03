@@ -3,7 +3,7 @@
 //! # Why this exists
 //!
 //! The end-to-end TUI harness ([`harness_tui_flow.rs`]) drives the real
-//! `wayland-core` binary through a PTY, but the binary never makes a network
+//! `genesis-core` binary through a PTY, but the binary never makes a network
 //! call until the user sends a prompt — and a real prompt would hit a live
 //! provider. To assert on the *agent loop* (text turns, tool calls, multi-turn
 //! conversations) we need a deterministic backend the real provider can talk

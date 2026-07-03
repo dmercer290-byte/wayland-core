@@ -2,7 +2,7 @@
 //!
 //! Ported from an upstream MIT-licensed library (see THIRD-PARTY-NOTICES.md).
 //! The Python original talks to Discord's REST API
-//! directly (urllib + bot token). Wayland's engine MUST NOT initiate
+//! directly (urllib + bot token). Genesis's engine MUST NOT initiate
 //! HTTP from inside `wcore-tools` (HTTP is a `wcore-providers` /
 //! plugin / host concern), so this port covers the **dispatch surface
 //! only**: schema, action manifest, per-action required-parameter
@@ -330,7 +330,7 @@ impl DiscordBackend for CapturingDiscordBackend {
     }
 }
 
-/// `discord_server` tool — Wayland engine port of `discord_tool.py`.
+/// `discord_server` tool — Genesis engine port of `discord_tool.py`.
 pub struct DiscordTool {
     backend: Arc<dyn DiscordBackend>,
     /// Optional pre-resolved allowlist of action names. `None` =

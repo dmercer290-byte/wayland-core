@@ -139,7 +139,7 @@ impl Resolver for GitHubReleasesResolver {
                 .map_err(|e| PluginCliError::Network(e.to_string()))?;
             runtime.block_on(async move {
                 let client = wcore_egress::EgressClient::builder()
-                    .user_agent(concat!("wayland-core/", env!("CARGO_PKG_VERSION")))
+                    .user_agent(concat!("genesis-core/", env!("CARGO_PKG_VERSION")))
                     .timeout(std::time::Duration::from_secs(15))
                     .build()
                     .map_err(|e| PluginCliError::Network(e.to_string()))?;

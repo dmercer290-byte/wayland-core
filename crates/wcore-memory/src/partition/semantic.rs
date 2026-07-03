@@ -18,7 +18,7 @@ use crate::v2_types::{Fact, FactId, Tier};
 ///
 /// See `.blackboard/v0.6.4-memory-depth-design.md` §4 (Task 6.6d) for the
 /// roll-out plan. The default flips once dream-cycle CI is stable.
-const CONTRADICTION_ENV: &str = "WAYLAND_CONTRADICTION";
+const CONTRADICTION_ENV: &str = "GENESIS_CONTRADICTION";
 
 pub struct SemanticPartition {
     pub(crate) db: Arc<Db>,
@@ -35,7 +35,7 @@ impl SemanticPartition {
     /// same tier with a different object, the prior fact's superseded_by
     /// is updated to point at the new one.
     ///
-    /// When the `WAYLAND_CONTRADICTION` env var is set, the conflict is
+    /// When the `GENESIS_CONTRADICTION` env var is set, the conflict is
     /// instead routed through [`ContradictionResolver::resolve`] and one
     /// of three outcomes is applied:
     /// - `Supersede` → existing marked superseded, new written at

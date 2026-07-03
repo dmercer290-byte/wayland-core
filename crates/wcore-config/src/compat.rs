@@ -261,7 +261,7 @@ pub struct ProviderCompat {
     /// NOT be echoed to providers that reject unknown fields. On long-context
     /// replay, strict OpenAI-compat endpoints (e.g. Fireworks / GLM-5 via the
     /// Flux router) 400 with "Extra inputs are not permitted, field:
-    /// messages[N].tool_calls[0].extra_content" (wayland-core#120). Only the
+    /// messages[N].tool_calls[0].extra_content" (genesis-core#120). Only the
     /// Google/Gemini preset sets `Some(true)`, since that endpoint emitted the
     /// field and tolerates its round-trip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -440,7 +440,7 @@ impl ProviderCompat {
             // Gemini's OpenAI-compat endpoint emits extra_content (the
             // google.thought routing marker) and tolerates its round-trip, so
             // it is the one provider that keeps emitting it outbound
-            // (wayland-core#120). Every other provider strips it (default).
+            // (genesis-core#120). Every other provider strips it (default).
             emit_tool_call_extra_content: Some(true),
             // Q2-2026 Gemini 2.5 Pro list price (per Google AI Studio pricing page).
             // Free tier exists for low volume; the paid tier price is
@@ -903,7 +903,7 @@ impl ProviderCompat {
 
     /// Whether to re-serialize internal `extra_content` onto outbound
     /// `tool_calls`. Defaults to `false` (strip): only Google/Gemini opts in.
-    /// See [`ProviderCompat::emit_tool_call_extra_content`] (wayland-core#120).
+    /// See [`ProviderCompat::emit_tool_call_extra_content`] (genesis-core#120).
     pub fn emit_tool_call_extra_content(&self) -> bool {
         self.emit_tool_call_extra_content.unwrap_or(false)
     }

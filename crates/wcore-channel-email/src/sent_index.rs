@@ -6,7 +6,7 @@
 //! when it echoes back into the monitored mailbox (self-send, forwarding
 //! rules, shared inbox). An echoed message is marked `is_self` so the
 //! dispatch kernel's loop guard drops it instead of triggering a new agent
-//! turn — the wayland#547 unbounded self-reply loop.
+//! turn — the genesis#547 unbounded self-reply loop.
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex as StdMutex};

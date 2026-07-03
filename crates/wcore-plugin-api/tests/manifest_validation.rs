@@ -7,15 +7,15 @@ use wcore_plugin_api::manifest::PluginManifest;
 fn manifest_round_trip_minimal() {
     let toml = r#"
 [plugin]
-name = "wayland-test"
+name = "genesis-test"
 version = "0.1.0"
 description = "A test plugin"
-entry = "builtin:wayland_test"
+entry = "builtin:genesis_test"
 authors = ["test"]
 license = "MIT"
 "#;
     let m = PluginManifest::from_toml_str(toml).expect("parse minimal manifest");
-    assert_eq!(m.plugin.name, "wayland-test");
+    assert_eq!(m.plugin.name, "genesis-test");
     assert_eq!(m.plugin.version, "0.1.0");
     // permissions default to all-false:
     assert!(!m.permissions.register_tools);
@@ -31,7 +31,7 @@ license = "MIT"
 fn manifest_full_ijfw_shape() {
     let toml = r#"
 [plugin]
-name = "wayland-ijfw"
+name = "genesis-ijfw"
 version = "1.3.1"
 description = "IJFW unified cross-tool memory + workflows"
 entry = "builtin:wcore_ijfw"
@@ -78,7 +78,7 @@ optional = ["streaming_tools", "hitl_suspend"]
 fn manifest_rejects_register_tools_without_namespace() {
     let toml = r#"
 [plugin]
-name = "wayland-no-ns"
+name = "genesis-no-ns"
 version = "0.1.0"
 description = "missing namespace"
 entry = "builtin:bad"
@@ -99,7 +99,7 @@ register_tools = true
 fn manifest_rejects_invalid_partition_value() {
     let toml = r#"
 [plugin]
-name = "wayland-bad-p"
+name = "genesis-bad-p"
 version = "0.1.0"
 description = "bad partition"
 entry = "builtin:bad"
@@ -117,7 +117,7 @@ memory_partitions_readable = ["PX"]
 fn manifest_rejects_p5_writable() {
     let toml = r#"
 [plugin]
-name = "wayland-p5"
+name = "genesis-p5"
 version = "0.1.0"
 description = "tries to write P5"
 entry = "builtin:bad"

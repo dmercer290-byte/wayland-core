@@ -481,7 +481,7 @@ pub struct DreamReport {
     pub episodes_decayed: u64,
     /// v0.6.4 Task 6.6c — transitive edges materialized by
     /// `kg::inference::infer_once` during the dream cycle. Additive field,
-    /// defaults to 0 when the KG is empty or `WAYLAND_KG=off`.
+    /// defaults to 0 when the KG is empty or `GENESIS_KG=off`.
     #[serde(default)]
     pub kg_edges_inferred: u64,
     pub elapsed_ms: u128,

@@ -1,5 +1,5 @@
 # Standalone (NOT a workspace member). The empty `[workspace]` table tells
-# cargo this is its own root, so it won't be inherited into the main Wayland
+# cargo this is its own root, so it won't be inherited into the main Genesis
 # workspace. Build it from this directory: `cargo build --release`.
 [workspace]
 
@@ -7,7 +7,7 @@
 name = "mcp-server-time"
 version = "0.1.0"
 edition = "2021"
-description = "Tiny demo MCP server that exposes a `get_time` tool over JSON-RPC stdio. Used by the Wayland mcp-bridge example plugin."
+description = "Tiny demo MCP server that exposes a `get_time` tool over JSON-RPC stdio. Used by the Genesis mcp-bridge example plugin."
 license = "MIT"
 publish = false
 

@@ -3,7 +3,7 @@ name = "wcore-channels"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Channel runtime — trait + lifecycle for chat platform adapters in Wayland-Core"
+description = "Channel runtime — trait + lifecycle for chat platform adapters in Genesis-Core"
 
 [dependencies]
 async-trait = { workspace = true }

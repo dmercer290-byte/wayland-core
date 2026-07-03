@@ -3,7 +3,7 @@ name = "wcore-channel-discord"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Discord channel adapter for Wayland-Core — REST (outbound) + Gateway WebSocket (inbound)"
+description = "Discord channel adapter for Genesis-Core — REST (outbound) + Gateway WebSocket (inbound)"
 
 [dependencies]
 async-trait = { workspace = true }

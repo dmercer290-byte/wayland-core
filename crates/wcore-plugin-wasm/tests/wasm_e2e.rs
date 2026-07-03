@@ -6,7 +6,7 @@
 //! component, invokes the `tool.execute` export, and gets a response
 //! back through the host imports) requires either:
 //!   1. A `cargo-component` build step in CI (Task 4.4's plan).
-//!   2. A hand-written WAT component that imports `wayland:host/host` —
+//!   2. A hand-written WAT component that imports `genesis:host/host` —
 //!      WAT component-model syntax is large and brittle to author inline.
 //!
 //! For Task 2.7 we ship the **PLACEHOLDER** path per the task brief: a

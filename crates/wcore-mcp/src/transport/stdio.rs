@@ -17,7 +17,7 @@ use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 /// Env vars forwarded to MCP stdio children after `env_clear()`.
 ///
 /// Everything else — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-/// `WAYLAND_VAULT_PASSPHRASE`, `AWS_SECRET_ACCESS_KEY`, etc. — is withheld.
+/// `GENESIS_VAULT_PASSPHRASE`, `AWS_SECRET_ACCESS_KEY`, etc. — is withheld.
 /// Per-server `env` entries from `mcp-servers.toml` are layered on top by
 /// `spawn_with_timeout` after this allowlist, so operators can explicitly
 /// forward additional variables when required. Mirrors the pattern in
@@ -36,14 +36,14 @@ const FORWARDED_ENV_VARS: &[&str] = &[
     "LC_NUMERIC",
     "LC_TIME",
     "TMPDIR", // macOS: per-user temp dir used by many npm CLIs
-    // C3: the isolated-profile home. A wayland-aware MCP child (e.g. the IJFW
+    // C3: the isolated-profile home. A genesis-aware MCP child (e.g. the IJFW
     // memory server) must resolve the SAME profile as the parent — without this
-    // it falls back to the default ~/.wayland (cross-profile leak). Non-secret
-    // path; the vault passphrase (WAYLAND_VAULT_*) is never forwarded. This is
-    // distinct from the WAYLAND_PROFILE_HOME contract below (a resolved path for
-    // plugins that read it); WAYLAND_HOME drives the child's own
-    // wayland_config_dir() resolution.
-    "WAYLAND_HOME",
+    // it falls back to the default ~/.genesis (cross-profile leak). Non-secret
+    // path; the vault passphrase (GENESIS_VAULT_*) is never forwarded. This is
+    // distinct from the GENESIS_PROFILE_HOME contract below (a resolved path for
+    // plugins that read it); GENESIS_HOME drives the child's own
+    // genesis_config_dir() resolution.
+    "GENESIS_HOME",
     // Windows essentials. Without these, cmd.exe / powershell.exe / .NET-based
     // MCP servers fail to initialise on Windows and the spawned child dies in
     // ~15ms before the first JSON-RPC request reaches it — diagnosed via
@@ -204,7 +204,7 @@ fn windows_cmd_quote(arg: &str) -> String {
 /// resolves it against PATH/PATHEXT itself (`node` → `node.exe`/`node.cmd`).
 /// Running it through [`windows_cmd_quote`] produced `^"node^"`, which cmd read
 /// as a literal-quoted name and failed to resolve, so the MCP server never
-/// started (wayland#164). A bare name passes through unchanged; a name with
+/// started (genesis#164). A bare name passes through unchanged; a name with
 /// whitespace OR any cmd metacharacter is wrapped in the plain double quotes
 /// `cmd /C` expects for the executable token (no caret-escaping). Pure +
 /// platform-independent so it is unit-testable on any host.
@@ -318,7 +318,7 @@ mod cmd_quote_tests {
         assert_eq!(out, "^\"a\\\\^\"");
     }
 
-    // wayland#164: a PROGRAM name (vs an argument) must not be caret-escaped —
+    // genesis#164: a PROGRAM name (vs an argument) must not be caret-escaped —
     // cmd resolves it via PATH/PATHEXT. These pin the regression where
     // `node` was turned into `^"node^"` and failed to launch.
     use super::windows_program_token;
@@ -426,7 +426,7 @@ impl StdioTransport {
             c
         } else {
             let mut parts = Vec::with_capacity(1 + args.len());
-            // wayland#164: the PROGRAM name must not go through `shell_quote`
+            // genesis#164: the PROGRAM name must not go through `shell_quote`
             // on Windows — that caret-escapes it to `^"node^"`, which cmd reads
             // as a literal-quoted name and fails to resolve. cmd resolves the
             // executable token against PATH/PATHEXT itself; only the ARGS need
@@ -463,16 +463,16 @@ impl StdioTransport {
                 cmd.env(var, val);
             }
         }
-        // Profile-home handshake: expose the canonical `~/.wayland` profile root
-        // (honouring `WAYLAND_HOME`) so plugin MCP servers route their state to
+        // Profile-home handshake: expose the canonical `~/.genesis` profile root
+        // (honouring `GENESIS_HOME`) so plugin MCP servers route their state to
         // the same directory the host and the plugin installer agree on. The host
-        // contract is the vendor-neutral `WAYLAND_PROFILE_HOME`; a plugin whose
+        // contract is the vendor-neutral `GENESIS_PROFILE_HOME`; a plugin whose
         // server reads a differently-named var maps it on its own side (the host
         // must not bake in any one plugin's variable name). Set after the
         // allowlist but before per-server `env`, so an explicit operator override
         // in mcp-servers.toml still wins.
         if let Some(home) = wcore_config::config::profile_home().to_str() {
-            cmd.env("WAYLAND_PROFILE_HOME", home);
+            cmd.env("GENESIS_PROFILE_HOME", home);
         }
         // Per-server env entries from mcp-servers.toml layered last.
         cmd.envs(env);
@@ -1190,15 +1190,15 @@ mod tests {
             "LANG must be in the allowlist"
         );
         assert!(
-            FORWARDED_ENV_VARS.contains(&"WAYLAND_HOME"),
-            "WAYLAND_HOME must be forwarded for C3 profile propagation"
+            FORWARDED_ENV_VARS.contains(&"GENESIS_HOME"),
+            "GENESIS_HOME must be forwarded for C3 profile propagation"
         );
 
         // Sensitive vars must NOT appear in the allowlist.
         let sensitive = [
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
-            "WAYLAND_VAULT_PASSPHRASE",
+            "GENESIS_VAULT_PASSPHRASE",
             "AWS_SECRET_ACCESS_KEY",
         ];
         for var in sensitive {
@@ -1235,7 +1235,7 @@ mod tests {
         }
         // Simulate per-server env entry.
         cmd.env("MCP_EXPLICIT_VAR", "explicit_value");
-        // Do NOT forward "WAYLAND_TEST_SECRET_CANARY" — it must not appear.
+        // Do NOT forward "GENESIS_TEST_SECRET_CANARY" — it must not appear.
         // (We don't set it in the parent process env here to avoid the
         //  multi-thread set_var unsafety; we simply assert the child doesn't
         //  have an entry we never added.)
@@ -1259,7 +1259,7 @@ mod tests {
         assert!(buf.contains("PATH="), "PATH missing from child env: {buf}");
         // Secret canary must NOT be present — we never added it.
         assert!(
-            !buf.contains("WAYLAND_TEST_SECRET_CANARY"),
+            !buf.contains("GENESIS_TEST_SECRET_CANARY"),
             "canary appeared unexpectedly: {buf}"
         );
     }
@@ -1267,29 +1267,29 @@ mod tests {
     /// B1 — the profile-home handshake reaches the spawned MCP child.
     ///
     /// Drives the real `StdioTransport::spawn` path against a tiny sh "server"
-    /// that writes `$WAYLAND_PROFILE_HOME` and a marker carrying any
-    /// `$IJFW_WAYLAND_PROFILE_HOME` to a file on its first stdin line. We pin
-    /// `WAYLAND_HOME` to a tempdir so the expected value is deterministic, then
+    /// that writes `$GENESIS_PROFILE_HOME` and a marker carrying any
+    /// `$IJFW_GENESIS_PROFILE_HOME` to a file on its first stdin line. We pin
+    /// `GENESIS_HOME` to a tempdir so the expected value is deterministic, then
     /// assert the child saw the vendor-neutral var (proving the injection
     /// survives `env_clear()`) AND that the host did NOT bake in any plugin's
     /// `IJFW_*` alias — the host stays vendor-neutral.
     #[tokio::test]
-    #[serial_test::serial(wayland_home_env)]
+    #[serial_test::serial(genesis_home_env)]
     async fn b1_profile_home_reaches_spawned_child() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let out_path = tmp.path().join("env-dump");
         let wh = tmp.path().join("profile-root");
 
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         unsafe {
-            std::env::set_var("WAYLAND_HOME", &wh);
+            std::env::set_var("GENESIS_HOME", &wh);
         }
 
         // Server: on the first stdin line, dump the neutral profile-home var plus
         // a bracketed marker for the (expected-absent) IJFW alias, emit one
         // JSON-RPC-shaped line so the transport's reader is satisfied, then exit.
         let script = format!(
-            "read line; printf '%s\\n[ijfw:%s]\\n' \"$WAYLAND_PROFILE_HOME\" \"$IJFW_WAYLAND_PROFILE_HOME\" > {dump}; \
+            "read line; printf '%s\\n[ijfw:%s]\\n' \"$GENESIS_PROFILE_HOME\" \"$IJFW_GENESIS_PROFILE_HOME\" > {dump}; \
              printf '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}\\n'",
             dump = out_path.display()
         );
@@ -1305,8 +1305,8 @@ mod tests {
         let _ = transport.close().await;
 
         let restore = || match &prev {
-            Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-            None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+            Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+            None => unsafe { std::env::remove_var("GENESIS_HOME") },
         };
 
         let dumped = std::fs::read_to_string(&out_path);
@@ -1318,7 +1318,7 @@ mod tests {
         assert_eq!(
             lines.next().unwrap_or_default(),
             expected,
-            "WAYLAND_PROFILE_HOME not seen by child: {dumped:?}"
+            "GENESIS_PROFILE_HOME not seen by child: {dumped:?}"
         );
         // The host must NOT set any plugin-specific alias — the marker is empty.
         assert_eq!(

@@ -1765,7 +1765,7 @@ impl TuiEngine {
             match wcore_mcp::forge_grant::request_grant(
                 &client,
                 &grant_url,
-                "Wayland Core",
+                "Genesis Core",
                 &["read", "write"],
             )
             .await

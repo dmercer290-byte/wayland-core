@@ -22,12 +22,12 @@ mod tests {
         let raw = r#"
 homeserver_url = "https://matrix.org"
 credential_handle_access_token = "matrix.prod.token"
-user_id = "@wayland-bot:matrix.org"
+user_id = "@genesis-bot:matrix.org"
 "#;
         let cfg: MatrixConfig = toml::from_str(raw).unwrap();
         assert_eq!(cfg.homeserver_url, "https://matrix.org");
         assert_eq!(cfg.credential_handle_access_token, "matrix.prod.token");
-        assert_eq!(cfg.user_id, "@wayland-bot:matrix.org");
+        assert_eq!(cfg.user_id, "@genesis-bot:matrix.org");
     }
 
     #[test]

@@ -64,7 +64,7 @@ pub fn set_config_model_swap() -> Scenario {
 
 /// GHSA-8r7g: a wire peer must NOT be able to escalate to Force. This runs the
 /// real binary WITHOUT any local-operator opt-in (no --force / no
-/// WAYLAND_ALLOW_WIRE_FORCE), sends `set_mode { mode: "force" }` over the
+/// GENESIS_ALLOW_WIRE_FORCE), sends `set_mode { mode: "force" }` over the
 /// protocol, and asserts the engine REFUSES it (rather than acking
 /// `mode updated: force`). The plain text turn still completes normally.
 pub fn set_mode_force() -> Scenario {

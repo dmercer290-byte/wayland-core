@@ -15,7 +15,7 @@
 //!
 //! ## Seam discipline (mirror of `homeassistant_tool.rs` / `spotify_tool.rs`)
 //!
-//! Wayland's engine deliberately ships **no embedded database client**
+//! Genesis's engine deliberately ships **no embedded database client**
 //! by default — Postgres client crates pull native libs (`libpq` for
 //! `postgres`, a TLS stack for `tokio-postgres`) that are heavy and
 //! platform-sensitive. So:

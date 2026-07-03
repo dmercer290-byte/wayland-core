@@ -22,7 +22,7 @@ fn golden_trace_event_w1() {
             "cost_usd": 0.0,
             "tool_calls": [],
             "hook_actions": [],
-            "source_product": "wayland-core"
+            "source_product": "genesis-core"
         }),
     };
     let got = serde_json::to_value(&event).unwrap();

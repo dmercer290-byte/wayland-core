@@ -263,7 +263,7 @@ pub struct HttpResponse {
 /// `permitted_secrets` — secret VALUES never reach the guest. Aud-13 closed
 /// the gap where these headers were silently dropped.
 #[async_trait]
-pub trait WaylandHostHttp: Send + Sync {
+pub trait GenesisHostHttp: Send + Sync {
     async fn http_request(
         &self,
         url: String,
@@ -278,7 +278,7 @@ pub trait WaylandHostHttp: Send + Sync {
 pub struct DenyHostHttp;
 
 #[async_trait]
-impl WaylandHostHttp for DenyHostHttp {
+impl GenesisHostHttp for DenyHostHttp {
     async fn http_request(
         &self,
         _url: String,
@@ -543,7 +543,7 @@ impl GatedHostHttp {
 }
 
 #[async_trait]
-impl WaylandHostHttp for GatedHostHttp {
+impl GenesisHostHttp for GatedHostHttp {
     async fn http_request(
         &self,
         url: String,

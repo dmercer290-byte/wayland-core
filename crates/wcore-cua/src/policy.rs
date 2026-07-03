@@ -69,7 +69,7 @@ pub struct CuaPolicy {
     /// Plugin id that owns this policy (composite key for the persistent
     /// seen-apps store — `(plugin_id, app_id)`). Set by the host when
     /// the policy is loaded from a `CuaToolSpec`. Defaults to a
-    /// "wayland-cua" fallback so tests need not always set it explicitly.
+    /// "genesis-cua" fallback so tests need not always set it explicitly.
     #[serde(default = "default_plugin_id")]
     pub plugin_id: String,
 
@@ -98,7 +98,7 @@ fn default_true() -> bool {
 }
 
 fn default_plugin_id() -> String {
-    "wayland-cua".to_string()
+    "genesis-cua".to_string()
 }
 
 impl Default for CuaPolicy {
@@ -139,7 +139,7 @@ impl CuaPolicy {
 
     /// Configure the on-disk path for the persistent seen-apps store.
     /// Cross-session persistence — defaults to
-    /// `dirs::data_dir()/wayland/cua/seen-apps.json`. Callers can
+    /// `dirs::data_dir()/genesis/cua/seen-apps.json`. Callers can
     /// override (tests, multi-host installations).
     pub fn with_seen_apps_path(self, path: PathBuf) -> Self {
         *self.state.seen_apps_path.lock() = Some(path);
@@ -148,13 +148,13 @@ impl CuaPolicy {
     }
 
     /// Default on-disk path for the seen-apps store, rooted under the
-    /// profile home so `WAYLAND_HOME` sandboxes it:
+    /// profile home so `GENESIS_HOME` sandboxes it:
     /// `<profile_home>/cua/seen-apps.json`.
     ///
     /// On first access a one-time, best-effort migration
     /// ([`migrate_legacy_seen_apps`]) copies the pre-isolation
-    /// `<data_dir>/wayland/cua/seen-apps.json` here — but ONLY when
-    /// `WAYLAND_HOME` is unset. Under an explicit `WAYLAND_HOME` the user
+    /// `<data_dir>/genesis/cua/seen-apps.json` here — but ONLY when
+    /// `GENESIS_HOME` is unset. Under an explicit `GENESIS_HOME` the user
     /// opted into an isolated profile and MUST NOT inherit another
     /// profile's HITL approval grants.
     ///
@@ -479,13 +479,13 @@ fn matches_combo(forbidden: &str, normalized: &str) -> bool {
 }
 
 /// One-time best-effort migration of the pre-isolation CUA seen-apps store
-/// into the `WAYLAND_HOME`-rooted location.
+/// into the `GENESIS_HOME`-rooted location.
 ///
 /// Gated, idempotent, atomic:
-///   * **Gate:** if `WAYLAND_HOME` is set, return immediately — an isolated
+///   * **Gate:** if `GENESIS_HOME` is set, return immediately — an isolated
 ///     profile must NOT inherit shared legacy approval grants;
 ///   * if `new_path` already exists → no-op;
-///   * if the legacy `<data_dir>/wayland/cua/seen-apps.json` is absent or
+///   * if the legacy `<data_dir>/genesis/cua/seen-apps.json` is absent or
 ///     resolves to `new_path` → no-op;
 ///   * otherwise copy legacy → a temp sibling, then atomic-`rename` into
 ///     place so a concurrent reader never observes a torn file.
@@ -494,14 +494,14 @@ fn matches_combo(forbidden: &str, normalized: &str) -> bool {
 /// re-prompts the user; it must never crash the engine.
 fn migrate_legacy_seen_apps(new_path: &Path) {
     // Explicit-isolation profiles never inherit shared legacy state.
-    if std::env::var_os("WAYLAND_HOME").is_some() {
+    if std::env::var_os("GENESIS_HOME").is_some() {
         return;
     }
     if new_path.exists() {
         return;
     }
     let Some(legacy) =
-        dirs::data_dir().map(|d| d.join("wayland").join("cua").join("seen-apps.json"))
+        dirs::data_dir().map(|d| d.join("genesis").join("cua").join("seen-apps.json"))
     else {
         return;
     };
@@ -543,32 +543,32 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn default_seen_apps_path_roots_under_wayland_home() {
+    fn default_seen_apps_path_roots_under_genesis_home() {
         let tmp = tempfile::tempdir().unwrap();
-        let prev = std::env::var_os("WAYLAND_HOME");
-        unsafe { std::env::set_var("WAYLAND_HOME", tmp.path()) };
+        let prev = std::env::var_os("GENESIS_HOME");
+        unsafe { std::env::set_var("GENESIS_HOME", tmp.path()) };
         let p = CuaPolicy::default_seen_apps_path();
         match prev {
-            Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-            None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+            Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+            None => unsafe { std::env::remove_var("GENESIS_HOME") },
         }
         assert_eq!(p, tmp.path().join("cua").join("seen-apps.json"));
     }
 
     #[test]
     #[serial_test::serial]
-    fn migration_skipped_when_wayland_home_set() {
-        // With WAYLAND_HOME set, migration must be an unconditional no-op
+    fn migration_skipped_when_genesis_home_set() {
+        // With GENESIS_HOME set, migration must be an unconditional no-op
         // (no inheritance of shared legacy grants) — even though new_path
         // is absent.
         let tmp = tempfile::tempdir().unwrap();
         let new_path = tmp.path().join("cua").join("seen-apps.json");
-        let prev = std::env::var_os("WAYLAND_HOME");
-        unsafe { std::env::set_var("WAYLAND_HOME", tmp.path()) };
+        let prev = std::env::var_os("GENESIS_HOME");
+        unsafe { std::env::set_var("GENESIS_HOME", tmp.path()) };
         super::migrate_legacy_seen_apps(&new_path);
         match prev {
-            Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-            None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+            Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+            None => unsafe { std::env::remove_var("GENESIS_HOME") },
         }
         assert!(!new_path.exists());
     }
@@ -576,17 +576,17 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn migration_is_idempotent_and_does_not_clobber() {
-        // WAYLAND_HOME unset (single-profile upgrade case); new_path present
+        // GENESIS_HOME unset (single-profile upgrade case); new_path present
         // → migration must be a no-op and must not overwrite existing data.
         let tmp = tempfile::tempdir().unwrap();
         let new_path = tmp.path().join("cua").join("seen-apps.json");
         std::fs::create_dir_all(new_path.parent().unwrap()).unwrap();
         std::fs::write(&new_path, br#"["existing"]"#).unwrap();
-        let prev = std::env::var_os("WAYLAND_HOME");
-        unsafe { std::env::remove_var("WAYLAND_HOME") };
+        let prev = std::env::var_os("GENESIS_HOME");
+        unsafe { std::env::remove_var("GENESIS_HOME") };
         super::migrate_legacy_seen_apps(&new_path);
         if let Some(v) = prev {
-            unsafe { std::env::set_var("WAYLAND_HOME", v) }
+            unsafe { std::env::set_var("GENESIS_HOME", v) }
         }
         assert_eq!(std::fs::read(&new_path).unwrap(), br#"["existing"]"#);
     }

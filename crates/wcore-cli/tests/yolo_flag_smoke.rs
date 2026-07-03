@@ -13,7 +13,7 @@ use std::process::Command;
 
 /// Path to the debug binary under test.
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_wayland-core")
+    env!("CARGO_BIN_EXE_genesis-core")
 }
 
 #[test]
@@ -22,7 +22,7 @@ fn help_advertises_the_force_flag_as_canonical() {
     let output = Command::new(binary())
         .arg("--help")
         .output()
-        .expect("spawn wayland-core --help");
+        .expect("spawn genesis-core --help");
     assert!(
         output.status.success(),
         "--help should exit 0; got {}",
@@ -41,7 +41,7 @@ fn help_still_advertises_the_yolo_alias() {
     let output = Command::new(binary())
         .arg("--help")
         .output()
-        .expect("spawn wayland-core --help");
+        .expect("spawn genesis-core --help");
     assert!(output.status.success());
     let help = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -56,7 +56,7 @@ fn help_advertises_the_dangerously_skip_permissions_alias() {
     let output = Command::new(binary())
         .arg("--help")
         .output()
-        .expect("spawn wayland-core --help");
+        .expect("spawn genesis-core --help");
     assert!(output.status.success());
     let help = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -72,7 +72,7 @@ fn clap_accepts_the_force_flag_without_error() {
         .arg("--force")
         .arg("--help")
         .output()
-        .expect("spawn wayland-core --force --help");
+        .expect("spawn genesis-core --force --help");
     assert!(
         output.status.success(),
         "clap must accept --force; stderr: {}",
@@ -87,7 +87,7 @@ fn clap_accepts_the_yolo_alias() {
         .arg("--yolo")
         .arg("--help")
         .output()
-        .expect("spawn wayland-core --yolo --help");
+        .expect("spawn genesis-core --yolo --help");
     assert!(
         output.status.success(),
         "clap must accept --yolo alias; stderr: {}",
@@ -102,7 +102,7 @@ fn clap_accepts_the_dangerously_skip_permissions_alias() {
         .arg("--dangerously-skip-permissions")
         .arg("--help")
         .output()
-        .expect("spawn wayland-core --dangerously-skip-permissions --help");
+        .expect("spawn genesis-core --dangerously-skip-permissions --help");
     assert!(
         output.status.success(),
         "clap must accept --dangerously-skip-permissions; stderr: {}",

@@ -1,19 +1,19 @@
-//! D.2 (v0.6.3) — canonical disable-vocabulary for `WAYLAND_*` env gates.
+//! D.2 (v0.6.3) — canonical disable-vocabulary for `GENESIS_*` env gates.
 //!
 //! Round 2 audit found the "mirror" family of opt-out env gates accepted
-//! inconsistent disable values: `WAYLAND_TRACE_RESULT_SNIPPETS` honoured
-//! `off`/`0`/`false`, while `WAYLAND_KG` and `WAYLAND_MEMORY_STALENESS`
+//! inconsistent disable values: `GENESIS_TRACE_RESULT_SNIPPETS` honoured
+//! `off`/`0`/`false`, while `GENESIS_KG` and `GENESIS_MEMORY_STALENESS`
 //! honoured only the literal `off`. An operator who learns one vocabulary
 //! reasonably expects it to work for the rest.
 //!
 //! This module is the single source of truth for the disable vocabulary so
-//! every `WAYLAND_*` opt-out gate accepts the same set. `wcore-observability`
+//! every `GENESIS_*` opt-out gate accepts the same set. `wcore-observability`
 //! is depended on by every gate-owning crate (`wcore-memory`,
 //! `wcore-agent`), so the helper is reachable everywhere a gate lives.
 
 /// Returns `true` if `value` is a recognized "disable" token: any of
 /// `off`, `0`, `false`, `no` (case-insensitive, surrounding whitespace
-/// trimmed). This is the canonical disable vocabulary for `WAYLAND_*`
+/// trimmed). This is the canonical disable vocabulary for `GENESIS_*`
 /// opt-out env gates — every gate should route through this so the vocab
 /// is uniform.
 pub fn is_disable_value(value: &str) -> bool {
@@ -29,7 +29,7 @@ pub fn is_disable_value(value: &str) -> bool {
 /// read each call so tests can flip the var at runtime.
 ///
 /// This is the canonical implementation for the "ON by default, opt out
-/// via WAYLAND_*" gate pattern.
+/// via GENESIS_*" gate pattern.
 pub fn enabled_unless_disabled(name: &str) -> bool {
     std::env::var(name)
         .map(|v| !is_disable_value(&v))
@@ -68,9 +68,9 @@ mod tests {
     fn enabled_unless_disabled_defaults_on_when_unset() {
         // SAFETY: single-threaded test, var removed before read.
         unsafe {
-            std::env::remove_var("WAYLAND_TEST_GATE_UNSET");
+            std::env::remove_var("GENESIS_TEST_GATE_UNSET");
         }
-        assert!(enabled_unless_disabled("WAYLAND_TEST_GATE_UNSET"));
+        assert!(enabled_unless_disabled("GENESIS_TEST_GATE_UNSET"));
     }
 
     #[test]
@@ -78,15 +78,15 @@ mod tests {
         for tok in ["off", "0", "false", "no", "OFF", "False"] {
             // SAFETY: single-threaded test, var set then read then removed.
             unsafe {
-                std::env::set_var("WAYLAND_TEST_GATE_OFF", tok);
+                std::env::set_var("GENESIS_TEST_GATE_OFF", tok);
             }
             assert!(
-                !enabled_unless_disabled("WAYLAND_TEST_GATE_OFF"),
+                !enabled_unless_disabled("GENESIS_TEST_GATE_OFF"),
                 "{tok} must disable the gate"
             );
         }
         unsafe {
-            std::env::remove_var("WAYLAND_TEST_GATE_OFF");
+            std::env::remove_var("GENESIS_TEST_GATE_OFF");
         }
     }
 }

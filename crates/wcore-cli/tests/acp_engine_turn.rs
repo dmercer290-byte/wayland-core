@@ -141,7 +141,7 @@ async fn a2a_on_message_routes_task_to_engine() {
     let reply = handler
         .on_message(A2aMessage {
             from: "peer".to_string(),
-            to: "wayland-core".to_string(),
+            to: "genesis-core".to_string(),
             text: "ping".to_string(),
             attachments: vec![],
             correlation_id: Some("corr-1".to_string()),

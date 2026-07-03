@@ -172,7 +172,7 @@ pub trait OutputSink: Send + Sync {
 
     /// #537/#141: emit `host_send_message_request` — an APPROVED
     /// `send_message` tool call running host-delegated
-    /// (`WAYLAND_SEND_MESSAGE_HOST_DELEGATE=1`) asks the host to perform
+    /// (`GENESIS_SEND_MESSAGE_HOST_DELEGATE=1`) asks the host to perform
     /// the actual delivery; the host replies with the
     /// `host_send_message_result` command, correlated by `call_id`.
     /// Always-on additive event (no capability flag) per the W0

@@ -9,7 +9,7 @@
 //! cron's `channel_sink`; this adapter exposes that same manager to the
 //! send-message tool so the LLM can drive Telegram/Discord/Slack/etc.
 //! through the same channel instances the user configured at
-//! `~/.wayland/channels/*.toml`.
+//! `~/.genesis/channels/*.toml`.
 //!
 //! Mapping convention: `ParsedTarget::platform` (one of the
 //! `MessagingPlatform` enum's `as_str()` values: "telegram", "discord",

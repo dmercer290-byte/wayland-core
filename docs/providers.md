@@ -161,9 +161,9 @@ mcp_servers = ["filesystem", "github"]
 ### Usage
 
 ```bash
-wayland-core --profile claude-fast "Quick question"
-wayland-core --profile claude-deep "Deep security audit"
-wayland-core --profile dev "Create a GitHub issue"
+genesis-core --profile claude-fast "Quick question"
+genesis-core --profile claude-deep "Deep security audit"
+genesis-core --profile dev "Create a GitHub issue"
 ```
 
 - Supports multi-level inheritance chains
@@ -250,7 +250,7 @@ model = "claude-sonnet-4-6@20251015"
 
 ## Ollama (local inference, W8a)
 
-Ollama is shipped as a plugin (`wayland-ollama`) rather than as a
+Ollama is shipped as a plugin (`genesis-ollama`) rather than as a
 built-in provider. The plugin registers an `LlmProvider`
 implementation through `wcore-plugin-api::register_providers`; the
 engine downcasts to a real provider via the existing
@@ -259,21 +259,21 @@ engine downcasts to a real provider via the existing
 ### Selection
 
 ```bash
-wayland-core --model ollama:llama-4
-wayland-core --model ollama:qwen3-coder
+genesis-core --model ollama:llama-4
+genesis-core --model ollama:qwen3-coder
 ```
 
-The `ollama:` prefix routes through the wayland-ollama plugin. The
+The `ollama:` prefix routes through the genesis-ollama plugin. The
 suffix is the model name as known to your local Ollama daemon. The
 plugin contacts `http://localhost:11434` by default; override via
 the standard `OLLAMA_HOST` environment variable.
 
 ### Requirements
 
-- The `wayland-ollama` plugin must be enabled in `plugins.toml`
+- The `genesis-ollama` plugin must be enabled in `plugins.toml`
   (default: enabled). Disable via:
   ```toml
-  [plugins.wayland-ollama]
+  [plugins.genesis-ollama]
   enabled = false
   ```
 - A running Ollama daemon and a pulled model. See
@@ -282,7 +282,7 @@ the standard `OLLAMA_HOST` environment variable.
 ### Capability flag
 
 `capabilities.plugins` flips to `true` whenever any plugin (including
-wayland-ollama) is loaded — see W8c.3 H.2 plugin-aware capability
+genesis-ollama) is loaded — see W8c.3 H.2 plugin-aware capability
 advertising in `crates/wcore-agent/src/output/protocol_sink.rs`.
 
 ---
@@ -298,7 +298,7 @@ out," never to a broken engine.
 ### Logging in
 
 ```bash
-wayland-core auth login chatgpt
+genesis-core auth login chatgpt
 ```
 
 This opens your browser to OpenAI's sign-in page (a loopback PKCE flow on
@@ -306,7 +306,7 @@ This opens your browser to OpenAI's sign-in page (a loopback PKCE flow on
 written **encrypted** to:
 
 ```
-~/.wayland/oauth/chatgpt.json     # dir mode 0700, file mode 0600 on Unix
+~/.genesis/oauth/chatgpt.json     # dir mode 0700, file mode 0600 on Unix
 ```
 
 The stored access token is a JWT; your `chatgpt_account_id` is read from it (no
@@ -324,7 +324,7 @@ survives across sessions without re-authenticating.
 Select the provider and a Codex model:
 
 ```bash
-wayland-core --provider openai-chatgpt --model gpt-5.5 "explain this repo"
+genesis-core --provider openai-chatgpt --model gpt-5.5 "explain this repo"
 ```
 
 `chatgpt` is accepted as an alias for `openai-chatgpt`. The default model is
@@ -345,8 +345,8 @@ OpenAI API model names.
 ### Status and logout
 
 ```bash
-wayland-core auth status          # signed in (plan: pro), expires in N min — or "not signed in"
-wayland-core auth logout chatgpt  # clears the in-memory cache + on-disk token + any tmp orphan
+genesis-core auth status          # signed in (plan: pro), expires in N min — or "not signed in"
+genesis-core auth logout chatgpt  # clears the in-memory cache + on-disk token + any tmp orphan
 ```
 
 ### Importing a Codex CLI login
@@ -355,13 +355,13 @@ If you already signed in with OpenAI's Codex CLI, import its tokens instead of
 re-running the browser flow:
 
 ```bash
-wayland-core auth login chatgpt --import-codex
+genesis-core auth login chatgpt --import-codex
 ```
 
 This reads `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`), validates the
 file's ownership/permissions, decodes the account id, and stores the tokens
-under `~/.wayland/oauth/chatgpt.json`. `wayland-core auth status` also attempts a
-one-shot import when no wayland token exists yet.
+under `~/.genesis/oauth/chatgpt.json`. `genesis-core auth status` also attempts a
+one-shot import when no genesis token exists yet.
 
 ### Fallback
 
@@ -369,7 +369,7 @@ If anything about subscription auth stops working, switch back to an API key at
 any time:
 
 ```bash
-wayland-core --provider openai --model gpt-4o "..."   # always-works fallback
+genesis-core --provider openai --model gpt-4o "..."   # always-works fallback
 ```
 
 ### A note on Terms of Service
@@ -392,7 +392,7 @@ command for it — connect one of two ways:
 **API key.** Set `XAI_API_KEY` (or `api_key` in `[providers.xai]`) and run:
 
 ```bash
-wayland-core --provider xai --model grok-4.3 "explain this repo"
+genesis-core --provider xai --model grok-4.3 "explain this repo"
 ```
 
 **OAuth refresh.** The engine refreshes xAI OAuth tokens itself, at parity with
@@ -403,14 +403,14 @@ is **fresher**:
 
 ```
 ~/.grok/auth.json            # the Grok CLI's credential file ($GROK_HOME/auth.json when set)
-~/.wayland/oauth/xai.json    # the engine's own store (written by an app or a prior refresh)
+~/.genesis/oauth/xai.json    # the engine's own store (written by an app or a prior refresh)
 ```
 
 Preferring the fresher file avoids racing the Grok CLI for the **single-use,
 rotating** refresh token (xAI rotates it on every refresh). Access tokens last
 ~6h. When OAuth credentials are present, the `xai` API-key gate is exempt, so no
 `XAI_API_KEY` is needed. The OAuth client id is pinned but overridable at runtime
-via `WAYLAND_XAI_OAUTH_CLIENT_ID` (no rebuild). Evidence:
+via `GENESIS_XAI_OAUTH_CLIENT_ID` (no rebuild). Evidence:
 `crates/wcore-agent/src/oauth/xai.rs`, `crates/wcore-config/src/config.rs`
 (`xai_oauth_credentials_present`).
 
@@ -429,16 +429,16 @@ Bedrock and Vertex IDs are long (`anthropic.claude-sonnet-4-6-20251015-v1:0`,
 provider request is built.
 
 ```bash
-wayland-core --model bedrock:sonnet     # ⇒ anthropic.claude-sonnet-4-6-20251015-v1:0
-wayland-core --model bedrock:opus       # ⇒ anthropic.claude-opus-4-6-20251015-v1:0
-wayland-core --model bedrock:haiku      # ⇒ anthropic.claude-haiku-4-5-20251001-v1:0
-wayland-core --model vertex:sonnet      # ⇒ claude-sonnet-4-6@20251015
-wayland-core --model vertex:opus        # ⇒ claude-opus-4-6@20251015
-wayland-core --model vertex:haiku       # ⇒ claude-haiku-4-5@20251001
-wayland-core --model vertex:gemini-pro  # ⇒ gemini-2.5-pro
-wayland-core --model vertex:gemini-flash # ⇒ gemini-2.5-flash
-wayland-core --model anthropic:sonnet   # ⇒ claude-sonnet-4-6
-wayland-core --model openai:gpt-4o      # ⇒ gpt-4o
+genesis-core --model bedrock:sonnet     # ⇒ anthropic.claude-sonnet-4-6-20251015-v1:0
+genesis-core --model bedrock:opus       # ⇒ anthropic.claude-opus-4-6-20251015-v1:0
+genesis-core --model bedrock:haiku      # ⇒ anthropic.claude-haiku-4-5-20251001-v1:0
+genesis-core --model vertex:sonnet      # ⇒ claude-sonnet-4-6@20251015
+genesis-core --model vertex:opus        # ⇒ claude-opus-4-6@20251015
+genesis-core --model vertex:haiku       # ⇒ claude-haiku-4-5@20251001
+genesis-core --model vertex:gemini-pro  # ⇒ gemini-2.5-pro
+genesis-core --model vertex:gemini-flash # ⇒ gemini-2.5-flash
+genesis-core --model anthropic:sonnet   # ⇒ claude-sonnet-4-6
+genesis-core --model openai:gpt-4o      # ⇒ gpt-4o
 ```
 
 Strings that don't match a known `<provider>:<role>` pair flow through

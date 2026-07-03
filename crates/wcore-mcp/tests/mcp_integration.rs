@@ -240,7 +240,7 @@ async fn handshake_init_transport_error_propagates() {
         "broken".to_string(),
         wcore_mcp::config::McpServerConfig {
             transport: wcore_mcp::config::TransportType::Stdio,
-            command: Some("/usr/bin/this-binary-does-not-exist-wayland-test".to_string()),
+            command: Some("/usr/bin/this-binary-does-not-exist-genesis-test".to_string()),
             args: None,
             env: None,
             url: None,

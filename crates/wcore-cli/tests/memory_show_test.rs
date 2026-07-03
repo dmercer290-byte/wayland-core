@@ -69,7 +69,7 @@ async fn memory_show_renders_project_procedures_and_session() {
     let session = "test-session-m3-4";
     let (project, memory_root) = fixture_with_session_data(session).await;
 
-    let bin = env!("CARGO_BIN_EXE_wayland-core");
+    let bin = env!("CARGO_BIN_EXE_genesis-core");
     let out = std::process::Command::new(bin)
         .args(["--memory-show", session])
         .current_dir(project.path())
@@ -109,7 +109,7 @@ async fn memory_show_unknown_session_succeeds_with_session_echo() {
     let memory_root = TempDir::new().unwrap();
     fs::create_dir(project.path().join(".git")).unwrap();
 
-    let bin = env!("CARGO_BIN_EXE_wayland-core");
+    let bin = env!("CARGO_BIN_EXE_genesis-core");
     let out = std::process::Command::new(bin)
         .args(["--memory-show", "no-such-session"])
         .current_dir(project.path())

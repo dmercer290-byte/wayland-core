@@ -2,14 +2,14 @@
 //!
 //! Plan: `.planning/2026-06-04-e2e-and-wiring-masterplan.md`.
 //!
-//! This drives the REAL `wayland-core` binary against the real DeepSeek
+//! This drives the REAL `genesis-core` binary against the real DeepSeek
 //! provider across every persona journey in [`wcore_eval_scenarios::personas`]
 //! and writes a markdown report of the outcomes. It is `#[ignore]`'d so the
 //! normal `cargo test` / CI floor never spends money or needs the network — it
 //! only runs when invoked explicitly, mirroring the eval-gate pattern:
 //!
 //! ```text
-//! WAYLAND_ALLOW_NO_SANDBOX=1 DEEPSEEK_API_KEY=... \
+//! GENESIS_ALLOW_NO_SANDBOX=1 DEEPSEEK_API_KEY=... \
 //!   cargo nextest run -p wcore-eval-scenarios --test live_personas --run-ignored all
 //! ```
 //!
@@ -28,7 +28,7 @@ use wcore_eval_scenarios::{
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "live: drives the real wayland-core binary against the real DeepSeek API (costs money, needs DEEPSEEK_API_KEY + a pre-built binary)"]
+#[ignore = "live: drives the real genesis-core binary against the real DeepSeek API (costs money, needs DEEPSEEK_API_KEY + a pre-built binary)"]
 async fn overnight_personas() {
     // 1. No key → skip cleanly (not a failure). Overnight harness should be a
     //    no-op on machines without credentials rather than a red test.
@@ -41,12 +41,12 @@ async fn overnight_personas() {
     }
 
     // 2. Resolve the binary. discover_binary() honours WCORE_EVAL_BIN and walks
-    //    target/{release,debug}/wayland-core. Require it — a live run with no
+    //    target/{release,debug}/genesis-core. Require it — a live run with no
     //    binary is operator error, so panic with an actionable message.
     let bin = match discover_binary() {
         Ok(p) => p,
         Err(e) => panic!(
-            "wayland-core binary not found ({e}). \
+            "genesis-core binary not found ({e}). \
              Pre-build it with `cargo build -p wcore-cli` (or set WCORE_EVAL_BIN)."
         ),
     };

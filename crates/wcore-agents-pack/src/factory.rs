@@ -1,7 +1,7 @@
 //! v0.7.0 Task 3.B.1: user-driven agent factory.
 //!
 //! Builds an `AgentManifest` from declarative inputs and persists it to
-//! `~/.wayland/agents/<name>.toml`. The CLI in 3.B.2 and the interactive
+//! `~/.genesis/agents/<name>.toml`. The CLI in 3.B.2 and the interactive
 //! slash command in 3.B.3 both call into here so persistence semantics
 //! stay in one place.
 
@@ -108,10 +108,10 @@ pub fn build(input: &FactoryInput) -> Result<AgentManifest, FactoryError> {
     })
 }
 
-/// Resolve the user-agent directory (`~/.wayland/agents/`).
+/// Resolve the user-agent directory (`~/.genesis/agents/`).
 pub fn user_agent_dir() -> Result<PathBuf, FactoryError> {
     dirs::home_dir()
-        .map(|h| h.join(".wayland").join("agents"))
+        .map(|h| h.join(".genesis").join("agents"))
         .ok_or(FactoryError::NoHomeDir)
 }
 

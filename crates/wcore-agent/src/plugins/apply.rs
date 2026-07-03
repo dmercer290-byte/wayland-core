@@ -52,7 +52,7 @@
 //! taken-out registrar is replaced with a fresh empty one and the runner
 //! stays well-formed.
 
-use wayland_honcho::{HonchoClient, HonchoError};
+use genesis_honcho::{HonchoClient, HonchoError};
 use wcore_plugin_api::{AgentManifest, BundledSkillSpec, McpServerSpec, PluginError, RuleSpec};
 
 use crate::agents::registry::AgentRegistry;
@@ -63,7 +63,7 @@ use crate::plugins::runner::{CapturedUserModel, InitializeOutcome, PluginHook, R
 /// v0.6.5 Task 1.5 — a host-owned, live user-model backend client paired
 /// with its originating plugin name for diagnostics.
 ///
-/// `client` is the reified backend (today: `wayland_honcho::HonchoClient`).
+/// `client` is the reified backend (today: `genesis_honcho::HonchoClient`).
 /// The variant is open to future backends via the `backend` enum
 /// discriminant; v0.6.5 ships only `Honcho`.
 pub struct ReifiedUserModel {
@@ -79,7 +79,7 @@ pub struct ReifiedUserModel {
 /// reifies; adding a backend is a forward-compatible enum extension and
 /// requires no surface change to `AppliedPluginCapabilities`.
 pub enum ReifiedUserModelBackend {
-    /// A live `wayland_honcho::HonchoClient`. Constructed from the spec's
+    /// A live `genesis_honcho::HonchoClient`. Constructed from the spec's
     /// `base_url` and `api_key_env` fields via `HonchoClient::from_spec`.
     Honcho(HonchoClient),
 }
@@ -228,7 +228,7 @@ pub fn apply_initialize_outcome(
 }
 
 /// v0.6.5 Task 1.5 — reify each `CapturedUserModel` into a live backend
-/// client (today: `wayland_honcho::HonchoClient::from_spec`).
+/// client (today: `genesis_honcho::HonchoClient::from_spec`).
 ///
 /// Dispatch:
 /// - `spec.backend == "honcho"` → construct via

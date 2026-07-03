@@ -39,7 +39,7 @@ use wcore_sandbox::{SandboxCommand, SandboxManifest};
 
 #[tokio::test(flavor = "current_thread")]
 async fn live_lsa_dependent_tool_fails_under_hardened_sandbox() {
-    if std::env::var("WAYLAND_SANDBOX_LIVE_WINDOWS").is_err() {
+    if std::env::var("GENESIS_SANDBOX_LIVE_WINDOWS").is_err() {
         return;
     }
 
@@ -89,7 +89,7 @@ async fn live_lsa_dependent_tool_fails_under_hardened_sandbox() {
 /// LSA, loose enough to run a shell builtin."
 #[tokio::test(flavor = "current_thread")]
 async fn live_cmd_builtin_runs_under_hardened_sandbox() {
-    if std::env::var("WAYLAND_SANDBOX_LIVE_WINDOWS").is_err() {
+    if std::env::var("GENESIS_SANDBOX_LIVE_WINDOWS").is_err() {
         return;
     }
 
@@ -131,7 +131,7 @@ async fn live_cmd_builtin_runs_under_hardened_sandbox() {
 /// non-existent path alongside a real one.
 #[tokio::test(flavor = "current_thread")]
 async fn live_cmd_runs_when_allowlist_has_missing_path() {
-    if std::env::var("WAYLAND_SANDBOX_LIVE_WINDOWS").is_err() {
+    if std::env::var("GENESIS_SANDBOX_LIVE_WINDOWS").is_err() {
         return;
     }
 
@@ -182,7 +182,7 @@ async fn live_cmd_runs_when_allowlist_has_missing_path() {
 /// hangs far past the timeout (the 120s "command timed out, no output" symptom).
 #[tokio::test(flavor = "current_thread")]
 async fn live_runaway_command_is_bounded_by_timeout() {
-    if std::env::var("WAYLAND_SANDBOX_LIVE_WINDOWS").is_err() {
+    if std::env::var("GENESIS_SANDBOX_LIVE_WINDOWS").is_err() {
         return;
     }
 

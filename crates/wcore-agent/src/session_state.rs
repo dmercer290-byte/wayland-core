@@ -1,5 +1,5 @@
-//! v0.9.0 Wave-1 B7 — live engine state accessor for `wayland_status` +
-//! `wayland_telemetry_query`.
+//! v0.9.0 Wave-1 B7 — live engine state accessor for `genesis_status` +
+//! `genesis_telemetry_query`.
 //!
 //! The introspection backend is purely in-process: it reads counters,
 //! tool-call histograms, recent errors, and provider-health flags that
@@ -38,7 +38,7 @@ use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-/// A single error captured by the engine for `wayland_status` recent-error
+/// A single error captured by the engine for `genesis_status` recent-error
 /// reporting. Kept intentionally minimal — the introspection tool only
 /// surfaces "what went wrong recently?" not a full structured error.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,14 +82,14 @@ pub trait SessionStateReader: Send + Sync + 'static {
     fn provider_health(&self) -> HashMap<String, ProviderHealth>;
     /// Active model identifier (e.g. `"claude-opus-4-5"`).
     fn active_model(&self) -> String;
-    /// When the current session started (used by `wayland_status` to
+    /// When the current session started (used by `genesis_status` to
     /// report `session_duration_secs`).
     fn session_started_at(&self) -> DateTime<Utc>;
 }
 
 /// Cap on the number of recent errors retained in memory. The TUI
 /// status bar only ever asks for the last ~3-5; we keep more so
-/// `wayland_telemetry_query` can ask for larger windows without
+/// `genesis_telemetry_query` can ask for larger windows without
 /// the engine having to back-fill.
 const RECENT_ERRORS_CAP: usize = 64;
 

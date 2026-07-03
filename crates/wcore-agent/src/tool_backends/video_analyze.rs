@@ -4,12 +4,12 @@
 //!
 //! No vendor exposes a viable "send-a-video, get-a-summary" REST API at
 //! a price point compatible with a free default. The predecessor did not
-//! ship `video_analyze` at all. The Wayland strategy is a three-step pipeline:
+//! ship `video_analyze` at all. The Genesis strategy is a three-step pipeline:
 //!
 //! 1. Validate the input path under a strict whitelist (closes S-H5).
 //! 2. Extract N evenly-spaced frames via local `ffmpeg` into a
 //!    `tempfile::tempdir()` (closes symlink TOCTOU; closes the predictable-
-//!    path attacker leakage that an open `/tmp/wayland-vid-<uuid>-frame-…`
+//!    path attacker leakage that an open `/tmp/genesis-vid-<uuid>-frame-…`
 //!    layout enabled).
 //! 3. Call the host-wired `VisionBackend` (Anthropic / OpenAI / Gemini per
 //!    the existing v0.8.6 resolver) once per frame, then synthesize the N
@@ -109,7 +109,7 @@ pub async fn check_ffmpeg_available() -> bool {
 ///     argv.
 ///   * Canonicalizes the path and verifies the realpath lives under
 ///     one of the permitted prefixes (`/tmp/`, `~/Downloads/`, or
-///     `~/.wayland/videos/`). The verify-after-canonicalize order is
+///     `~/.genesis/videos/`). The verify-after-canonicalize order is
 ///     the TOCTOU defense: a symlink that swaps target between check
 ///     and use cannot smuggle the realpath out of the whitelist.
 pub fn validate_local_path(raw: &Path) -> Result<PathBuf, String> {
@@ -156,15 +156,15 @@ pub fn validate_local_path(raw: &Path) -> Result<PathBuf, String> {
         if let Ok(p) = std::fs::canonicalize(&downloads) {
             allowed.push(p);
         }
-        let wayland = home.join(".wayland").join("videos");
-        if let Ok(p) = std::fs::canonicalize(&wayland) {
+        let genesis = home.join(".genesis").join("videos");
+        if let Ok(p) = std::fs::canonicalize(&genesis) {
             allowed.push(p);
         }
     }
 
     if !allowed.iter().any(|p| canonical.starts_with(p)) {
         return Err(format!(
-            "video path is outside permitted prefixes (/tmp/, ~/Downloads/, ~/.wayland/videos/): {}",
+            "video path is outside permitted prefixes (/tmp/, ~/Downloads/, ~/.genesis/videos/): {}",
             canonical.display()
         ));
     }
@@ -193,7 +193,7 @@ pub fn validate_local_path(raw: &Path) -> Result<PathBuf, String> {
 ///     mid-stream abort, so a lying / chunked response cannot OOM or
 ///     disk-fill the host.
 ///
-/// The tempfile is created under `~/.wayland/videos/` — one of the three
+/// The tempfile is created under `~/.genesis/videos/` — one of the three
 /// prefixes [`validate_local_path`] whitelists — so the returned path passes
 /// the prefix check when handed back to the local analysis path. (Using the
 /// OS default temp dir would fail that check on macOS, where `$TMPDIR` lives
@@ -236,12 +236,12 @@ async fn download_remote_video(url: &str) -> Result<tempfile::NamedTempFile, Vid
         .await
         .map_err(|e| VideoAnalysisError::Other(format!("remote video body read: {e}")))?;
 
-    // Write into `~/.wayland/videos/` — one of the three prefixes
+    // Write into `~/.genesis/videos/` — one of the three prefixes
     // `validate_local_path` whitelists, and cross-platform (no hardcoded
     // `/tmp`). The tempfile's random name still defeats the predictable-
     // path symlink-TOCTOU surface, and its `Drop` deletes the file.
     let videos_dir = dirs::home_dir()
-        .map(|h| h.join(".wayland").join("videos"))
+        .map(|h| h.join(".genesis").join("videos"))
         .ok_or_else(|| {
             VideoAnalysisError::Other("could not resolve home dir for video tempfile".to_string())
         })?;
@@ -249,7 +249,7 @@ async fn download_remote_video(url: &str) -> Result<tempfile::NamedTempFile, Vid
         VideoAnalysisError::Other(format!("could not create video staging dir: {e}"))
     })?;
     let mut tmp = tempfile::Builder::new()
-        .prefix("wayland-vid-")
+        .prefix("genesis-vid-")
         .suffix(".mp4")
         .tempfile_in(&videos_dir)
         .map_err(|e| VideoAnalysisError::Other(format!("could not create video tempfile: {e}")))?;
@@ -312,7 +312,7 @@ impl FfmpegFrameVideoBackend {
         };
 
         // Frame extraction directory — `tempfile::tempdir()` ensures a
-        // fresh, randomized path (no predictable `/tmp/wayland-vid-<uuid>-
+        // fresh, randomized path (no predictable `/tmp/genesis-vid-<uuid>-
         // frame-%03d.jpg` symlink-TOCTOU surface) AND auto-cleanup on
         // drop. We keep the handle for the duration of the function.
         let tmpdir = tempfile::tempdir()
@@ -580,7 +580,7 @@ mod tests {
     #[test]
     fn video_rejects_input_path_outside_permitted_prefixes() {
         // /etc/hosts exists on every UNIX dev box and lives outside the
-        // whitelist (/tmp, ~/Downloads, ~/.wayland/videos).
+        // whitelist (/tmp, ~/Downloads, ~/.genesis/videos).
         if !Path::new("/etc/hosts").exists() {
             return; // Windows / sandboxed CI — skip
         }

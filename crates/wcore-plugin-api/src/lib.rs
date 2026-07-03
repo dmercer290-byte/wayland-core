@@ -27,13 +27,13 @@ pub mod registry;
 // `wcore-memory` / `wcore-browser` deps. Host adapters translate.
 pub mod agent_manifest;
 // W8c.1 E.13 — `BrowserToolSpec` mirror of `wcore_browser::BrowserTool`
-// registration shape. Plugin shells (wayland-browser) describe their
+// registration shape. Plugin shells (genesis-browser) describe their
 // desired browser surface against this api-crate-local type; the host
 // adapter in wcore-agent translates into a concrete `BrowserTool`.
 pub mod browser_spec;
 pub mod bundled_skill_spec;
 // W8c.2 F.8 — `CuaToolSpec` mirror of `wcore_cua::CuaTool` registration
-// shape. Plugin shells (wayland-cua) describe their desired CUA surface
+// shape. Plugin shells (genesis-cua) describe their desired CUA surface
 // against this api-crate-local type; the host adapter in wcore-cua
 // translates into a concrete `CuaTool`.
 pub mod cua_spec;
@@ -52,7 +52,7 @@ pub mod tool;
 // v0.6.4 Task 2.1 — `UserModelSpec`: plain-data contract for
 // plugin-registered user-model backends (e.g. Honcho). The host
 // adapter in `wcore-agent` reads these fields and constructs the real
-// client. Nothing here names `wayland-honcho`.
+// client. Nothing here names `genesis-honcho`.
 pub mod user_model_spec;
 
 // Top-level re-exports for the public surface plugins will write against.

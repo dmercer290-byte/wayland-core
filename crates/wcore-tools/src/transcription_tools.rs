@@ -3,7 +3,7 @@
 //! Ported from an upstream MIT-licensed library (see THIRD-PARTY-NOTICES.md).
 //! The Python original supports four backends (faster-whisper local,
 //! Groq Whisper, OpenAI Whisper, Mistral Voxtral) with provider
-//! auto-detection from env vars. Wayland's engine deliberately ships
+//! auto-detection from env vars. Genesis's engine deliberately ships
 //! **no embedded STT model** — speech-to-text is a host concern that
 //! either binds a local model crate or a remote API client. To honor
 //! the NO-STUBS contract of T3, this port covers the **dispatch
@@ -304,7 +304,7 @@ impl TranscriptionBackend for CapturingTranscriptionBackend {
     }
 }
 
-/// `transcribe_audio` tool — Wayland engine port of
+/// `transcribe_audio` tool — Genesis engine port of
 /// `transcription_tools.py`.
 pub struct TranscribeAudioTool {
     backend: Arc<dyn TranscriptionBackend>,

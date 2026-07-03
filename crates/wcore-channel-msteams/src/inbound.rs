@@ -217,12 +217,12 @@ mod tests {
             "serviceUrl": "https://smba.trafficmanager.net/emea/",
             "timestamp": "2026-06-10T12:34:56.789Z",
             "from": { "id": "29:user-aad-id", "name": "Ada Lovelace" },
-            "recipient": { "id": "28:bot-app-id", "name": "Wayland" },
+            "recipient": { "id": "28:bot-app-id", "name": "Genesis" },
             "conversation": {
                 "id": "19:abc@thread.v2",
                 "conversationType": "personal",
                 "isGroup": false,
-                "name": "Ada / Wayland"
+                "name": "Ada / Genesis"
             }
         }"#;
 
@@ -238,7 +238,7 @@ mod tests {
         assert_eq!(msg.account_id.as_deref(), Some("28:bot-app-id"));
         assert_eq!(msg.platform.as_deref(), Some("msteams"));
         assert_eq!(msg.chat_type, ChatType::Direct);
-        assert_eq!(msg.chat_name.as_deref(), Some("Ada / Wayland"));
+        assert_eq!(msg.chat_name.as_deref(), Some("Ada / Genesis"));
         // conversation_id uses the activity's own serviceUrl (trailing slash
         // stripped) so parse_chat_id round-trips it on the reply path.
         assert_eq!(

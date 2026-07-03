@@ -8,7 +8,7 @@
 //!    ([`validate_key_blocking`]).
 //!
 //! Both the first-run onboarding surface (`tui::surfaces::onboarding`) and
-//! the `wayland-core auth` subcommand (`crate::auth`) import from here so
+//! the `genesis-core auth` subcommand (`crate::auth`) import from here so
 //! there is exactly ONE recognizer — the prefix table, the env-var map,
 //! and the per-provider endpoints never drift between the two surfaces.
 
@@ -19,7 +19,7 @@ use std::time::Duration;
 /// leave the caller staring at "validating…" forever.
 pub const VALIDATE_TIMEOUT: Duration = Duration::from_secs(12);
 
-/// A provider Wayland can connect to with an API key.
+/// A provider Genesis can connect to with an API key.
 ///
 /// The variant set and the [`Provider::slug`] strings are kept aligned
 /// with the engine's `wcore_config::ProviderType` / `parse_builtin_provider`
@@ -356,7 +356,7 @@ pub(crate) enum EgressGetStatus {
 /// policy entirely. `EgressClient` is async-only, and these fns run in two
 /// different sync contexts: a `tokio::task::spawn_blocking` worker (onboarding)
 /// AND directly inside the async `run()` future on a runtime worker thread
-/// (`wayland-core auth`). Driving a nested `Runtime` from the latter would
+/// (`genesis-core auth`). Driving a nested `Runtime` from the latter would
 /// panic ("Cannot start a runtime from within a runtime"). The only bridge
 /// safe for **both** is to run the async request on a fresh OS thread that
 /// owns its own current-thread runtime — that thread is outside any ambient

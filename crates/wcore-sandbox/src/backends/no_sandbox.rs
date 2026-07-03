@@ -5,7 +5,7 @@
 //!
 //! The host env is NOT inherited: the child receives only the explicit
 //! `env` entries from the manifest. This matches the security
-//! contract of the real backends so flipping `WAYLAND_SANDBOX=none`
+//! contract of the real backends so flipping `GENESIS_SANDBOX=none`
 //! does not silently widen env exposure (Audit B H5).
 
 use super::SandboxBackend;
@@ -24,7 +24,7 @@ pub fn warn_once_sandbox_disabled() {
         tracing::warn!(
             target: "wcore_sandbox",
             "sandbox DISABLED — child processes run with host permissions. \
-             Install bubblewrap (Linux), or set WAYLAND_SANDBOX=docker for opt-in Docker.",
+             Install bubblewrap (Linux), or set GENESIS_SANDBOX=docker for opt-in Docker.",
         );
     });
 }
@@ -229,7 +229,7 @@ mod tests {
         // SAFETY: test-only env mutation; serial-tests would be nicer but
         // the key is unique to this test and no other thread reads it.
         unsafe {
-            std::env::set_var("WAYLAND_SANDBOX_TEST_LEAK", "leaked");
+            std::env::set_var("GENESIS_SANDBOX_TEST_LEAK", "leaked");
         }
         let backend = NoSandboxBackend::new();
         let mut manifest = SandboxManifest::default();
@@ -247,7 +247,7 @@ mod tests {
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(stdout.contains("FOO=bar"), "FOO must be set: {stdout}");
         assert!(
-            !stdout.contains("WAYLAND_SANDBOX_TEST_LEAK"),
+            !stdout.contains("GENESIS_SANDBOX_TEST_LEAK"),
             "host env must be scrubbed: {stdout}"
         );
     }

@@ -11,12 +11,12 @@
 !.env.example
 do.env
 *.do.env
-do_wayland_e2e
-do_wayland_e2e.pub
-deploy_wayland_core
-deploy_wayland_core.pub
+do_genesis_e2e
+do_genesis_e2e.pub
+deploy_genesis_core
+deploy_genesis_core.pub
 # Catch-all for credential bundles that might land in-repo by accident
-**/wayland-e2e/do.env
+**/genesis-e2e/do.env
 
 # IDE
 .vscode/
@@ -36,8 +36,8 @@ deploy_wayland_core.pub
 worktree/
 worktrees/
 
-# wayland-core session data
-.wayland-core/
+# genesis-core session data
+.genesis-core/
 
 # Debug artifacts
 *.pdb

@@ -13,7 +13,7 @@
 //! Operational failures (spawn error, timeout, unknown exit code) respect the
 //! `fail_open` config setting.
 //!
-//! # Port divergence vs the prior Wayland Python engine
+//! # Port divergence vs the prior Genesis Python engine
 //!
 //! The prior Python source additionally contains an
 //! **auto-installer** that downloads the `tirith` binary from GitHub releases,
@@ -23,7 +23,7 @@
 //! move retry) is **deliberately out of scope** for this helper port — it is
 //! tirith-specific bootstrap and belongs in a separate installer module if
 //! needed. This module only resolves an already-present binary via PATH or
-//! `$WAYLAND_HOME/bin/tirith`, and surfaces the [`check_command_security`]
+//! `$GENESIS_HOME/bin/tirith`, and surfaces the [`check_command_security`]
 //! main API.
 
 use std::env;
@@ -176,24 +176,24 @@ impl SecurityResult {
 // Failure marker (disk-persistent)
 // ---------------------------------------------------------------------------
 
-/// Return the `$WAYLAND_HOME` directory.
+/// Return the `$GENESIS_HOME` directory.
 ///
-/// Honours the `WAYLAND_HOME` env var; falls back to `~/.wayland` (matching
-/// the prior Python engine's `wayland_constants.get_wayland_home`).
-pub fn wayland_home() -> PathBuf {
-    if let Ok(v) = env::var("WAYLAND_HOME") {
+/// Honours the `GENESIS_HOME` env var; falls back to `~/.genesis` (matching
+/// the prior Python engine's `genesis_constants.get_genesis_home`).
+pub fn genesis_home() -> PathBuf {
+    if let Ok(v) = env::var("GENESIS_HOME") {
         return PathBuf::from(v);
     }
     if let Some(home) = dirs::home_dir() {
-        home.join(".wayland")
+        home.join(".genesis")
     } else {
-        PathBuf::from(".wayland")
+        PathBuf::from(".genesis")
     }
 }
 
 /// Path to the install-failure marker file.
 pub fn failure_marker_path() -> PathBuf {
-    wayland_home().join(".tirith-install-failed")
+    genesis_home().join(".tirith-install-failed")
 }
 
 /// Read the failure reason from the marker, or `None` if missing/expired.
@@ -310,7 +310,7 @@ pub enum PathResolution {
 ///
 /// For the **default** `"tirith"`:
 ///   * `PATH` lookup
-///   * `$WAYLAND_HOME/bin/tirith`
+///   * `$GENESIS_HOME/bin/tirith`
 ///
 /// This intentionally does **NOT** trigger the network auto-installer that the
 /// prior Python engine performs. See the module-level docs.
@@ -334,9 +334,9 @@ pub fn resolve_tirith_path(configured_path: &str) -> PathResolution {
         return PathResolution::Found(found);
     }
 
-    let wayland_bin = wayland_home().join("bin").join("tirith");
-    if is_executable(&wayland_bin) {
-        return PathResolution::Found(wayland_bin);
+    let genesis_bin = genesis_home().join("bin").join("tirith");
+    if is_executable(&genesis_bin) {
+        return PathResolution::Found(genesis_bin);
     }
 
     PathResolution::Missing("not_on_path".to_string())

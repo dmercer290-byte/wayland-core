@@ -1,6 +1,6 @@
 // M5.4: plugin marketplace subcommand.
 //
-// Wires `wayland-core plugin {install,list,available,remove}` to the
+// Wires `genesis-core plugin {install,list,available,remove}` to the
 // resolver + registry + install primitives in this module.
 //
 // Routing:
@@ -9,7 +9,7 @@
 // - `--source github://<org>` uses the `GitHubReleasesResolver`. Behind
 //   the `remote-registry` feature; default ON for v0.6.
 //
-// Install root defaults to `dirs::data_dir()/wayland-core/plugins`,
+// Install root defaults to `dirs::data_dir()/genesis-core/plugins`,
 // overridable via `--install-root` (handy for tests + sandbox setups).
 
 pub mod catalog;
@@ -33,7 +33,7 @@ pub struct PluginArgs {
     pub cmd: PluginCmd,
 
     /// Override the install root. Defaults to
-    /// `dirs::data_dir()/wayland-core/plugins`. Mostly useful for tests
+    /// `dirs::data_dir()/genesis-core/plugins`. Mostly useful for tests
     /// and sandboxed setups; users normally don't touch this.
     #[arg(long, global = true)]
     pub install_root: Option<PathBuf>,
@@ -117,11 +117,11 @@ pub fn run(args: PluginArgs) -> anyhow::Result<()> {
             // paths cross-platform.
             let base =
                 dirs::data_dir().ok_or_else(|| anyhow::anyhow!("could not determine data_dir"))?;
-            base.join("wayland-core").join("plugins")
+            base.join("genesis-core").join("plugins")
         }
     };
     // Marketplace plugins install into a discovery root the on-disk loader
-    // scans (`~/.wayland/plugins`), distinct from the legacy registry root
+    // scans (`~/.genesis/plugins`), distinct from the legacy registry root
     // above. `--install-root` overrides both (used by tests).
     let marketplace_root = match &args.install_root {
         Some(p) => p.clone(),

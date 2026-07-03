@@ -1,6 +1,6 @@
 [package]
 name = "wcore-tools"
-description = "Built-in agent tools for wayland-core (Read, Write, Edit, Bash, Grep, Glob, Spawn)"
+description = "Built-in agent tools for genesis-core (Read, Write, Edit, Bash, Grep, Glob, Spawn)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

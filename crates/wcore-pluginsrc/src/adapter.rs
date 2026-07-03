@@ -13,7 +13,7 @@ pub trait PluginFormatAdapter: Send + Sync {
     /// Sniff whether this adapter recognizes the layout rooted at `root`.
     fn detect(&self, root: &Path) -> bool;
     /// Lower a plugin (already fetched into the quarantine/cache at `root`),
-    /// listed under `marketplace` as `entry`, into a Wayland-native draft.
+    /// listed under `marketplace` as `entry`, into a Genesis-native draft.
     fn lower(&self, marketplace: &str, entry: &SourceEntry, root: &Path) -> Result<CanonicalDraft>;
 }
 

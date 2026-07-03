@@ -1,6 +1,6 @@
 //! F-005 engine-side contract test: ApprovalRequired → ApprovalResume round-trip.
 //!
-//! Documents and validates the protocol contract that the Wayland app (Cluster L)
+//! Documents and validates the protocol contract that the Genesis app (Cluster L)
 //! must implement to unblock HITL-gated tools:
 //!
 //!   1. Engine emits `ProtocolEvent::ApprovalRequired { call_id, resume_token, .. }`

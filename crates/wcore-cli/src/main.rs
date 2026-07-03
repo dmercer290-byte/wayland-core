@@ -19,15 +19,15 @@ use wcore_cli::doctor;
 // Each crate registers itself via inventory; we never need a typed import.
 // Removing any line silently disables the corresponding plugin in the
 // shipped binary. Covered by `tests/plugin_discovery_e2e.rs`.
-use wayland_browser as _;
-use wayland_cua as _;
-use wayland_honcho as _;
+use genesis_browser as _;
+use genesis_cua as _;
+use genesis_honcho as _;
 // Wave OL: typed import — `OllamaProvider` is downcast from
 // `Arc<dyn PluginProvider>` in `make_plugin_provider_router` below to
-// route `--model ollama:*` through the wayland-ollama plugin. The
+// route `--model ollama:*` through the genesis-ollama plugin. The
 // `inventory::submit!` factory still fires at static init for plugin
 // discovery just like the other `as _` re-exports do.
-use wayland_ollama::OllamaProvider;
+use genesis_ollama::OllamaProvider;
 
 use wcore_agent::bootstrap::{AgentBootstrap, PluginProviderRouter};
 use wcore_agent::output::OutputSink;
@@ -128,14 +128,14 @@ async fn handle_slash_or_run(
 }
 
 /// Wave OL: plugin-provider router. Detects model strings that begin with
-/// `ollama:` and downcasts the loaded `wayland-ollama` plugin's
+/// `ollama:` and downcasts the loaded `genesis-ollama` plugin's
 /// `Arc<dyn PluginProvider>` to the concrete `OllamaProvider`, returning
 /// it as the engine's `Arc<dyn LlmProvider>`.
 ///
 /// Lives here (not in `wcore-agent`) because `wcore-agent` deliberately
-/// doesn't depend on `wayland-ollama` — plugin crates flow from binary
+/// doesn't depend on `genesis-ollama` — plugin crates flow from binary
 /// into the engine via inventory, not via direct dep edges. The
-/// `wcore-cli` binary is the one place that links both `wayland-ollama`
+/// `wcore-cli` binary is the one place that links both `genesis-ollama`
 /// AND `wcore-providers`, so this is where the downcast must live.
 ///
 /// Returning `None` lets `AgentBootstrap` fall back to the built-in
@@ -151,7 +151,7 @@ fn make_plugin_provider_router() -> PluginProviderRouter {
             let plugin_provider = providers.iter().find(|p| p.provider_name() == "ollama")?;
             // Downcast through `as_any` to recover the concrete plugin type.
             // The `Arc<dyn PluginProvider>` wraps a value of type
-            // `OllamaProvider` (registered by `wayland_ollama::WaylandOllama`
+            // `OllamaProvider` (registered by `genesis_ollama::GenesisOllama`
             // in `Plugin::initialize`), so `downcast_ref` succeeds in the
             // happy path.
             let _ollama_ref: &OllamaProvider =
@@ -197,7 +197,7 @@ fn apply_no_memory_flag(config: &mut Config, no_memory: bool) {
 
 #[derive(Parser)]
 #[command(
-    name = "wayland-core",
+    name = "genesis-core",
     about = "A multi-provider AI agent CLI with tool orchestration support",
     version
 )]
@@ -221,7 +221,7 @@ struct Cli {
     /// Built-in agent persona to inherit (e.g. `architect`, `debugger`).
     /// Loads system_prompt + max_turns from the bundled agent pack
     /// unless an explicit `--system-prompt` / `--max-turns` is also set.
-    /// Run `wayland-core --list-agents` to see all built-ins.
+    /// Run `genesis-core --list-agents` to see all built-ins.
     #[arg(long, value_name = "NAME")]
     agent: Option<String>,
 
@@ -258,7 +258,7 @@ struct Cli {
     #[arg(long = "force", aliases = ["yolo", "dangerously-skip-permissions"])]
     force: bool,
 
-    /// Project directory to load .wayland-core.toml from (defaults to CWD)
+    /// Project directory to load .genesis-core.toml from (defaults to CWD)
     #[arg(long)]
     project_dir: Option<std::path::PathBuf>,
 
@@ -290,7 +290,7 @@ struct Cli {
 
     /// Disable the ratatui TUI — fall back to the line-based REPL even
     /// on an interactive terminal. The TUI is the default for
-    /// `wayland-core` on a TTY with no prompt; this is the escape hatch
+    /// `genesis-core` on a TTY with no prompt; this is the escape hatch
     /// for users who prefer the bare REPL (or for terminals it cannot
     /// drive). `--json-stream` and `-p`/headless modes are unaffected.
     #[arg(long)]
@@ -324,7 +324,7 @@ struct Cli {
     probe_mcp: bool,
 
     /// W4 F19: run the skills audit. Writes JSON to
-    /// .wayland-core/skills-audit.json and renders Markdown to stdout.
+    /// .genesis-core/skills-audit.json and renders Markdown to stdout.
     #[arg(long)]
     skills_audit: bool,
 
@@ -338,7 +338,7 @@ struct Cli {
     /// `Staged` → `Active`. The argument is the procedure's UUID as
     /// emitted in `skill_drafted` TraceEvents (or as listed by
     /// internal tooling). Reads + writes the project's
-    /// `.wayland-core/memory/memory.db`.
+    /// `.genesis-core/memory/memory.db`.
     #[arg(long, value_name = "PROCEDURE_ID")]
     skills_promote: Option<String>,
 
@@ -390,7 +390,7 @@ struct Cli {
     /// F-092 (W7-N): enable live online evolution. At session-end the engine
     /// emits one `evolution_event` and applies the Paraphrase mutator to
     /// successful trajectories (≥50% of turns had tool calls). Evolved
-    /// system-prompt variants are persisted to `$WAYLAND_HOME/evolved/`.
+    /// system-prompt variants are persisted to `$GENESIS_HOME/evolved/`.
     /// Equivalent to `[observability] online_evolution = true` in config.
     #[arg(long)]
     online_evolution: bool,
@@ -420,7 +420,7 @@ struct Cli {
     /// M5.4: optional subcommand (currently `plugin`). When present
     /// this short-circuits the agent/REPL path and runs the subcommand
     /// dispatcher instead. Kept optional so every existing flag-driven
-    /// invocation (`wayland-core --doctor`, `wayland-core "prompt"`,
+    /// invocation (`genesis-core --doctor`, `genesis-core "prompt"`,
     /// REPL, json-stream) keeps working unchanged.
     #[command(subcommand)]
     command: Option<TopCmd>,
@@ -439,12 +439,12 @@ enum TopCmd {
     Plugin(wcore_cli::plugin::PluginArgs),
     /// v0.6.4 Task 2.4: serve the engine's tool registry as an MCP server
     /// (stdio or SSE transport). Used by external MCP clients like Claude
-    /// Desktop, mcp-cli, etc. to call wayland-core's tools.
+    /// Desktop, mcp-cli, etc. to call genesis-core's tools.
     McpServe(wcore_cli::mcp_serve::McpServeArgs),
     /// v0.6.4 Task 2.6: dispatch a worktree-isolated worker swarm.
     Swarm(wcore_cli::swarm::SwarmArgs),
     /// ForgeFlows: validate / list / run saved `.ron` workflows from
-    /// `.wayland/workflows/`.
+    /// `.genesis/workflows/`.
     #[command(visible_alias = "forgeflows")]
     Workflow {
         #[command(subcommand)]
@@ -490,10 +490,10 @@ enum TopCmd {
         #[arg(long)]
         terminal: bool,
     },
-    /// v0.7.0 Task 1.C.1: print resolved project context from WAYLAND.md /
-    /// AGENTS.md / .wayland/context.md / CLAUDE.md walking up from cwd.
+    /// v0.7.0 Task 1.C.1: print resolved project context from GENESIS.md /
+    /// AGENTS.md / .genesis/context.md / CLAUDE.md walking up from cwd.
     ProjectContext,
-    /// v0.7.0 1.B.2: scaffold .wayland/config.toml + WAYLAND.md in cwd.
+    /// v0.7.0 1.B.2: scaffold .genesis/config.toml + GENESIS.md in cwd.
     Init(wcore_cli::init::InitArgs),
     /// v0.7.0 1.A.10: ACP server + client surface. `acp serve`
     /// binds the HTTP/SSE transport; `acp request` drives a one-shot
@@ -506,15 +506,15 @@ enum TopCmd {
         cmd: wcore_cli::agent_cmd::AgentCmd,
     },
     /// v0.8.1 U7: manage scheduled cron jobs (add / list / remove /
-    /// enable / disable). Persists to `$WAYLAND_HOME/cron/jobs.json`;
+    /// enable / disable). Persists to `$GENESIS_HOME/cron/jobs.json`;
     /// the background runner spawned at session boot picks up changes
     /// on its next tick.
     Cron {
         #[command(subcommand)]
         cmd: wcore_cli::cron::CronCmd,
     },
-    /// v0.8.1 U9: update wayland-core to the latest signed release
-    /// from `FerroxLabs/wayland-core`. Verifies the `.sig` artifact
+    /// v0.8.1 U9: update genesis-core to the latest signed release
+    /// from `dmercer290-byte/wayland-core`. Verifies the `.sig` artifact
     /// against the pinned marketplace pubkey (ed25519) before atomic
     /// swap. Use `--check-only` to print versions without installing.
     SelfUpdate {
@@ -525,7 +525,7 @@ enum TopCmd {
     /// CLI surface: launch the TUI on the Onboarding (connect/configure)
     /// surface regardless of whether a config already exists. Onboarding
     /// handles an existing config gracefully via an Overwrite/Keep
-    /// choice. The plain `wayland-core` launch only opens Onboarding on a
+    /// choice. The plain `genesis-core` launch only opens Onboarding on a
     /// true first run; `setup` is the explicit re-entry point.
     Setup,
     /// CLI surface: manage provider API keys (list / add / remove)
@@ -545,7 +545,7 @@ enum TopCmd {
     /// free / paid-but-uncleared Flux key returns an `upgrade_required`
     /// message — web_fetch is a paid-only capability.
     Fetch(wcore_cli::fetch::FetchArgs),
-    /// Manage isolated profiles — each is an independent `WAYLAND_HOME`-rooted
+    /// Manage isolated profiles — each is an independent `GENESIS_HOME`-rooted
     /// home with its own config, credentials, memory, and skills.
     Profile {
         #[command(subcommand)]
@@ -599,19 +599,19 @@ fn print_known_models(provider: Option<&str>) {
 }
 
 /// v0.9.1 W2 cycle-2 HIGH 2: open the TUI-mode tracing log file in
-/// append mode. Lives under `$WAYLAND_HOME/logs/wayland-core.log`, with
-/// `~/.wayland/logs/` as the platform default. The parent directory is
+/// append mode. Lives under `$GENESIS_HOME/logs/genesis-core.log`, with
+/// `~/.genesis/logs/` as the platform default. The parent directory is
 /// created lazily; any error is surfaced to the caller which falls back
 /// to stderr (better than no traces at all).
 fn open_tui_log_file() -> std::io::Result<std::fs::File> {
-    let base = if let Some(home) = std::env::var_os("WAYLAND_HOME") {
+    let base = if let Some(home) = std::env::var_os("GENESIS_HOME") {
         std::path::PathBuf::from(home)
     } else if let Some(home) = std::env::var_os("HOME") {
-        std::path::PathBuf::from(home).join(".wayland")
+        std::path::PathBuf::from(home).join(".genesis")
     } else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            "no $WAYLAND_HOME or $HOME for log file",
+            "no $GENESIS_HOME or $HOME for log file",
         ));
     };
     let log_dir = base.join("logs");
@@ -619,14 +619,14 @@ fn open_tui_log_file() -> std::io::Result<std::fs::File> {
     std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_dir.join("wayland-core.log"))
+        .open(log_dir.join("genesis-core.log"))
 }
 
 /// 3A / D3 fail-closed guard for `--json-stream` host mode.
 ///
-/// A desktop host spawns `wayland-core --json-stream` and may drive a
+/// A desktop host spawns `genesis-core --json-stream` and may drive a
 /// multi-profile UI. If it signals profile intent (`--profile`) but does NOT
-/// materialize the isolated home (`WAYLAND_HOME` unset — meaning
+/// materialize the isolated home (`GENESIS_HOME` unset — meaning
 /// [`wcore_config::profile::activate_for_launch`] could not resolve the profile
 /// to an existing home), refusing is the only safe choice: silently falling
 /// through to the SHARED default home would cross-write another account's
@@ -638,16 +638,16 @@ fn open_tui_log_file() -> std::io::Result<std::fs::File> {
 fn json_stream_profile_guard(
     json_stream: bool,
     profile: Option<&str>,
-    wayland_home_set: bool,
+    genesis_home_set: bool,
 ) -> Result<(), String> {
-    if json_stream && profile.is_some() && !wayland_home_set {
+    if json_stream && profile.is_some() && !genesis_home_set {
         return Err(format!(
-            "refusing to start --json-stream with --profile {:?} but no WAYLAND_HOME \
-             set. A host that drives profiles must set WAYLAND_HOME to the profile's \
+            "refusing to start --json-stream with --profile {:?} but no GENESIS_HOME \
+             set. A host that drives profiles must set GENESIS_HOME to the profile's \
              isolated home before spawning the engine; otherwise the engine would \
              write the shared default home and cross-write another profile's \
-             credentials and memory. Create the home with `wayland-core profile \
-             create`, or set WAYLAND_HOME per spawn.",
+             credentials and memory. Create the home with `genesis-core profile \
+             create`, or set GENESIS_HOME per spawn.",
             profile.unwrap_or("")
         ));
     }
@@ -656,21 +656,21 @@ fn json_stream_profile_guard(
 
 fn main() -> anyhow::Result<ExitCode> {
     // Resolve the active isolated profile ONCE, here at process entry, and
-    // materialize it into WAYLAND_HOME (C2). This MUST precede
-    // load_wayland_env_file() below — that reads $WAYLAND_HOME/.env, so the home
+    // materialize it into GENESIS_HOME (C2). This MUST precede
+    // load_genesis_env_file() below — that reads $GENESIS_HOME/.env, so the home
     // must be settled first — and runs while main() is still single-threaded
     // (the Tokio runtime is built later, on the entry thread), so the set_var
-    // inside is sound. After this returns, WAYLAND_HOME is the sole source of
+    // inside is sound. After this returns, GENESIS_HOME is the sole source of
     // truth; the active pointer is never read again.
     wcore_config::profile::activate_for_launch();
 
-    // Load ~/.wayland/.env (or $WAYLAND_HOME/.env) into the process environment
+    // Load ~/.genesis/.env (or $GENESIS_HOME/.env) into the process environment
     // before ANY threads spawn. The Config TUI writes provider keys there
     // (surfaces/config.rs save); without this they never reach credential
     // resolution on the next launch. main() is single-threaded at this point —
     // the Tokio runtime is built later, on the entry thread — so set_var is
     // sound here. Existing exported vars win (never clobbered).
-    wcore_config::env_file::load_wayland_env_file();
+    wcore_config::env_file::load_genesis_env_file();
 
     // Windows defaults the main-thread stack to 1 MiB. wcore-cli's root future
     // (this large `async` entry plus the full clap command tree built by
@@ -754,7 +754,7 @@ async fn run() -> anyhow::Result<ExitCode> {
     // unparseable. try_init() is a no-op if something else already
     // initialised (e.g. tests); the let _ = swallows the Err in that case.
     //
-    // v0.9.1 W2 cycle-2: TUI mode writes to `$WAYLAND_HOME/logs/wayland-core.log`
+    // v0.9.1 W2 cycle-2: TUI mode writes to `$GENESIS_HOME/logs/genesis-core.log`
     // so trace output never lands on the alt-screen-bound stdio. Failure
     // to open the file degrades silently to stderr — we'd rather have
     // visible traces than none.
@@ -814,7 +814,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                 );
             } else {
                 eprintln!(
-                    "wayland-core: warning: previous run did not shut down cleanly \
+                    "genesis-core: warning: previous run did not shut down cleanly \
                      (crash sentinel found at {})",
                     sentinel_path.display()
                 );
@@ -831,7 +831,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                     );
                 } else {
                     eprintln!(
-                        "wayland-core: warning: could not arm crash sentinel at {}: {}",
+                        "genesis-core: warning: could not arm crash sentinel at {}: {}",
                         sentinel_path.display(),
                         e
                     );
@@ -892,7 +892,7 @@ async fn run() -> anyhow::Result<ExitCode> {
     }
 
     // F-086: register a cleanup guard for the per-process bundled-skill
-    // extraction directory (`$TMPDIR/wayland-core-bundled-skills-{pid}/`).
+    // extraction directory (`$TMPDIR/genesis-core-bundled-skills-{pid}/`).
     // The guard's Drop impl calls `cleanup_bundled_skill_extract_dir()` so
     // the temp directory is removed on both graceful exit and panic unwind,
     // preventing accumulation across restarts.
@@ -906,7 +906,7 @@ async fn run() -> anyhow::Result<ExitCode> {
 
     // M5.4: subcommand short-circuit. Subcommands run before any of the
     // flag-driven modes (doctor, REPL, etc.) so a user who runs
-    // `wayland-core plugin install ...` never hits the agent bootstrap.
+    // `genesis-core plugin install ...` never hits the agent bootstrap.
     if let Some(cmd) = cli.command {
         return match cmd {
             // F-089: model catalog subcommand.
@@ -975,7 +975,7 @@ async fn run() -> anyhow::Result<ExitCode> {
             TopCmd::Workflow { cmd } => match wcore_cli::workflow::run(cmd).await {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
-                    eprintln!("wayland-core workflow: {e:#}");
+                    eprintln!("genesis-core workflow: {e:#}");
                     Ok(ExitCode::FAILURE)
                 }
             },
@@ -1006,7 +1006,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                 match wcore_cli::crucible::run_crucible(args).await {
                     Ok(()) => Ok(ExitCode::SUCCESS),
                     Err(e) => {
-                        eprintln!("wayland-core crucible: {e:#}");
+                        eprintln!("genesis-core crucible: {e:#}");
                         Ok(ExitCode::FAILURE)
                     }
                 }
@@ -1037,40 +1037,40 @@ async fn run() -> anyhow::Result<ExitCode> {
                     Ok(ExitCode::SUCCESS)
                 }
                 Err(e) => {
-                    eprintln!("wayland-core: init failed: {e:#}");
+                    eprintln!("genesis-core: init failed: {e:#}");
                     Ok(ExitCode::FAILURE)
                 }
             },
             TopCmd::Acp(args) => match wcore_cli::acp::run(args).await {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
-                    eprintln!("wayland-core acp: {e:#}");
+                    eprintln!("genesis-core acp: {e:#}");
                     Ok(ExitCode::FAILURE)
                 }
             },
             TopCmd::Agent { cmd } => match wcore_cli::agent_cmd::run(cmd) {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
-                    eprintln!("wayland-core agent: {e:#}");
+                    eprintln!("genesis-core agent: {e:#}");
                     Ok(ExitCode::FAILURE)
                 }
             },
             TopCmd::Cron { cmd } => match wcore_cli::cron::run(cmd).await {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
-                    eprintln!("wayland-core cron: {e:#}");
+                    eprintln!("genesis-core cron: {e:#}");
                     Ok(ExitCode::FAILURE)
                 }
             },
             // v0.8.1 U9: production caller for `self_update::run`. Pulls
-            // the latest signed release from FerroxLabs/wayland-core,
+            // the latest signed release from dmercer290-byte/wayland-core,
             // verifies the .sig against the pinned marketplace pubkey,
             // and atomically swaps the running binary (self_replace).
             TopCmd::SelfUpdate { check_only } => {
                 match wcore_cli::self_update::run(check_only).await {
                     Ok(()) => Ok(ExitCode::SUCCESS),
                     Err(e) => {
-                        eprintln!("wayland-core self-update: {e:#}");
+                        eprintln!("genesis-core self-update: {e:#}");
                         Ok(ExitCode::FAILURE)
                     }
                 }
@@ -1106,21 +1106,21 @@ async fn run() -> anyhow::Result<ExitCode> {
             TopCmd::Auth { cmd } => match wcore_cli::auth::run(cmd).await {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
-                    eprintln!("wayland-core auth: {e:#}");
+                    eprintln!("genesis-core auth: {e:#}");
                     Ok(ExitCode::FAILURE)
                 }
             },
             TopCmd::Image(args) => match wcore_cli::image::run(args).await {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
-                    eprintln!("wayland-core image: {e:#}");
+                    eprintln!("genesis-core image: {e:#}");
                     Ok(ExitCode::FAILURE)
                 }
             },
             TopCmd::Fetch(args) => match wcore_cli::fetch::run(args).await {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
-                    eprintln!("wayland-core fetch: {e:#}");
+                    eprintln!("genesis-core fetch: {e:#}");
                     Ok(ExitCode::FAILURE)
                 }
             },
@@ -1128,7 +1128,7 @@ async fn run() -> anyhow::Result<ExitCode> {
             TopCmd::Profile { cmd } => match wcore_cli::profile::run(cmd) {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
-                    eprintln!("wayland-core profile: {e:#}");
+                    eprintln!("genesis-core profile: {e:#}");
                     Ok(ExitCode::FAILURE)
                 }
             },
@@ -1294,12 +1294,12 @@ async fn run() -> anyhow::Result<ExitCode> {
 
     // 3A / D3: fail closed BEFORE `cli.profile` is moved into CliArgs below. If
     // the host signaled profile intent but no isolated home was materialized
-    // (WAYLAND_HOME was resolved once at process entry by activate_for_launch),
+    // (GENESIS_HOME was resolved once at process entry by activate_for_launch),
     // refuse rather than silently writing the shared default home.
     if let Err(msg) = json_stream_profile_guard(
         cli.json_stream,
         cli.profile.as_deref(),
-        std::env::var_os("WAYLAND_HOME").is_some(),
+        std::env::var_os("GENESIS_HOME").is_some(),
     ) {
         anyhow::bail!(msg);
     }
@@ -1318,7 +1318,7 @@ async fn run() -> anyhow::Result<ExitCode> {
         project_dir: cli.project_dir,
     };
 
-    // B2: one-shot migration from legacy ~/.wayland/config.yaml → canonical
+    // B2: one-shot migration from legacy ~/.genesis/config.yaml → canonical
     // config.toml, run here (in the binary) so it doesn't affect tests that
     // call Config::resolve directly with a temp project_dir. Idempotent.
     wcore_config::config::migrate_legacy_yaml_if_needed();
@@ -1327,7 +1327,7 @@ async fn run() -> anyhow::Result<ExitCode> {
         Ok(c) => c,
         Err(e) => {
             // T0-1: On a true first run (no global config yet) where the user
-            // just typed `wayland-core` to open the interactive TUI, a missing
+            // just typed `genesis-core` to open the interactive TUI, a missing
             // API key must route into the Onboarding surface — not crash to
             // stderr and exit non-zero. This mirrors the `setup` subcommand,
             // which uses Config::default() so onboarding can walk the user
@@ -1339,7 +1339,7 @@ async fn run() -> anyhow::Result<ExitCode> {
             // whose config exists but resolves to no credential — e.g. a
             // catalog/keyless provider with no api_key and no env var. Before
             // this, `first_run` was false (the file exists) so the recovery was
-            // skipped and the binary crashed to stderr with "run wayland-core
+            // skipped and the binary crashed to stderr with "run genesis-core
             // setup", forcing a quit-to-shell. We additionally route when the
             // resolve error is specifically a `MissingApiKey` — a recoverable
             // "needs setup" condition — so the user lands in Onboarding in-app.
@@ -1347,7 +1347,7 @@ async fn run() -> anyhow::Result<ExitCode> {
             // `MissingApiKey`, so it must NOT be swallowed into a fresh-install
             // walkthrough. The earlier gate keyed the swallow on `first_run`,
             // which inspects ONLY the global file — so a corrupt PROJECT
-            // `.wayland-core.toml` on a machine with no global config (common in
+            // `.genesis-core.toml` on a machine with no global config (common in
             // CI scaffolds and first-use-in-a-repo) was silently routed into
             // onboarding, discarding the user's real-but-malformed config
             // (D011 dataloss, reachable under an interactive TUI launch). Gate
@@ -1467,7 +1467,7 @@ async fn run() -> anyhow::Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    // Default-mode dispatch (T2.3): `wayland-core` on an interactive
+    // Default-mode dispatch (T2.3): `genesis-core` on an interactive
     // terminal with no prompt opens the ratatui TUI. `--json-stream`
     // (handled above) and `-p`/headless (`prompt` non-empty, below) keep
     // their exact prior behaviour — the merge surface is just this
@@ -1510,7 +1510,7 @@ async fn run() -> anyhow::Result<ExitCode> {
     // `--json-stream` is handled before this point and never hits here.
     if prompt.is_empty() && !cli.no_tui && !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         eprintln!(
-            "wayland-core: stdin is not a terminal and no prompt was given.\n\
+            "genesis-core: stdin is not a terminal and no prompt was given.\n\
              Use --json-stream for headless/piped use, or pass a prompt with -p."
         );
         return Ok(ExitCode::FAILURE);
@@ -1667,14 +1667,14 @@ async fn repl_loop(
 
 /// D011 boot-recovery helper: does a project-local config file exist in the
 /// current working directory? Checks BOTH accepted layout forms the resolver
-/// honours — the canonical file form `.wayland-core.toml` and the eval-harness
-/// dir form `.wayland-core/config.toml` (see `wcore_config::config`'s private
+/// honours — the canonical file form `.genesis-core.toml` and the eval-harness
+/// dir form `.genesis-core/config.toml` (see `wcore_config::config`'s private
 /// `project_config_path`). Used to keep the onboarding swallow honest: a
 /// populated project repo on a machine with no global config is NOT a fresh
 /// install, so its (non-parse) resolve errors must not route to onboarding.
 fn project_config_exists() -> bool {
-    std::path::Path::new(".wayland-core.toml").exists()
-        || std::path::Path::new(".wayland-core")
+    std::path::Path::new(".genesis-core.toml").exists()
+        || std::path::Path::new(".genesis-core")
             .join("config.toml")
             .exists()
 }
@@ -1710,7 +1710,7 @@ fn resolve_resume(
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "--continue: no saved sessions to resume. Start a session first, \
-                 or run `wayland-core --list-sessions`."
+                 or run `genesis-core --list-sessions`."
             )
         })?;
     Ok(Some(latest.id))
@@ -1735,7 +1735,7 @@ fn resolve_resume(
 /// command loop. The TUI owns the render loop until the user quits.
 ///
 /// `force_onboarding` makes the TUI start on the Onboarding surface even
-/// when a config already exists (the `wayland-core setup` re-entry
+/// when a config already exists (the `genesis-core setup` re-entry
 /// point). When `false` the first-run gate decides: Onboarding on a true
 /// first run, Workspace otherwise.
 /// Map the persisted config approval posture to the engine's runtime
@@ -1751,11 +1751,11 @@ fn approval_mode_to_session(
     }
 }
 
-/// GHSA-8r7g: the `WAYLAND_ALLOW_WIRE_FORCE` env opt-in that lets a protocol
+/// GHSA-8r7g: the `GENESIS_ALLOW_WIRE_FORCE` env opt-in that lets a protocol
 /// peer request `SessionMode::Force`. Mirrors the env-based operator opt-ins
-/// elsewhere (e.g. `WAYLAND_ALLOW_NO_SANDBOX`). Truthy = `1` / `true`.
+/// elsewhere (e.g. `GENESIS_ALLOW_NO_SANDBOX`). Truthy = `1` / `true`.
 fn wire_force_opt_in_env() -> bool {
-    std::env::var("WAYLAND_ALLOW_WIRE_FORCE")
+    std::env::var("GENESIS_ALLOW_WIRE_FORCE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
@@ -1844,7 +1844,7 @@ async fn run_tui_mode(
     let output: Arc<dyn OutputSink> = Arc::new(tui::ChannelSink::new(tx.clone()));
     let approval_manager = Arc::new(ToolApprovalManager::new());
     // GHSA-8r7g: a protocol peer may escalate to Force only when this local
-    // operator opted in at launch (--force or WAYLAND_ALLOW_WIRE_FORCE).
+    // operator opted in at launch (--force or GENESIS_ALLOW_WIRE_FORCE).
     approval_manager.set_allow_wire_force(force || wire_force_opt_in_env());
     // Seed the initial approval posture from config (`[default] approval_mode`,
     // editable via /config). `--force` below overrides it to Force.
@@ -2029,7 +2029,7 @@ async fn run_tui_mode(
 
 /// W4 F19: run the skills audit. Loads the catalog from the current working
 /// directory, computes findings, writes the JSON report to
-/// `.wayland-core/skills-audit.json`, and renders the Markdown summary to
+/// `.genesis-core/skills-audit.json`, and renders the Markdown summary to
 /// stdout.
 async fn run_skills_audit(stale_after_days: u64) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
@@ -2040,8 +2040,8 @@ async fn run_skills_audit(stale_after_days: u64) -> anyhow::Result<()> {
     };
     let report = wcore_skills::audit::audit_corpus(&refs, &opts);
 
-    // JSON file in .wayland-core/skills-audit.json (machine readable).
-    let json_dir = cwd.join(".wayland-core");
+    // JSON file in .genesis-core/skills-audit.json (machine readable).
+    let json_dir = cwd.join(".genesis-core");
     std::fs::create_dir_all(&json_dir)?;
     let json_path = json_dir.join("skills-audit.json");
     let json = serde_json::to_string_pretty(&report)?;
@@ -2055,18 +2055,18 @@ async fn run_skills_audit(stale_after_days: u64) -> anyhow::Result<()> {
 }
 
 /// W9.1 T4 (T11): promote a Staged or Pinned procedure to Active. Opens
-/// the project's `.wayland-core/memory/memory.db` rooted at CWD, looks
+/// the project's `.genesis-core/memory/memory.db` rooted at CWD, looks
 /// up the procedure by id at `Tier::Project`, validates the transition
 /// against the state-machine, and writes the new status via
 /// `upsert_procedure` (same row, same id, same artifact — only `status`
 /// changes).
 ///
 /// F-069: after the DB transition, also attempts to copy the on-disk auto-
-/// draft from `<config_dir>/wayland-core/skills/<name>/` (where
-/// `SkillDrafter` writes it) to `<config_dir>/wayland-core/skills/<name>/`
+/// draft from `<config_dir>/genesis-core/skills/<name>/` (where
+/// `SkillDrafter` writes it) to `<config_dir>/genesis-core/skills/<name>/`
 /// (already there — the draft IS at the loader-visible path post F-038).
-/// For backwards-compat with old drafts written to WAYLAND_HOME, we also
-/// check `<WAYLAND_HOME>/skills/auto/<name>/SKILL.md` and copy it to the
+/// For backwards-compat with old drafts written to GENESIS_HOME, we also
+/// check `<GENESIS_HOME>/skills/auto/<name>/SKILL.md` and copy it to the
 /// loader-visible path if the config-dir copy is missing.
 async fn run_skills_promote(id: &str) -> anyhow::Result<()> {
     transition_procedure(
@@ -2076,15 +2076,15 @@ async fn run_skills_promote(id: &str) -> anyhow::Result<()> {
     )
     .await?;
 
-    // F-069: best-effort migration of old WAYLAND_HOME-format drafts into
+    // F-069: best-effort migration of old GENESIS_HOME-format drafts into
     // the loader-visible config-dir path. Runs after the DB transition so
     // a DB failure does not trigger a misleading disk move.
     try_migrate_draft_to_loader_path(id).await;
     Ok(())
 }
 
-/// F-069: if a draft exists at the legacy `$WAYLAND_HOME/skills/auto/<name>/SKILL.md`
-/// location but not at `<config_dir>/wayland-core/skills/<name>/SKILL.md`,
+/// F-069: if a draft exists at the legacy `$GENESIS_HOME/skills/auto/<name>/SKILL.md`
+/// location but not at `<config_dir>/genesis-core/skills/<name>/SKILL.md`,
 /// copy it to the loader-visible path. Best-effort — failure is logged, not
 /// returned.
 async fn try_migrate_draft_to_loader_path(_procedure_id: &str) {
@@ -2093,13 +2093,13 @@ async fn try_migrate_draft_to_loader_path(_procedure_id: &str) {
     let Some(config_dir) = wcore_config::config::app_config_dir() else {
         return;
     };
-    let wayland_home = std::env::var("WAYLAND_HOME")
+    let genesis_home = std::env::var("GENESIS_HOME")
         .map(std::path::PathBuf::from)
         .ok()
-        .or_else(|| dirs::home_dir().map(|h| h.join(".wayland")))
-        .unwrap_or_else(|| std::path::PathBuf::from(".wayland"));
+        .or_else(|| dirs::home_dir().map(|h| h.join(".genesis")))
+        .unwrap_or_else(|| std::path::PathBuf::from(".genesis"));
 
-    let legacy_auto_dir = wayland_home.join("skills").join("auto");
+    let legacy_auto_dir = genesis_home.join("skills").join("auto");
     if !legacy_auto_dir.is_dir() {
         return;
     }
@@ -2595,7 +2595,7 @@ async fn run_json_stream_mode(
     );
     let approval_manager = Arc::new(ToolApprovalManager::new());
     // GHSA-8r7g: a protocol peer may escalate to Force only when this local
-    // operator opted in at launch (--force or WAYLAND_ALLOW_WIRE_FORCE).
+    // operator opted in at launch (--force or GENESIS_ALLOW_WIRE_FORCE).
     approval_manager.set_allow_wire_force(force || wire_force_opt_in_env());
     // F-002: plumb --force into json-stream mode. In the TUI path the
     // approval manager is flipped to Force before the engine boots; the
@@ -2610,7 +2610,7 @@ async fn run_json_stream_mode(
     let provider_name = config.provider_label.clone();
 
     // Bootstrap engine with full feature initialization. Phase 1B-2 —
-    // json-stream is a primary long-running host session (e.g. the Wayland
+    // json-stream is a primary long-running host session (e.g. the Genesis
     // desktop app), so
     // opt into inbound channel dispatch.
     let mut bootstrap = AgentBootstrap::new(config, cwd, output.clone())
@@ -2679,7 +2679,7 @@ async fn run_json_stream_mode(
     // only the dynamic `AddMcpServer` command path (below) emitted this
     // event, so hosts running sessions with MCP servers configured at
     // boot — common for Gemini deployments where servers ship in the
-    // user's wayland config — never saw MCP health for the boot set.
+    // user's genesis config — never saw MCP health for the boot set.
     // Provider-agnostic by design: nothing in this loop branches on
     // which LLM the session uses; the gap was uniform across providers
     // and showed up most visibly on Gemini because Gemini hosts rely on
@@ -2994,7 +2994,7 @@ async fn run_json_stream_mode(
                                         } else {
                                             let _ = writer.emit(&wcore_protocol::events::ProtocolEvent::Info {
                                                 msg_id: String::new(),
-                                                message: format!("set_mode: '{mode_str}' refused — an auto-approving mode (auto_edit/force) requires a local-operator opt-in (launch with --force or WAYLAND_ALLOW_WIRE_FORCE=1)"),
+                                                message: format!("set_mode: '{mode_str}' refused — an auto-approving mode (auto_edit/force) requires a local-operator opt-in (launch with --force or GENESIS_ALLOW_WIRE_FORCE=1)"),
                                             });
                                         }
                                     }
@@ -3143,7 +3143,7 @@ async fn run_json_stream_mode(
                 if !approval_manager.set_mode_from_wire(mode) {
                     let _ = writer.emit(&wcore_protocol::events::ProtocolEvent::Info {
                         msg_id: String::new(),
-                        message: format!("set_mode: '{mode_str}' refused — an auto-approving mode (auto_edit/force) requires a local-operator opt-in (launch with --force or WAYLAND_ALLOW_WIRE_FORCE=1)"),
+                        message: format!("set_mode: '{mode_str}' refused — an auto-approving mode (auto_edit/force) requires a local-operator opt-in (launch with --force or GENESIS_ALLOW_WIRE_FORCE=1)"),
                     });
                     eprintln!("[protocol] SetMode refused ({mode_str}, no local opt-in)");
                 } else {
@@ -3294,18 +3294,18 @@ mod tests {
 
     #[test]
     fn json_stream_guard_blocks_profile_intent_without_home() {
-        // Host passed --profile but no WAYLAND_HOME materialized → refuse.
+        // Host passed --profile but no GENESIS_HOME materialized → refuse.
         let err = json_stream_profile_guard(true, Some("work"), false)
-            .expect_err("must refuse profile intent without WAYLAND_HOME in json-stream");
+            .expect_err("must refuse profile intent without GENESIS_HOME in json-stream");
         assert!(
-            err.contains("WAYLAND_HOME"),
+            err.contains("GENESIS_HOME"),
             "message must name the fix: {err}"
         );
     }
 
     #[test]
     fn json_stream_guard_allows_when_home_set() {
-        // The host correctly set WAYLAND_HOME per spawn → proceed.
+        // The host correctly set GENESIS_HOME per spawn → proceed.
         assert!(json_stream_profile_guard(true, Some("work"), true).is_ok());
     }
 
@@ -3360,7 +3360,7 @@ mod tests {
     /// event per connected server with the server's discovered tools.
     /// Pre-fix the boot path emitted nothing — only the dynamic
     /// AddMcpServer path emitted. Hosts running Gemini-routed sessions
-    /// with MCP servers in the user's wayland config saw no MCP
+    /// with MCP servers in the user's genesis config saw no MCP
     /// health, breaking the MCP-server status UI for that path.
     #[test]
     fn test_mcp_ready_events_for_emits_one_per_server_with_tools() {
@@ -3441,7 +3441,7 @@ mod tests {
     /// in wcore-config), so there was no CLI path to disable memory per-run.
     #[test]
     fn test_no_memory_flag_disables_memory() {
-        let cli = Cli::parse_from(["wayland-core", "--no-memory", "hello"]);
+        let cli = Cli::parse_from(["genesis-core", "--no-memory", "hello"]);
         assert!(cli.no_memory, "--no-memory must parse to true");
 
         let mut config = Config::default();
@@ -3461,7 +3461,7 @@ mod tests {
     /// never on).
     #[test]
     fn test_no_memory_flag_absent_preserves_enabled() {
-        let cli = Cli::parse_from(["wayland-core", "hello"]);
+        let cli = Cli::parse_from(["genesis-core", "hello"]);
         assert!(!cli.no_memory, "flag defaults to false when omitted");
 
         let mut config = Config::default();
@@ -3523,10 +3523,10 @@ mod tests {
     /// bool and defaults to false when omitted.
     #[test]
     fn test_search_flag_parses() {
-        let cli = Cli::parse_from(["wayland-core", "--search", "latest JWST news"]);
+        let cli = Cli::parse_from(["genesis-core", "--search", "latest JWST news"]);
         assert!(cli.search, "--search must parse to true");
 
-        let cli = Cli::parse_from(["wayland-core", "hello"]);
+        let cli = Cli::parse_from(["genesis-core", "hello"]);
         assert!(!cli.search, "--search defaults to false when omitted");
     }
 }

@@ -20,7 +20,7 @@ pub struct OpenAiVisionBackend {
 
 impl OpenAiVisionBackend {
     pub fn new(api_key: String) -> Self {
-        let model = std::env::var("WAYLAND_VISION_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
+        let model = std::env::var("GENESIS_VISION_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
         Self {
             client: build_ssrf_safe_tool_client(),
             api_key,

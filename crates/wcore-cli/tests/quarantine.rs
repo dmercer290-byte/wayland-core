@@ -28,7 +28,7 @@ fn clone_skips_escaping_symlink_and_returns_sha() {
 
     // Build a tiny git repo with a normal file and an escaping symlink.
     git(&repo, &["init", "-q"]);
-    git(&repo, &["config", "user.email", "test@wayland.test"]);
+    git(&repo, &["config", "user.email", "test@genesis.test"]);
     git(&repo, &["config", "user.name", "Test"]);
     git(&repo, &["config", "commit.gpgsign", "false"]);
     std::fs::write(repo.join("keep.txt"), b"hello").unwrap();

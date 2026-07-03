@@ -26,7 +26,7 @@
 //! ## Terminator choice — BEL, not ST
 //!
 //! The de-facto OSC 8 spec accepts either BEL (`\x07`) or ST (`\x1b\\`).
-//! The rest of the Wayland TUI (the v0.9.1.4 markdown link path) emits
+//! The rest of the Genesis TUI (the v0.9.1.4 markdown link path) emits
 //! BEL, and xterm / VTE / ratatui's ANSI re-emission pipeline handle BEL
 //! most uniformly. This module emits BEL for binary-wide consistency. The
 //! PLAN's example used ST; BEL is the deliberate reconciliation so a link

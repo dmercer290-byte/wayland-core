@@ -12,7 +12,7 @@ fn make_corpus() -> TempDir {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
     fs::create_dir(root.join(".git")).unwrap();
-    let dir = root.join(".wayland-core").join("skills");
+    let dir = root.join(".genesis-core").join("skills");
     fs::create_dir_all(&dir).unwrap();
 
     // Healthy skill

@@ -1,12 +1,12 @@
 # mcp-server-time
 
-Tiny demo Model Context Protocol (MCP) server. Used by the `plugin-subprocess-mcp` Wayland example.
+Tiny demo Model Context Protocol (MCP) server. Used by the `plugin-subprocess-mcp` Genesis example.
 
 - Protocol: MCP JSON-RPC 2.0 over stdio (newline-delimited frames).
 - Tool surface: one tool, `get_time(timezone: string) -> string`.
 - Time semantics: returns seconds-since-UNIX-epoch as a UTC value. The `timezone` argument is echoed back as a display label. A production wrapper would resolve the timezone via `chrono-tz`; this demo deliberately stays minimal.
 
-This crate is **not** a member of the main Wayland workspace. It is a downstream consumer — exactly the shape a third-party MCP server would have.
+This crate is **not** a member of the main Genesis workspace. It is a downstream consumer — exactly the shape a third-party MCP server would have.
 
 ## Build
 

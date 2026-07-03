@@ -59,7 +59,7 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                     "content": content,
                     "is_error": is_error
                 })),
-                // wayland#161: a `thinking` block replayed in message history
+                // genesis#161: a `thinking` block replayed in message history
                 // must carry a valid `signature` — which we never capture, and
                 // which a model switch would invalidate anyway. Anthropic 400s
                 // on an unsigned thinking block
@@ -85,7 +85,7 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
             }
         }
 
-        // wayland#161: an assistant turn truncated mid-thinking (or one that
+        // genesis#161: an assistant turn truncated mid-thinking (or one that
         // held only a thinking block) is now empty after the drop above.
         // Anthropic rejects a message with empty `content`, so skip the turn
         // rather than emit `content: []` and 400 the request.
@@ -618,7 +618,7 @@ mod tests {
         assert_eq!(content[0]["is_error"], false);
     }
 
-    /// wayland#161: thinking blocks must NOT be replayed — they lack the
+    /// genesis#161: thinking blocks must NOT be replayed — they lack the
     /// `signature` Anthropic requires (we never capture it, and a model switch
     /// would invalidate it), so replaying one 400s and strands the conversation.
     #[test]
@@ -647,7 +647,7 @@ mod tests {
 
     /// A turn truncated mid-thinking (only a thinking block) becomes empty and
     /// must be skipped entirely — Anthropic rejects empty `content`. This is the
-    /// exact wayland#161 reproduction (truncation then continue/model-switch).
+    /// exact genesis#161 reproduction (truncation then continue/model-switch).
     #[test]
     fn test_build_messages_skips_thinking_only_turn() {
         let messages = vec![
@@ -670,7 +670,7 @@ mod tests {
         assert_eq!(result[0]["role"], "user");
     }
 
-    /// wayland#161 accept criterion: a history that was truncated mid-thinking
+    /// genesis#161 accept criterion: a history that was truncated mid-thinking
     /// and then CONTINUED ON A DIFFERENT MODEL replays cleanly — no thinking
     /// block (whose signature would belong to the prior model) reaches the wire,
     /// so Anthropic never returns the `thinking.signature` 400 that strands the
@@ -719,7 +719,7 @@ mod tests {
             if let Some(content) = msg["content"].as_array() {
                 assert!(
                     content.iter().all(|b| b["type"] != "thinking"),
-                    "no thinking block may survive a model switch (wayland#161): {msg}"
+                    "no thinking block may survive a model switch (genesis#161): {msg}"
                 );
             }
         }

@@ -2,7 +2,7 @@
 //! into the user-facing CLI surface.
 //!
 //! Usage:
-//!   wayland-core swarm --workers <N> --worker-command "<cmd>" \
+//!   genesis-core swarm --workers <N> --worker-command "<cmd>" \
 //!                      [--repo <path>] [--brief <path>] \
 //!                      [--base-branch <name>] [--branch-prefix <name>] \
 //!                      [--timeout <humantime>] [--task <label>]

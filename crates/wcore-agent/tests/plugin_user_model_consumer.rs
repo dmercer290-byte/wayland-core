@@ -12,7 +12,7 @@
 //! reader; this test guards against regression of that gap.
 
 use serde_json::json;
-use wayland_honcho::HonchoClient;
+use genesis_honcho::HonchoClient;
 use wcore_agent::plugins::apply::{ReifiedUserModel, ReifiedUserModelBackend};
 use wcore_agent::test_utils::e2e_fixture::E2eFixture;
 use wcore_types::llm::LlmEvent;
@@ -51,7 +51,7 @@ async fn session_end_pum_mirrors_to_plugin_reified_honcho_backend() {
     let mock = HonchoClient::mock();
     fx.engine_mut()
         .set_plugin_user_models(vec![ReifiedUserModel {
-            plugin: "wayland-honcho".to_string(),
+            plugin: "genesis-honcho".to_string(),
             name: "honcho-mock".to_string(),
             backend: ReifiedUserModelBackend::Honcho(mock),
         }]);

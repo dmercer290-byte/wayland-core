@@ -1,6 +1,6 @@
 [package]
 name = "wcore-eval-scenarios"
-description = "Scenario-level eval harness for wayland-core — drives the real binary against real LLM APIs"
+description = "Scenario-level eval harness for genesis-core — drives the real binary against real LLM APIs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,8 +13,8 @@ name = "wcore_eval_scenarios"
 path = "src/lib.rs"
 
 [[bin]]
-name = "wayland-eval"
-path = "bin/wayland-eval.rs"
+name = "genesis-eval"
+path = "bin/genesis-eval.rs"
 
 [dependencies]
 # Async runtime — used by the runner for spawn/timeout/stderr-drain.
@@ -30,7 +30,7 @@ tempfile     = { workspace = true }
 # Error plumbing.
 anyhow       = { workspace = true }
 thiserror    = { workspace = true }
-# clap for the wayland-eval CLI (full CLI lands in T5; bin stub here).
+# clap for the genesis-eval CLI (full CLI lands in T5; bin stub here).
 clap         = { workspace = true }
 # Structured logging for runner diagnostics.
 tracing      = { workspace = true }
@@ -39,7 +39,7 @@ tracing      = { workspace = true }
 # `#[allow(clippy::disallowed_methods)]` (see judge.rs) rather than routing
 # through wcore-egress, which would add an internal-crate edge this crate avoids.
 reqwest      = { workspace = true }
-# D8 PTY TUI capture — drive wayland-core's ratatui TUI under a pseudo-terminal
+# D8 PTY TUI capture — drive genesis-core's ratatui TUI under a pseudo-terminal
 # and read the rendered screen. Direct deps (not in [workspace.dependencies])
 # but already in the lockfile via wcore-cli's TUI harness; vt100 pinned <0.16 to
 # keep unicode-width =0.2.0 (ratatui 0.29). Unix-only (see pty_capture.rs gate).
@@ -51,7 +51,7 @@ vt100        = "0.15"
 wcore-protocol = { workspace = true }
 
 [dev-dependencies]
-# Tests need the wayland-core binary available — declaring wcore-cli as
+# Tests need the genesis-core binary available — declaring wcore-cli as
 # an artifact dev-dep would also work, but the runner already supports
 # binary discovery via WCORE_EVAL_BIN env + relative target/ walk
 # (mirrors the existing release_binary_smoke.rs pattern). The smoke

@@ -60,13 +60,13 @@ use wcore_plugin_api::manifest::PluginManifest;
 
 use crate::error::{Result, WasmPluginError};
 use crate::host_adapters::http::{
-    DenyHostHttp, EmptySecretSource, GatedHostHttp, SecretSource, WaylandHostHttp,
+    DenyHostHttp, EmptySecretSource, GatedHostHttp, SecretSource, GenesisHostHttp,
 };
-use crate::host_adapters::log::{GatedHostLog, WaylandHostLog};
-use crate::host_adapters::secrets::{DenyHostSecrets, GatedHostSecrets, WaylandHostSecrets};
-use crate::host_adapters::tools::{DenyHostTools, GatedHostTools, ToolRegistry, WaylandHostTools};
+use crate::host_adapters::log::{GatedHostLog, GenesisHostLog};
+use crate::host_adapters::secrets::{DenyHostSecrets, GatedHostSecrets, GenesisHostSecrets};
+use crate::host_adapters::tools::{DenyHostTools, GatedHostTools, ToolRegistry, GenesisHostTools};
 use crate::host_adapters::workspace::{
-    DenyHostWorkspace, GatedHostWorkspace, WaylandHostWorkspace,
+    DenyHostWorkspace, GatedHostWorkspace, GenesisHostWorkspace,
 };
 use crate::limiter::{WasmPluginLimits, WasmResourceLimiter};
 use crate::runtime::{EpochTicker, build_engine};
@@ -97,15 +97,15 @@ pub struct ToolOutput {
 /// this struct.
 pub struct HostState {
     /// HTTP egress adapter.
-    pub http: Box<dyn WaylandHostHttp>,
+    pub http: Box<dyn GenesisHostHttp>,
     /// Workspace filesystem adapter.
-    pub workspace: Arc<dyn WaylandHostWorkspace>,
+    pub workspace: Arc<dyn GenesisHostWorkspace>,
     /// Secret-existence adapter (existence-only by construction).
-    pub secrets: Arc<dyn WaylandHostSecrets>,
+    pub secrets: Arc<dyn GenesisHostSecrets>,
     /// Tool-invocation adapter.
-    pub tools: Arc<dyn WaylandHostTools>,
+    pub tools: Arc<dyn GenesisHostTools>,
     /// Log adapter (always allowed; no `Deny*` variant).
-    pub log: Arc<dyn WaylandHostLog>,
+    pub log: Arc<dyn GenesisHostLog>,
     /// Resource limiter attached to the per-call `Store` via
     /// `Store::limiter`. Wave 6B.2 — caps memory growth + instance/table
     /// counts per the manifest's plugin limits.
@@ -371,7 +371,7 @@ impl LoadedWasmPlugin {
         let gate = self.gate.clone();
 
         // ---- HTTP ----------------------------------------------------
-        let http: Box<dyn WaylandHostHttp> = if self.permissions.allow_network {
+        let http: Box<dyn GenesisHostHttp> = if self.permissions.allow_network {
             let secret_source: Arc<dyn SecretSource> = self
                 .secret_source
                 .clone()
@@ -391,7 +391,7 @@ impl LoadedWasmPlugin {
         // GatedHostWorkspace owns one permission pair (read + write); we
         // attach it when EITHER flag is set so callers see the
         // appropriate per-op deny if only one is enabled.
-        let workspace: Arc<dyn WaylandHostWorkspace> =
+        let workspace: Arc<dyn GenesisHostWorkspace> =
             if self.permissions.allow_workspace_read || self.permissions.allow_workspace_write {
                 Arc::new(GatedHostWorkspace::new(
                     gate.clone(),
@@ -405,7 +405,7 @@ impl LoadedWasmPlugin {
             };
 
         // ---- Secrets -------------------------------------------------
-        let secrets: Arc<dyn WaylandHostSecrets> = if self.permissions.permitted_secrets.is_empty()
+        let secrets: Arc<dyn GenesisHostSecrets> = if self.permissions.permitted_secrets.is_empty()
         {
             Arc::new(DenyHostSecrets)
         } else {
@@ -417,7 +417,7 @@ impl LoadedWasmPlugin {
         };
 
         // ---- Tool-invoke ---------------------------------------------
-        let tools: Arc<dyn WaylandHostTools> = if self.permissions.allow_tool_invoke {
+        let tools: Arc<dyn GenesisHostTools> = if self.permissions.allow_tool_invoke {
             Arc::new(GatedHostTools::new(
                 gate.clone(),
                 plugin.clone(),
@@ -429,7 +429,7 @@ impl LoadedWasmPlugin {
         };
 
         // ---- Log -----------------------------------------------------
-        let log: Arc<dyn WaylandHostLog> = Arc::new(GatedHostLog::new(plugin));
+        let log: Arc<dyn GenesisHostLog> = Arc::new(GatedHostLog::new(plugin));
 
         HostState {
             http,
@@ -457,7 +457,7 @@ impl LoadedWasmPlugin {
     ///    `store.set_fuel(...)`, and `store.set_epoch_deadline(...)` so
     ///    memory / fuel / wall-clock limits actually fire.
     /// 3. Builds a fresh [`Linker`] and registers every host import via
-    ///    `WaylandTool::add_to_linker` (delegates each WIT method to the
+    ///    `GenesisTool::add_to_linker` (delegates each WIT method to the
     ///    `Gated*`/`Deny*` adapter held on `HostState`).
     /// 4. Instantiates the component asynchronously and dispatches
     ///    `tool.execute` with the WIT `Request` record.
@@ -489,15 +489,15 @@ impl LoadedWasmPlugin {
         let deadline_ticks = (self.limits.timeout_secs * 1000).div_ceil(interval_ms);
         store.set_epoch_deadline(deadline_ticks.max(1));
 
-        // Linker: register every host import for the `wayland-tool` world.
+        // Linker: register every host import for the `genesis-tool` world.
         let mut linker: Linker<HostState> = Linker::new(&self.engine);
-        crate::bindings::tool::WaylandTool::add_to_linker::<
+        crate::bindings::tool::GenesisTool::add_to_linker::<
             _,
             wasmtime::component::HasSelf<HostState>,
         >(&mut linker, |s: &mut HostState| s)
         .map_err(|e| WasmPluginError::ExecuteFailed(e.context("add_to_linker")))?;
 
-        let bindings = crate::bindings::tool::WaylandTool::instantiate_async(
+        let bindings = crate::bindings::tool::GenesisTool::instantiate_async(
             &mut store,
             &self.component,
             &linker,
@@ -505,7 +505,7 @@ impl LoadedWasmPlugin {
         .await
         .map_err(|e| WasmPluginError::InstantiateFailed(e.context("instantiate_async")))?;
 
-        let request = crate::bindings::tool::exports::wayland::host::tool::Request {
+        let request = crate::bindings::tool::exports::genesis::host::tool::Request {
             input: input.to_string(),
             call_id: caps.call_id.clone(),
             source_agent: caps.source_agent.clone(),
@@ -519,7 +519,7 @@ impl LoadedWasmPlugin {
         );
 
         let result = bindings
-            .wayland_host_tool()
+            .genesis_host_tool()
             .call_execute(&mut store, &request)
             .await
             .map_err(|e| WasmPluginError::ExecuteFailed(e.context("call_execute")))?;
@@ -558,11 +558,11 @@ impl LoadedWasmPlugin {
 /// Pick a per-plugin workspace root, isolated from every other plugin.
 ///
 /// Prior behavior (M-6/plugins-8): every plugin shared one fixed
-/// `$TMPDIR/wayland/plugin-workspace` — no inter-plugin isolation and a
+/// `$TMPDIR/genesis/plugin-workspace` — no inter-plugin isolation and a
 /// predictable world-reachable staging path that combined with the symlink
 /// hole (M-5) to escape the sandbox.
 ///
-/// Now we derive `<base>/wayland/plugin-workspace/<sanitized-name>-<hash>`,
+/// Now we derive `<base>/genesis/plugin-workspace/<sanitized-name>-<hash>`,
 /// where `<base>` prefers the user data dir and falls back to the temp dir.
 /// The name component is sanitized + suffixed with a stable hash of the full
 /// plugin name so two plugins cannot collide even after sanitization. The
@@ -572,7 +572,7 @@ impl LoadedWasmPlugin {
 fn component_workspace_root(manifest: &PluginManifest) -> PathBuf {
     let base = workspace_base_dir();
     let leaf = per_plugin_leaf(&manifest.plugin.name);
-    let root = base.join("wayland").join("plugin-workspace").join(leaf);
+    let root = base.join("genesis").join("plugin-workspace").join(leaf);
 
     if let Err(e) = prepare_secure_dir(&root) {
         // Fail-soft on the path value but loudly: the workspace adapter still
@@ -677,7 +677,7 @@ fn prepare_secure_dir(root: &Path) -> std::io::Result<()> {
 
 /// `mkdir -p` with `0700` on the leaf-most directories we create. We create
 /// parents permissively (they may be shared, e.g. `~/.local/share`) but lock
-/// down the wayland-owned subtree.
+/// down the genesis-owned subtree.
 fn create_dir_all_secure(root: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
@@ -1055,7 +1055,7 @@ tool_namespace = "legacy"
         // Happy path: fresh dir is created 0700.
         let good = base
             .path()
-            .join("wayland")
+            .join("genesis")
             .join("plugin-workspace")
             .join("p");
         prepare_secure_dir(&good).expect("secure dir");

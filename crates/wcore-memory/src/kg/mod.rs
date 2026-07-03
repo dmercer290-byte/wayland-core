@@ -5,7 +5,7 @@
 //! Schema, BFS, node/edge upsert, and `kg_enabled()` all work. `init_kg`
 //! runs in `AgentBootstrap::build()` on the production Memory instance
 //! (gated by `kg_enabled()`), and the fact-extraction pipeline (W5) upserts
-//! nodes/edges at session/turn end. The `WAYLAND_KG=off` rollback flag
+//! nodes/edges at session/turn end. The `GENESIS_KG=off` rollback flag
 //! disables KG init.
 //!
 //! Sibling to `propagation.rs` (session-lineage forest) — NO shared abstraction.
@@ -17,7 +17,7 @@
 //!   - BFS reads kg_edges in BOTH directions (undirected at the read layer)
 //!     and caps depth + visited count.
 //!
-//! Rollback: set `WAYLAND_KG=off` (callers gate `kg::init` on this env var)
+//! Rollback: set `GENESIS_KG=off` (callers gate `kg::init` on this env var)
 //! to skip KG creation and bfs operations.
 //! Migration: `schema::init()` is idempotent — safe to run on existing
 //! memory dbs. Not auto-called from `apply_migrations`; consumers opt in.
@@ -36,9 +36,9 @@ pub use schema::init as init_kg;
 
 /// Env var controlling KG behavior. Set to `"off"` to disable.
 /// Anything else (including unset) keeps the KG enabled.
-pub const ENV_KG: &str = "WAYLAND_KG";
+pub const ENV_KG: &str = "GENESIS_KG";
 
-/// Returns `true` unless `WAYLAND_KG` is set to (case-insensitive) `"off"`.
+/// Returns `true` unless `GENESIS_KG` is set to (case-insensitive) `"off"`.
 /// Mirrors the [`crate::staleness::staleness_enabled`] /
 /// [`crate::auto_memorize::consent_granted`] opt-out pattern.
 pub fn kg_enabled() -> bool {

@@ -53,7 +53,7 @@ Execute a shell command and return the result.
   windows_shell = "powershell"   # or "pwsh"
   ```
 
-  Or set `WAYLAND_BASH_SHELL=powershell` / `=pwsh` at runtime, which overrides
+  Or set `GENESIS_BASH_SHELL=powershell` / `=pwsh` at runtime, which overrides
   the config key. Either way it affects the Bash tool only — hook, MCP, and
   skill shells keep `cmd /C`. No-op on Unix.
 
@@ -182,7 +182,7 @@ walks the directory tree, never writes.
 
 ## Browser tool family (W8c.1)
 
-`Browser::*` tools are registered by the `wayland-browser` plugin
+`Browser::*` tools are registered by the `genesis-browser` plugin
 (via `wcore-browser`). Every op shares the ARIA-tree surface so
 prompt budgets stay bounded.
 
@@ -203,7 +203,7 @@ run; see `docs/json-stream-protocol.md` §§1.N+6 and 1.N+7.
 
 ## Computer use (W8c.2)
 
-`Cua::*` tools are registered by the `wayland-cua` plugin (via
+`Cua::*` tools are registered by the `genesis-cua` plugin (via
 `wcore-cua`). Every op honours the background-mode invariant: no
 foreground-app focus stealing.
 
@@ -227,7 +227,7 @@ engine emits `cua_event` and `cua_policy_denied` while ops run; see
 
 ## IJFW tools (W8c.3)
 
-`ijfw::*` tools are registered by the `wayland-ijfw` anchor plugin.
+`ijfw::*` tools are registered by the `genesis-ijfw` anchor plugin.
 The tool bodies delegate to the registered IJFW MCP server
 (`ijfw-memory`); both names below are addressable by the LLM through
 the standard `tool_request` flow.
@@ -282,9 +282,9 @@ so search never hard-fails — except when explicitly disabled.
 
 | Priority | Trigger | Backend |
 |----------|---------|---------|
-| override | `WAYLAND_WEB_BACKEND=off` | disabled (no fallback) |
-| override | `WAYLAND_WEB_BACKEND=duckduckgo` | DuckDuckGo only |
-| override | `WAYLAND_WEB_BACKEND=parallel` | Parallel free → DDG |
+| override | `GENESIS_WEB_BACKEND=off` | disabled (no fallback) |
+| override | `GENESIS_WEB_BACKEND=duckduckgo` | DuckDuckGo only |
+| override | `GENESIS_WEB_BACKEND=parallel` | Parallel free → DDG |
 | 1 | `FIRECRAWL_API_KEY` (+ optional `FIRECRAWL_API_URL`) | Firecrawl → DDG |
 | 2 | `PARALLEL_API_KEY` | Parallel REST → DDG |
 | 3 | `TAVILY_API_KEY` | Tavily → DDG |
@@ -293,14 +293,14 @@ so search never hard-fails — except when explicitly disabled.
 | 6 | `BRAVE_SEARCH_API_KEY` | Brave → DDG |
 | default | *(no keys)* | **Parallel free → DDG** |
 
-`WAYLAND_WEB_BACKEND` is an explicit override that wins over key presence;
+`GENESIS_WEB_BACKEND` is an explicit override that wins over key presence;
 `auto` (or unset / unrecognized) runs the ladder. The order matches the Hermes
 agent's preference (firecrawl → parallel → tavily → exa → searxng → brave → ddg).
 
 **Default (no config):** the engine uses Parallel.ai's free, anonymous Search
 MCP (`https://search.parallel.ai/mcp`) — ranked URLs with query-relevant
 excerpts, no API key. **Privacy:** your search queries are sent to parallel.ai.
-A one-time log notes this on first use; set `WAYLAND_WEB_BACKEND=duckduckgo` to
+A one-time log notes this on first use; set `GENESIS_WEB_BACKEND=duckduckgo` to
 keep queries on DuckDuckGo, or `=off` to disable web search entirely.
 
 **SearXNG** is gated by `SEARXNG_URL` (your own or a public instance — the

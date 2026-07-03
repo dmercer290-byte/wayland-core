@@ -171,7 +171,7 @@ const GCLOUD_ENV_PREFIXES: &[&str] = &["CLOUDSDK_"];
 /// D.1 Round 1 (HIGH-2): the env is a *curated* passthrough via
 /// [`crate::env_passthrough::build_sandboxed_env_with_prefixes`] —
 /// `PATH` / `HOME` plus the `CLOUDSDK_*` discovery family reach the
-/// child, but provider API keys, `WAYLAND_VAULT_PASSPHRASE`, and other
+/// child, but provider API keys, `GENESIS_VAULT_PASSPHRASE`, and other
 /// secret-shaped vars (including `CLOUDSDK_AUTH_ACCESS_TOKEN`) are
 /// dropped (previously the full host env was copied). Network is
 /// `Inherit` (gcloud is an API client).

@@ -12,7 +12,7 @@ use super::{SlashError, SlashHandler, SlashInvocation, SlashOutcome};
 /// - [`PluginHandler::Runtime`] enumerates the live keepalive vector
 ///   held on the engine ([`crate::engine::AgentEngine::plugin_runtime_handles`])
 ///   for `list`. `install` / `remove` continue to point at the
-///   standalone `wayland-core plugin {install,remove}` CLI because
+///   standalone `genesis-core plugin {install,remove}` CLI because
 ///   plugin install records live on disk and require a restart for the
 ///   running session to pick up — the slash variant is documenting the
 ///   real workflow, not pretending to mutate runtime state.
@@ -75,7 +75,7 @@ impl PluginHandler {
             Self::Stub => Ok(SlashOutcome::Handled {
                 output: Some(
                     "/plugin list: full plugin inventory needs the runtime \
-                     PluginRegistry handle; use `wayland-core plugin list` \
+                     PluginRegistry handle; use `genesis-core plugin list` \
                      from the CLI in v0.7.0."
                         .to_string(),
                 ),
@@ -90,14 +90,14 @@ impl PluginHandler {
         match self {
             Self::Stub => Ok(SlashOutcome::Handled {
                 output: Some(format!(
-                    "use `wayland-core plugin install {name}` from the CLI in v0.7.0"
+                    "use `genesis-core plugin install {name}` from the CLI in v0.7.0"
                 )),
             }),
             Self::Runtime { .. } => Ok(SlashOutcome::Handled {
                 output: Some(format!(
                     "/plugin install {name}: install records live on disk and require \
                      a restart for this session to pick up the new plugin. \
-                     Run `wayland-core plugin install {name}` from another \
+                     Run `genesis-core plugin install {name}` from another \
                      terminal, then restart this session."
                 )),
             }),
@@ -108,13 +108,13 @@ impl PluginHandler {
         match self {
             Self::Stub => Ok(SlashOutcome::Handled {
                 output: Some(format!(
-                    "use `wayland-core plugin remove {name}` from the CLI in v0.7.0"
+                    "use `genesis-core plugin remove {name}` from the CLI in v0.7.0"
                 )),
             }),
             Self::Runtime { .. } => Ok(SlashOutcome::Handled {
                 output: Some(format!(
                     "/plugin remove {name}: install records live on disk; \
-                     run `wayland-core plugin remove {name}` from another \
+                     run `genesis-core plugin remove {name}` from another \
                      terminal. The change takes effect at the next session start."
                 )),
             }),

@@ -46,7 +46,7 @@ fn tc_s2_1_episode_insert_rollback_leaves_no_orphan() {
                 "test summary",
                 "[]",
                 "test",
-                "wayland",
+                "genesis",
                 "sess-1",
                 "/tmp/proj",
                 1.0f64,

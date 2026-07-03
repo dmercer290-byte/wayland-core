@@ -1,6 +1,6 @@
 [package]
 name = "wcore-permissions"
-description = "Multi-actor ACL + bearer-token authn/authz for wayland-core sessions (Team Mode foundation)"
+description = "Multi-actor ACL + bearer-token authn/authz for genesis-core sessions (Team Mode foundation)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

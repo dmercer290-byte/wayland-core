@@ -1,6 +1,6 @@
 //! T3-3.7 — `cronjob` scheduled-task management tool.
 //!
-//! Ported from the prior Wayland Python engine. The Python
+//! Ported from the prior Genesis Python engine. The Python
 //! original is a thin dispatch surface over `cron.jobs` (a JSON-file
 //! scheduler ticked by the gateway daemon). The engine has no such
 //! daemon, so this port covers the **dispatch surface** only — schema,
@@ -13,7 +13,7 @@
 //! the NO-STUBS contract of T3.
 //!
 //! Divergences from the Python original (intentional):
-//! * Origin auto-detection from `WAYLAND_SESSION_*` env vars is moved to
+//! * Origin auto-detection from `GENESIS_SESSION_*` env vars is moved to
 //!   an optional `origin` hint on the trait — origin discovery is a
 //!   host/gateway concern, not an engine concern.
 //! * Schedule parsing is inline (duration, "every X", ISO timestamp,
@@ -22,7 +22,7 @@
 //!   re-validate the expression and reject it via `SchedulerError`.
 //! * Script path validation accepts only relative paths (parity with
 //!   `_validate_cron_script_path`), but the actual containment check
-//!   defers to the host because `~/.wayland/scripts/` is a host-defined
+//!   defers to the host because `~/.genesis/scripts/` is a host-defined
 //!   directory.
 
 use std::sync::Arc;
@@ -280,16 +280,16 @@ pub fn validate_cron_script_path(script: &str) -> Option<String> {
     }
     if raw.starts_with('/') || raw.starts_with('~') {
         return Some(format!(
-            "Script path must be relative to ~/.wayland/scripts/. \
+            "Script path must be relative to ~/.genesis/scripts/. \
              Got absolute or home-relative path: {raw:?}. \
-             Place scripts in ~/.wayland/scripts/ and use just the filename."
+             Place scripts in ~/.genesis/scripts/ and use just the filename."
         ));
     }
     // Windows drive prefix like `C:`.
     let bytes = raw.as_bytes();
     if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
         return Some(format!(
-            "Script path must be relative to ~/.wayland/scripts/. \
+            "Script path must be relative to ~/.genesis/scripts/. \
              Got absolute or home-relative path: {raw:?}."
         ));
     }
@@ -649,7 +649,7 @@ impl CronScheduler for CapturingCronScheduler {
 // Tool surface
 // ---------------------------------------------------------------------------
 
-/// `cronjob` tool — Wayland engine port of `cronjob_tools.py`.
+/// `cronjob` tool — Genesis engine port of `cronjob_tools.py`.
 pub struct CronJobTool {
     scheduler: Arc<dyn CronScheduler>,
     /// v0.9.0 W1 B6: defaults `false` so `Tool::is_available()` hides
@@ -817,7 +817,7 @@ impl Tool for CronJobTool {
                 },
                 "script": {
                     "type": "string",
-                    "description": "Optional Python script path under ~/.wayland/scripts/. Pass '' on update to clear."
+                    "description": "Optional Python script path under ~/.genesis/scripts/. Pass '' on update to clear."
                 }
             },
             "required": ["action"]

@@ -1,7 +1,7 @@
 //! PTY SMOKE — Lane F2: the `/plugins` marketplace overlay, end to end.
 //!
 //! Layer-2 sibling of `harness_tui_flow.rs`: spawn the compiled
-//! `wayland-core` binary attached to a real pseudo-terminal, drive it with
+//! `genesis-core` binary attached to a real pseudo-terminal, drive it with
 //! keystrokes, parse the rendered byte stream with `vt100`, and assert on
 //! stable text anchors. This file proves the `/plugins` overlay actually
 //! works against a live render loop — browse → inspect (consent) → install
@@ -41,12 +41,12 @@ use wcore_cli::plugin::marketplace::add_marketplace_source;
 
 /// Path to the debug binary under test.
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_wayland-core")
+    env!("CARGO_BIN_EXE_genesis-core")
 }
 
 /// Seed `<home>/config.toml` so the TUI first-run gate resolves to
 /// `Workspace` (not `Onboarding`) without a real provider key. The spawn
-/// helper sets `WAYLAND_HOME=<home>`, so `wcore_config::wayland_config_dir()`
+/// helper sets `GENESIS_HOME=<home>`, so `wcore_config::genesis_config_dir()`
 /// returns `<home>` and `global_config_path()` is `<home>/config.toml` on all
 /// platforms. The marketplace overlay never sends an agent turn, so no
 /// network call is ever made. Mirrors `harness_tui_flow::seed_config`.
@@ -98,7 +98,7 @@ fn build_fixture(dir: &Path) {
     );
 }
 
-/// Drives one PTY-attached `wayland-core` process. Trimmed copy of
+/// Drives one PTY-attached `genesis-core` process. Trimmed copy of
 /// `harness_tui_flow::PtyHarness` (the marketplace smoke needs only spawn /
 /// screen / wait_for / send — no mock-LLM, no resize, no resume). Each
 /// integration test is its own binary, so the harness is duplicated rather
@@ -113,8 +113,8 @@ struct PtyHarness {
 }
 
 impl PtyHarness {
-    /// Spawn `wayland-core` on a fresh 120x40 PTY with a hermetic env:
-    /// `WAYLAND_HOME`/`HOME` at the tempdir, a TTY-capable `TERM`, and every
+    /// Spawn `genesis-core` on a fresh 120x40 PTY with a hermetic env:
+    /// `GENESIS_HOME`/`HOME` at the tempdir, a TTY-capable `TERM`, and every
     /// inherited provider credential stripped.
     fn spawn(home: &Path) -> Self {
         let pty = native_pty_system()
@@ -128,13 +128,13 @@ impl PtyHarness {
 
         let mut cmd = CommandBuilder::new(binary());
         cmd.env("HOME", home);
-        cmd.env("WAYLAND_HOME", home);
+        cmd.env("GENESIS_HOME", home);
         cmd.env("TERM", "xterm-256color");
         cmd.env_remove("API_KEY");
         cmd.env_remove("ANTHROPIC_API_KEY");
         cmd.env_remove("OPENAI_API_KEY");
         cmd.cwd(home);
-        let child = pty.slave.spawn_command(cmd).expect("spawn wayland-core");
+        let child = pty.slave.spawn_command(cmd).expect("spawn genesis-core");
 
         let mut reader = pty.master.try_clone_reader().expect("clone PTY reader");
         let parser = std::sync::Arc::new(std::sync::Mutex::new(vt100::Parser::new(40, 120, 0)));
@@ -220,7 +220,7 @@ impl Drop for PtyHarness {
 fn boot_to_workspace(home: &Path) -> PtyHarness {
     let h = PtyHarness::spawn(home);
     h.wait_for(
-        |s| s.contains("WAYLAND") && s.contains("Workspace"),
+        |s| s.contains("GENESIS") && s.contains("Workspace"),
         Duration::from_secs(60),
         "TUI to render the chrome wordmark and Workspace tab",
     );
@@ -249,7 +249,7 @@ fn plugins_overlay_browse_install_uninstall_round_trip() {
     seed_config(home.path());
 
     // The overlay's store root is `profile_home()/plugins` == `<home>/plugins`
-    // (WAYLAND_HOME override). Pre-register the local marketplace there so the
+    // (GENESIS_HOME override). Pre-register the local marketplace there so the
     // catalog cache exists and Browse is populated on `on_enter`.
     let store = home.path().join("plugins");
     let quarantine = store.join(".quarantine");

@@ -1,17 +1,17 @@
 <div align="center">
 
-![Wayland Core — Forged to run. Hardened to last. Built to evolve.](docs/img/hero.png)
+![Genesis Core — Forged to run. Hardened to last. Built to evolve.](docs/img/hero.png)
 
-# Wayland Core
+# Genesis Core
 
 ### The self-evolving AI agent. Brilliant today, smarter tomorrow.
 
-**Most AI tools are as good as they'll ever be the day you install them. Wayland Core isn't — it convenes a council of rival models on your hardest problems, fuses their best answer into one, and rewrites its own prompts to get sharper every single run. Terminal-first, on your keys, in Rust.**
+**Most AI tools are as good as they'll ever be the day you install them. Genesis Core isn't — it convenes a council of rival models on your hardest problems, fuses their best answer into one, and rewrites its own prompts to get sharper every single run. Terminal-first, on your keys, in Rust.**
 
 Terminal-first · Multi-provider · Self-evolving · MCP-native · Embeddable · Apache-2.0
 
-[![npm](https://img.shields.io/npm/v/@ferroxlabs/wayland-core?style=for-the-badge&logo=npm&logoColor=white&label=npm&color=e85d2a)](https://www.npmjs.com/package/@ferroxlabs/wayland-core)
-[![CI](https://img.shields.io/github/actions/workflow/status/FerroxLabs/wayland-core/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI&branch=main)](https://github.com/FerroxLabs/wayland-core/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@ferroxlabs/genesis-core?style=for-the-badge&logo=npm&logoColor=white&label=npm&color=e85d2a)](https://www.npmjs.com/package/@ferroxlabs/genesis-core)
+[![CI](https://img.shields.io/github/actions/workflow/status/dmercer290-byte/wayland-core/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI&branch=main)](https://github.com/dmercer290-byte/wayland-core/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-3b3b3b?style=for-the-badge)](LICENSE)
 [![Rust](https://img.shields.io/badge/built_with-Rust-dea584?style=for-the-badge&logo=rust&logoColor=black)](https://www.rust-lang.org/)
 [![platforms](https://img.shields.io/badge/macOS_·_Linux_·_Windows-2b2b2b?style=for-the-badge)](#install)
@@ -23,21 +23,21 @@ Terminal-first · Multi-provider · Self-evolving · MCP-native · Embeddable ·
 
 ---
 
-Most agents are frozen the day you install them, and married to one model. Wayland Core is neither. Hand it a hard problem and it convenes a **council of rival models** that cross-audit into one answer ([Crucible](#crucible--a-mixture-of-providers-council)). It **rewrites and scores its own prompts** between runs ([GEPA](#self-evolution-gepa)). Every tool runs in an OS-native sandbox behind a single egress gate, and it speaks [MCP](https://modelcontextprotocol.io/) in both directions — all from one Rust binary, on your keys. It's the engine inside [Wayland Desktop](https://getwayland.com), but it stands alone: a one-shot command, a full-screen TUI, or a headless stream you embed.
+Most agents are frozen the day you install them, and married to one model. Genesis Core is neither. Hand it a hard problem and it convenes a **council of rival models** that cross-audit into one answer ([Crucible](#crucible--a-mixture-of-providers-council)). It **rewrites and scores its own prompts** between runs ([GEPA](#self-evolution-gepa)). Every tool runs in an OS-native sandbox behind a single egress gate, and it speaks [MCP](https://modelcontextprotocol.io/) in both directions — all from one Rust binary, on your keys. It's the engine inside [Wayland Desktop](https://getwayland.com), but it stands alone: a one-shot command, a full-screen TUI, or a headless stream you embed.
 
-> **Wayland Core** is the engine, on its own, open (this repo, Apache-2.0). **[Wayland Desktop](https://getwayland.com)** is the GUI product built on it. Core is the engine; Desktop is one application that embeds it.
+> **Genesis Core** is the engine, on its own, open (this repo, Apache-2.0). **[Wayland Desktop](https://getwayland.com)** is the GUI product built on it. Core is the engine; Desktop is one application that embeds it.
 
 ## The 30-second proof
 
 ```bash
-npx @ferroxlabs/wayland-core@latest "read Cargo.toml, list the workspace crates, and explain the dependency layering"
+npx @ferroxlabs/genesis-core@latest "read Cargo.toml, list the workspace crates, and explain the dependency layering"
 ```
 
-One command. The agent reads the file, runs `grep`/`glob` across the tree, reasons, and answers, with every tool call gated and streamed. Or run `wayland-core` with no arguments and it detects your provider keys and drops you into the TUI:
+One command. The agent reads the file, runs `grep`/`glob` across the tree, reasons, and answers, with every tool call gated and streamed. Or run `genesis-core` with no arguments and it detects your provider keys and drops you into the TUI:
 
 <div align="center">
 
-![Wayland Core — connect a provider](docs/img/screenshot-onboarding.png)
+![Genesis Core — connect a provider](docs/img/screenshot-onboarding.png)
 
 </div>
 
@@ -47,7 +47,7 @@ One command. The agent reads the file, runs `grep`/`glob` across the tree, reaso
 
 - **A standalone engine.** The engine is the product, not a feature bolted onto an editor and not a wrapper around one vendor's API.
 - **Terminal-first.** A one-shot command, an interactive TUI, or a headless stream. The terminal is the primary home, not an afterthought.
-- **Embeddable.** Drive it from your own app over a typed JSON-Lines protocol. It is exactly how Wayland Desktop uses it.
+- **Embeddable.** Drive it from your own app over a typed JSON-Lines protocol. It is exactly how Genesis Desktop uses it.
 - **Apache-2.0.** Permissive. Build on it commercially without an AGPL obligation.
 
 ## Install
@@ -55,38 +55,38 @@ One command. The agent reads the file, runs `grep`/`glob` across the tree, reaso
 **npm** (recommended, pulls the right prebuilt binary for your platform):
 
 ```bash
-npm install -g @ferroxlabs/wayland-core
-wayland-core --version
+npm install -g @ferroxlabs/genesis-core
+genesis-core --version
 ```
 
 ```bash
 # or run it once, no install
-npx @ferroxlabs/wayland-core@latest "summarize the TODOs in this repo and draft a triage plan"
+npx @ferroxlabs/genesis-core@latest "summarize the TODOs in this repo and draft a triage plan"
 ```
 
-**Prebuilt binaries** for macOS (arm64/x64), Linux (arm64/x64), and Windows (arm64/x64) are on the [Releases](https://github.com/FerroxLabs/wayland-core/releases) page, each verifiable against `wayland-core-checksums.txt`.
+**Prebuilt binaries** for macOS (arm64/x64), Linux (arm64/x64), and Windows (arm64/x64) are on the [Releases](https://github.com/dmercer290-byte/wayland-core/releases) page, each verifiable against `genesis-core-checksums.txt`.
 
 **From source** (Rust 1.95+):
 
 ```bash
-cargo install --git https://github.com/FerroxLabs/wayland-core wcore-cli
+cargo install --git https://github.com/dmercer290-byte/wayland-core wcore-cli
 ```
 
 ## Quick start
 
 ```bash
 # 1. Generate a config, then add an API key for any provider
-wayland-core --init-config
-wayland-core --config-path        # shows where the config lives
+genesis-core --init-config
+genesis-core --config-path        # shows where the config lives
 
 # 2. One-shot: the agent reads files and uses tools to answer
-wayland-core "Read Cargo.toml and explain the dependencies"
+genesis-core "Read Cargo.toml and explain the dependencies"
 
 # 3. Interactive TUI (just run it)
-wayland-core
+genesis-core
 
 # 4. Everything else
-wayland-core --help
+genesis-core --help
 ```
 
 ---
@@ -100,7 +100,7 @@ Vendor quirks don't get hardcoded. There is no `if base_url.contains("openai.com
 - **23 built-in providers, one `--provider <slug>` switch.** The slug picks the wire, the base URL, and the compat preset.
 - **Point any OpenAI-compatible backend at a built-in wire** with a custom alias — set `provider`, `model`, `api_key`, `base_url`, and you're done. No code.
 - **Override a quirk in config, not in a fork.** A self-hosted server that rejects `stream_options`? `include_usage_in_stream = false`.
-- **Data-driven pricing.** A bundled `pricing.toml` — 46 model rows across 25 provider tables — computes per-token cost in integer microcents from per-Mtok USD rates. Swap the whole catalog with `WAYLAND_PRICING_PATH`.
+- **Data-driven pricing.** A bundled `pricing.toml` — 46 model rows across 25 provider tables — computes per-token cost in integer microcents from per-Mtok USD rates. Swap the whole catalog with `GENESIS_PRICING_PATH`.
 - **Resilience is built in.** Transient failures retry automatically, with multi-key rotation on supported providers; opt into a circuit breaker plus same-provider model fallback with one `[provider_chain]` block.
 
 ```toml
@@ -116,13 +116,13 @@ include_usage_in_stream = false   # self-hosted server rejects stream_options
 
 <div align="center">
 
-![Providers and model routing — Wayland Core vs OpenClaw, Hermes, opencode, aider](docs/img/compare-providers.png)
+![Providers and model routing — Genesis Core vs OpenClaw, Hermes, opencode, aider](docs/img/compare-providers.png)
 
 </div>
 
 ## Orchestration & swarms
 
-A single agent is the floor, not the ceiling. Wayland Core fans one task out across many workers and brings the results back, with real isolation between them. Three distinct mechanisms ship in the code, and a four-tier topology model governs all of them: **Spawn** (5 agents), **Swarm** (20), **Mesh** (50), **Fleet** (100). Each tier fixes the agent cap, how much the parent sees, and the blackboard scope — and the caps are enforced, not advisory. Ask for 51 agents on a 50-cap tier and you get `TopologyError::ExceedsCap`, not a quietly-truncated run.
+A single agent is the floor, not the ceiling. Genesis Core fans one task out across many workers and brings the results back, with real isolation between them. Three distinct mechanisms ship in the code, and a four-tier topology model governs all of them: **Spawn** (5 agents), **Swarm** (20), **Mesh** (50), **Fleet** (100). Each tier fixes the agent cap, how much the parent sees, and the blackboard scope — and the caps are enforced, not advisory. Ask for 51 agents on a 50-cap tier and you get `TopologyError::ExceedsCap`, not a quietly-truncated run.
 
 - **Sub-agents (`Spawn`)** fan parallel work out from one tool call. Each sub-agent gets its own conversation context and its own tool access; the count is capped by the active topology (default Spawn, 5).
 - **Worktree swarm** runs N workers as OS subprocesses, each in a fresh `git worktree` on its own branch. A dirty-checkout guard runs `git status --porcelain` first and **refuses to dispatch on an uncommitted tree** — that guard exists because a contamination incident in v0.2.2 taught us why it has to. Per-worker timeouts, `kill_on_drop` SIGKILL on expiry, and idempotent `git worktree remove --force` cleanup. Process isolation, not threads, so one bad worker can't corrupt another.
@@ -130,15 +130,15 @@ A single agent is the floor, not the ceiling. Wayland Core fans one task out acr
 
 Every worker spawn goes through argv mode — `Command::new(program).args(args)`, no shell interpreter — so worker commands are never re-parsed by a shell. Final stdout/stderr come back through `collect()`; opt-in heartbeats (`.swarm-status.json`, ~5s tick) give you liveness without consuming the result.
 
-Roll the results up however the job needs. The `wayland-core swarm` CLI dispatches the worktree path and routes the collected results through one of four reducers:
+Roll the results up however the job needs. The `genesis-core swarm` CLI dispatches the worktree path and routes the collected results through one of four reducers:
 
 ```bash
 # Run the test suite across 4 isolated worktrees, roll up pass/fail/total
-wayland-core swarm --workers 4 --worker-command "cargo test" \
+genesis-core swarm --workers 4 --worker-command "cargo test" \
   --base-branch main --branch-prefix swarm/ci --timeout 30m --reduce fleet
 
 # Strict >50% majority over normalized worker stdout
-wayland-core swarm --workers 5 --worker-command "pytest" --reduce consensus
+genesis-core swarm --workers 5 --worker-command "pytest" --reduce consensus
 ```
 
 - `mesh` — verbatim passthrough of every worker result.
@@ -166,7 +166,7 @@ Crucible is a council of rival providers. Hand it a hard task and it fans out to
 
 <div align="center">
 
-![A cross-vendor Crucible council convening live in the Wayland Core TUI — two proposers (Gemini, OpenAI) and an independent Anthropic judge, with the certified spend ceiling shown before a cent is spent](docs/img/crucible-tui.png)
+![A cross-vendor Crucible council convening live in the Genesis Core TUI — two proposers (Gemini, OpenAI) and an independent Anthropic judge, with the certified spend ceiling shown before a cent is spent](docs/img/crucible-tui.png)
 
 </div>
 
@@ -189,7 +189,7 @@ proposers  = ["anthropic:claude-opus-4-7", "openai:gpt-5", "deepseek:deepseek-v4
 aggregator = "anthropic:claude-opus-4-7"   # optional; falls back to the first usable proposal
 ```
 
-Then run it: `wayland-core crucible "do a security audit of this deployment plan"`.
+Then run it: `genesis-core crucible "do a security audit of this deployment plan"`.
 
 Each member pulls its *own* credentials from your `[providers]` map, so a council is genuinely keyed across vendors, not one key wearing hats. Routing prefixes don't defeat that — a Flux-pinned GPT-5 and a direct `openai:gpt-5` collapse to the same vendor family, so the judge stays independent and an Auto roster stays diverse.
 
@@ -205,13 +205,13 @@ Fan-out is bounded by a per-route semaphore, and tail latency is capped: each pr
 
 Shipped in v0.12.11. The council pipeline carries 84 unit tests plus 31 integration tests across the gate, resolver, roster validation, budget, fan-out, and injection-fencing paths.
 
-**Where it's honest about its edges.** Some Flux-routed SKUs are unpriced today, so a Flux council can't always certify a hard ceiling — that's exactly why the per-run cap is opt-in and the daily envelope only soft-binds on Flux, accruing from actual usage instead of refusing up front. The daily envelope binds within a process, not yet across separate CLI runs. The convene-or-not gate is a deterministic heuristic, not a learned router. And the shipped invocation surface is the `wayland-core crucible` batch command; the slash command, natural-language tool, and full TUI/desktop approval cards are designed, not all shipped.
+**Where it's honest about its edges.** Some Flux-routed SKUs are unpriced today, so a Flux council can't always certify a hard ceiling — that's exactly why the per-run cap is opt-in and the daily envelope only soft-binds on Flux, accruing from actual usage instead of refusing up front. The daily envelope binds within a process, not yet across separate CLI runs. The convene-or-not gate is a deterministic heuristic, not a learned router. And the shipped invocation surface is the `genesis-core crucible` batch command; the slash command, natural-language tool, and full TUI/desktop approval cards are designed, not all shipped.
 
 ## Security by default (fail-closed)
 
 Security here is a posture, not a checkbox. When the safe thing and the convenient thing disagree, the engine picks safe and makes you opt out on purpose. Four mechanisms carry that, and they hold up when someone reads the source.
 
-- **No unsandboxed default.** Model-driven shell and tools run inside an OS-native sandbox — bubblewrap on Linux, `sandbox-exec` on macOS, AppContainer on Windows, Docker if you opt in. When no real sandbox is available, execution is refused, not quietly downgraded to host permissions. Running with no isolation takes an explicit `WAYLAND_ALLOW_NO_SANDBOX=1`. A stray `WAYLAND_SANDBOX=none` does nothing without it.
+- **No unsandboxed default.** Model-driven shell and tools run inside an OS-native sandbox — bubblewrap on Linux, `sandbox-exec` on macOS, AppContainer on Windows, Docker if you opt in. When no real sandbox is available, execution is refused, not quietly downgraded to host permissions. Running with no isolation takes an explicit `GENESIS_ALLOW_NO_SANDBOX=1`. A stray `GENESIS_SANDBOX=none` does nothing without it.
 - **One egress chokepoint, enforced by a lint.** Every outbound HTTP request flows through a single client, and a clippy lint bans constructing a raw `reqwest` client anywhere else — so a missed migration fails the build instead of leaking a hole. On that seam sits a fail-closed host allowlist for untrusted URLs, an exfil-shape classifier that hard-denies suspicious POSTs and high-entropy paths to non-allowlisted hosts, a hard byte-cap body reader, and a resolve-once resolver that re-checks the IP at connect time to close DNS-rebinding races. Deny stops *before* the socket opens. Shared multi-tenant suffixes — `amazonaws.com`, `*.workers.dev`, `*.vercel.app`, around 45 of them — can never be apex-allowlisted.
 - **SSRF and metadata floor, always on.** Cloud-metadata endpoints (`169.254.169.254` and the GCP, AWS, Alibaba, and Oracle equivalents) and lookalike hosts are rejected outright, independent of any allowlist you configure.
 - **Output validation and secret scrubbing.** Model output runs through a validator (refusal, credential-leak, and format checks) and a scrubber that redacts about 30 credential and PII shapes — AWS, OpenAI, Anthropic, GitHub, Slack, and Stripe keys, JWTs, PEM private keys, DB connection strings — down to `[REDACTED:KIND]`. An optional LLM-judge validator is budget-capped and fails *open*: it skips when the budget is spent and never blocks your turn.
@@ -244,7 +244,7 @@ The source backs this: the sandbox crate alone carries 110+ test cases, with 90+
 
 ## Browser + computer use
 
-The agent doesn't stop at the filesystem. Wayland Core ships two real desktop-automation tool families, both in-tree, both security-gated: a browser the agent drives, and synthesized control of the host desktop itself.
+The agent doesn't stop at the filesystem. Genesis Core ships two real desktop-automation tool families, both in-tree, both security-gated: a browser the agent drives, and synthesized control of the host desktop itself.
 
 **The `Browser` tool** is an interactive browser with a fixed, locked surface of 18 operations — navigate, snapshot, read, click, fill, press, select, upload, download, screenshot, get_state, wait_for, network_log, console, new_tab, close_tab, back, forward. It is ARIA-tree-first by design: the model reasons over an accessibility snapshot with `@e1`/`@e2` element refs, not raw DOM, so a page costs a bounded chunk of the prompt budget instead of dumping a megabyte of markup at the model. There is no JavaScript-evaluation op. The `Evaluate` variant is deliberately banned, and a test enforces its absence. For a plain read-only fetch the tool tells the model to use `WebFetch` instead.
 
@@ -257,7 +257,7 @@ The agent doesn't stop at the filesystem. Wayland Core ships two real desktop-au
 - **Screenshot redaction.** Two passes: an always-on heuristic password-band blur, then OCR-backed sensitive-text blur (Apple Vision on macOS, Windows.Media.Ocr on Windows, Tesseract on Linux behind a feature). The matcher catches emails, SSNs, 13–19-digit cards, and key prefixes like `sk-`, `ghp_`, `aws_secret_`. Best-effort, off by default.
 - **Isolated, cancellable.** Each sub-agent gets its own cookie jar and tab. Every op races a wall-clock deadline, the cancel token, and completion in a `tokio` select — Navigate gets 60s, Click/Fill 10s, and so on, with the browser running as a 120s-budget MCP-category tool, not a 600s one.
 
-Both families register through a thin plugin shell. Per audit F2 the `wayland-browser` and `wayland-cua` crates carry no dependency on the real `wcore-browser`/`wcore-cua` engine crates — they register a spec mirror through the plugin API and the host reifies the actual tool, so the isolation boundary is structural, not a convention. The host has to advertise `capabilities.browser_suite` / `capabilities.computer_use` or neither family registers at all. On Linux Wayland the adapter goes further and refuses registration outright on a restricted compositor (GNOME mutter default, focus-steal-off Hyprland), probed live and re-checked mid-session.
+Both families register through a thin plugin shell. Per audit F2 the `genesis-browser` and `genesis-cua` crates carry no dependency on the real `wcore-browser`/`wcore-cua` engine crates — they register a spec mirror through the plugin API and the host reifies the actual tool, so the isolation boundary is structural, not a convention. The host has to advertise `capabilities.browser_suite` / `capabilities.computer_use` or neither family registers at all. On Linux Wayland the adapter goes further and refuses registration outright on a restricted compositor (GNOME mutter default, focus-steal-off Hyprland), probed live and re-checked mid-session.
 
 ```toml
 [browser]
@@ -271,7 +271,7 @@ The depth shows up in the tests: 120+ `#[test]`/`#[tokio::test]` attributes acro
 
 ## Omni-channel deployment & scheduled triggers
 
-The same engine runs as a chat bot on ten messaging platforms, and fires itself on a schedule. Drop a TOML file in `~/.wayland/channels/`, boot the engine, and every enabled channel auto-registers. From there the agent answers inbound DMs and group messages with a real agent turn — reading, tool-calling, reasoning — and sends the reply back through the same platform.
+The same engine runs as a chat bot on ten messaging platforms, and fires itself on a schedule. Drop a TOML file in `~/.genesis/channels/`, boot the engine, and every enabled channel auto-registers. From there the agent answers inbound DMs and group messages with a real agent turn — reading, tool-calling, reasoning — and sends the reply back through the same platform.
 
 Each platform is its own crate, written against the platform-native API, not a generic webhook shim: **Slack** (Web API plus an Events webhook, HMAC-SHA256 signed with a 5-minute replay window), **Discord** (REST plus a Gateway WebSocket with heartbeat), **Telegram** (long-poll), **WhatsApp** (Cloud API plus Meta `X-Hub-Signature-256`), **Signal** (a `signal-cli` subprocess under a respawn supervisor), **SMS** (Twilio, HMAC-SHA1 webhook), **email** (SMTP out, IMAP poll in), **iMessage** (macOS, reads `chat.db` read-only, sends via AppleScript), **Matrix** (raw CS-API, deliberately no `matrix-sdk`), and **MS Teams** (Bot Framework, OAuth2 client-credentials).
 
@@ -281,7 +281,7 @@ Each platform is its own crate, written against the platform-native API, not a g
 - **Secrets are handles, not tokens.** The TOML carries a credential handle resolved from the OS credentials store at connection time. Over-long replies are chunked per the connector's own message-length limit, and reconnects back off and retry.
 
 ```toml
-# ~/.wayland/channels/tg.toml
+# ~/.genesis/channels/tg.toml
 name = "tg"
 platform = "telegram"
 enabled = true
@@ -298,14 +298,14 @@ tools = "conversational"       # conversational (default) | workspace | full
 ack = "both"                   # off | reactions | typing | both
 ```
 
-**Scheduled triggers** are the other half. The cron subsystem parses standard 5-field crontab (and 6/7-field) expressions and fires one of three action types on a recurrence: run a slash command, post a message to a channel, or invoke a skill. Jobs persist to `~/.wayland/cron/jobs.json` with an atomic write; outcomes append to a history ring buffer. It ticks every 30 seconds — either inline at engine boot, or as a detached daemon:
+**Scheduled triggers** are the other half. The cron subsystem parses standard 5-field crontab (and 6/7-field) expressions and fires one of three action types on a recurrence: run a slash command, post a message to a channel, or invoke a skill. Jobs persist to `~/.genesis/cron/jobs.json` with an atomic write; outcomes append to a history ring buffer. It ticks every 30 seconds — either inline at engine boot, or as a detached daemon:
 
 ```bash
-wayland-core cron add "0 9 * * *"   --skill morning-brief
-wayland-core cron add "*/15 * * * *" --slash "/status"
-wayland-core cron add "0 8 * * 1"   --channel team --text "Good morning"
-wayland-core cron list           # also: status · history · enable · disable · logs
-wayland-core cron daemon         # detached background runner
+genesis-core cron add "0 9 * * *"   --skill morning-brief
+genesis-core cron add "*/15 * * * *" --slash "/status"
+genesis-core cron add "0 8 * * 1"   --channel team --text "Good morning"
+genesis-core cron list           # also: status · history · enable · disable · logs
+genesis-core cron daemon         # detached background runner
 ```
 
 **What we do not claim yet.** Not every platform is full duplex. MS Teams is a send-only MVP; inbound is parsed but not yet exposed over the host. The inbound webhook host serves Slack, WhatsApp, and Twilio SMS only — the poll-based connectors (Telegram, Matrix, Signal) don't take webhooks. DM pairing is fail-closed: a pairing request is denied until you add the sender to the allowlist by hand. In the headless daemon, `--skill` and `--channel` jobs dispatch, but `--slash` jobs record as *staged* rather than executing. And inbound media enrichment (image-to-description, voice-to-transcript) is inert unless a vision or transcription key is configured. `tools = "full"` on a publicly reachable channel is host-wide access identical to a local CLI session — the code and docs both flag it as dangerous.
@@ -314,7 +314,7 @@ Ten platform crates, in-tree, each wired to a registry factory. More than 500 te
 
 ## Memory, sessions & cost governance
 
-An agent that forgets every session and spends without a ceiling is a liability. Wayland Core gives it a persistent brain that's on out of the box and hard money guardrails you set, both built to hold up when someone reads the source.
+An agent that forgets every session and spends without a ceiling is a liability. Genesis Core gives it a persistent brain that's on out of the box and hard money guardrails you set, both built to hold up when someone reads the source.
 
 **Cross-session memory.** A SQLite-backed store so the agent remembers what it saw, did, learned, and concluded, instead of starting blank every run. It is organized as five partitions (Working, Episodic, Semantic, Procedural, and a Core user-model) across three durability tiers (Session, Project, Global), which is exactly nine valid cells, not fifteen. The dispatcher enforces that matrix and rejects a write to any invalid cell, with the count locked by unit tests. It is **on by default** — a fresh install gets a real memory backend, so self-evolution, skill routing, and the user-model all work out of the box; opt out with `--no-memory` or `memory.enabled = false`. It never retroactively ingests sessions from before it was active: memory is forward-only by design.
 
@@ -331,7 +331,7 @@ It also keeps itself from growing unbounded:
 Two honest limits, stated up front. Caps are **post-hoc, not pre-flight**: a turn is billed by the provider before it is charged against the budget, so a cap cannot un-spend the turn that crossed it, only block the next one. And cost accuracy depends on the catalog, a miss falls back to a heuristic that for some models is $0.00, an honest absent charge rather than a wrong one. The live-pricing refresh diffs OpenRouter against the bundled catalog on a 24-hour TTL but only emits change events for a human to inspect; it never auto-applies a price.
 
 ```toml
-# .wayland-core.toml — memory is ON by default; spend caps are opt-in
+# .genesis-core.toml — memory is ON by default; spend caps are opt-in
 
 [memory]
 enabled = true                     # the default; set false (or --no-memory) to opt out
@@ -349,11 +349,11 @@ max_agent_depth       = 4
 ```
 
 ```bash
-wayland-core --list-sessions
-wayland-core -c                              # resume most-recent
-wayland-core --resume 2026-05-16-abc123
-wayland-core --memory-show 2026-05-16-abc123
-wayland-core --compaction full               # off | safe | full (default: safe)
+genesis-core --list-sessions
+genesis-core -c                              # resume most-recent
+genesis-core --resume 2026-05-16-abc123
+genesis-core --memory-show 2026-05-16-abc123
+genesis-core --compaction full               # off | safe | full (default: safe)
 ```
 
 [→ docs/memory.md](docs/memory.md)
@@ -380,12 +380,12 @@ wcore-evolve --seed-file skill.md --seed-name my-skill \
   --generations 5 --fan-out 4 --child-timeout-secs 30
 
 # Live: at session end, paraphrase the system prompt of a successful run
-wayland-core --online-evolution "refactor the auth module"
+genesis-core --online-evolution "refactor the auth module"
 #   [observability]
 #   online_evolution = true   # config equivalent
 ```
 
-The offline binaries are developer tools for tuning skills before they ship: `wcore-evolve` scores skill-metadata structure (nine static checks), and `wcore-evolve-bench` scores end-to-end task outcomes against a 30-case mini-bench. The user-facing surface is the opt-in `--online-evolution` flag (off by default): when a session ends with at least half its turns using tools, the engine emits an evolution event, paraphrases that session's system prompt, and saves the variant to `$WAYLAND_HOME/evolved/`.
+The offline binaries are developer tools for tuning skills before they ship: `wcore-evolve` scores skill-metadata structure (nine static checks), and `wcore-evolve-bench` scores end-to-end task outcomes against a 30-case mini-bench. The user-facing surface is the opt-in `--online-evolution` flag (off by default): when a session ends with at least half its turns using tools, the engine emits an evolution event, paraphrases that session's system prompt, and saves the variant to `$GENESIS_HOME/evolved/`.
 
 A sibling crate, `wcore-dispatch`, handles the other half of "learn what works" — a Thompson-sampling router (Beta posterior over success/failure) that learns which templates, agents, and skills to pick. It is not a model router; model routing lives in Flux.
 
@@ -393,7 +393,7 @@ A sibling crate, `wcore-dispatch`, handles the other half of "learn what works" 
 
 ## Built to endure
 
-Finishing one task is the easy bar. The hard one is staying up: running unattended for hours, on its own codebase, taking deliberate crashes and injected faults without drifting or corrupting state. Wayland Core is built for that, and we are proving it in the open as an endurance trial.
+Finishing one task is the easy bar. The hard one is staying up: running unattended for hours, on its own codebase, taking deliberate crashes and injected faults without drifting or corrupting state. Genesis Core is built for that, and we are proving it in the open as an endurance trial.
 
 The mechanics are real code. Your prompt is journaled to a write-ahead log before the model ever sees it (`wcore-agent/src/session.rs`: `append_wal`/`merge_wal`/`recover_from_wal`, with a dedup guard so a restart never replays a message twice). File edits are checkpointed for rollback. Provider calls retry and reconnect mid-stream, with multi-key rotation on supported providers; switch on `[provider_chain]` to wrap them in a circuit breaker with same-provider fallback. And `wcore-replay` lets you reload a session trace and dry-run it through a version-skew guard before you trust it.
 
@@ -424,24 +424,24 @@ recovery_timeout_secs = 30  # Open -> HalfOpen cooldown (default 30)
 /replay   # load a session trace, version-skew-guarded dry-run for diagnostics
 ```
 
-**What we do not claim.** These numbers come from a single 12-hour run; one clean run is not proof of a week, and the continuous week and month are roadmap goals, labeled as goals. The trial harness lives outside this repo — the figures above are reported measurements from that experiment, not something you reproduce from the crates here. `/replay` today means schema load, version-skew guard, and diff; live re-execution against a provider is intentionally out of scope for now. WAL recovery covers the user prompt stream, not arbitrary in-flight tool state. Wayland Core is public beta; behavior may change before 1.0. [→ docs/resilience.md](docs/resilience.md)
+**What we do not claim.** These numbers come from a single 12-hour run; one clean run is not proof of a week, and the continuous week and month are roadmap goals, labeled as goals. The trial harness lives outside this repo — the figures above are reported measurements from that experiment, not something you reproduce from the crates here. `/replay` today means schema load, version-skew guard, and diff; live re-execution against a provider is intentionally out of scope for now. WAL recovery covers the user prompt stream, not arbitrary in-flight tool state. Genesis Core is public beta; behavior may change before 1.0. [→ docs/resilience.md](docs/resilience.md)
 
 ## Embedding (JSON-Lines protocol) + ACP interop
 
-Wayland Core is an engine you embed, not just a chat CLI. The same agent core sits behind two host-integration surfaces, so your own app, an external orchestrator, or another agent can drive real engine turns over a wire instead of scraping a prompt.
+Genesis Core is an engine you embed, not just a chat CLI. The same agent core sits behind two host-integration surfaces, so your own app, an external orchestrator, or another agent can drive real engine turns over a wire instead of scraping a prompt.
 
 ```bash
-wayland-core --json-stream                       # embed over stdin/stdout (NDJSON)
-wayland-core acp serve --bind 127.0.0.1:8080     # ACP + REST + A2A on one port
+genesis-core --json-stream                       # embed over stdin/stdout (NDJSON)
+genesis-core acp serve --bind 127.0.0.1:8080     # ACP + REST + A2A on one port
 ```
 
-**JSON-Lines stream.** Launch with `--json-stream` and the binary drops out of the TUI into a line-delimited loop: one JSON object per line, UTF-8, one process per conversation, multi-turn. The host sends `Message`, `ToolApprove`, `ToolDeny`, `InitHistory`, `SetMode`, `SetConfig`, `AddMcpServer`, `ApprovalResume`. The engine streams back typed events — `ready`, `stream_start`, `text_delta`, `thinking`, `tool_request`, `tool_result`, `stream_end`, `error` — with an honest `retryable` flag on every error. On init it emits one `ready` event advertising its capabilities (tool approval, thinking, effort and effort levels, modes, current mode, MCP). Newer capability flags are serde-skipped when off, so a v0.1.21 host still sees the original seven-field shape it was built against. This is exactly how Wayland Desktop embeds the engine.
+**JSON-Lines stream.** Launch with `--json-stream` and the binary drops out of the TUI into a line-delimited loop: one JSON object per line, UTF-8, one process per conversation, multi-turn. The host sends `Message`, `ToolApprove`, `ToolDeny`, `InitHistory`, `SetMode`, `SetConfig`, `AddMcpServer`, `ApprovalResume`. The engine streams back typed events — `ready`, `stream_start`, `text_delta`, `thinking`, `tool_request`, `tool_result`, `stream_end`, `error` — with an honest `retryable` flag on every error. On init it emits one `ready` event advertising its capabilities (tool approval, thinking, effort and effort levels, modes, current mode, MCP). Newer capability flags are serde-skipped when off, so a v0.1.21 host still sees the original seven-field shape it was built against. This is exactly how Genesis Desktop embeds the engine.
 
-**ACP + A2A interop.** `wayland-core acp serve` binds one HTTP listener that fronts three surfaces at once:
+**ACP + A2A interop.** `genesis-core acp serve` binds one HTTP listener that fronts three surfaces at once:
 
 - **ACP (Agent Client Protocol)** — JSON-RPC 2.0 at `/sessions`: `session/create`, `session/list`, `session/get`, `session/delete`, and `message/send`, the last an SSE stream of `MessageEvent` frames. Every envelope is `deny_unknown_fields` with `non_exhaustive` enums and eight distinct error codes.
 - **REST / OpenAPI** at `/v1/*` — sessions CRUD, `POST /v1/sessions/{id}/prompt` (SSE `text/event-stream`), tools, health, plus an unauthenticated `/openapi.json` and a `/doc` HTML spec viewer for discovery. Every `/v1/*` data route is auth-gated.
-- **A2A federation** — three methods (`a2a/handshake`, `a2a/message/send`, `a2a/capabilities`) on the same substrate, so other agents can talk to it directly. Handshake answers `agent_kind = "wayland-core"`.
+- **A2A federation** — three methods (`a2a/handshake`, `a2a/message/send`, `a2a/capabilities`) on the same substrate, so other agents can talk to it directly. Handshake answers `agent_kind = "genesis-core"`.
 
 Approval is enforced on the HTTP path, not just the TUI. A gated tool emits `ApprovalRequired{call, reason}` before it runs, and REST exposes `POST /v1/sessions/{id}/approvals/{call_id}/resolve` to answer it; abandoned approvals auto-resolve as denied after a 300s TTL. `serve` installs the process-global egress policy before it accepts a single connection, auto-generates a 64-char hex API key on first run, stores it in the OS keychain, prints it once to stderr, and verifies it constant-time on every request. Pass `--allow-all-tools` and that key becomes root-equivalent — off by default, and warned in the help text.
 
@@ -453,7 +453,7 @@ The point is one engine, many surfaces: CLI, TUI, JSON-stream, and an embedded H
 
 ## Extensibility
 
-- **MCP, both directions.** Connect to many MCP servers concurrently over stdio, SSE, or streamable-HTTP (a wedged server is skipped, not fatal), and inject servers at runtime mid-session. Wayland Core also **runs as an MCP server that advertises and executes its own built-in tools**, so another agent can drive it over MCP.
+- **MCP, both directions.** Connect to many MCP servers concurrently over stdio, SSE, or streamable-HTTP (a wedged server is skipped, not fatal), and inject servers at runtime mid-session. Genesis Core also **runs as an MCP server that advertises and executes its own built-in tools**, so another agent can drive it over MCP.
 - **~70 built-in tools.** `Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob`, `Spawn` are the headline; the catalog also covers git, GitHub, Kubernetes, Postgres, PDF, and more. `Bash` runs network-denied with secrets scrubbed from its environment by default.
 - **Skills.** Markdown plus YAML front matter, with path-glob conditional activation, forked context, a per-skill model pin, a per-skill tool allowlist, and shell-expansion directives.
 - **Hooks.** Shell or native hooks on `pre_tool_use` / `post_tool_use` / `stop`; a pre-hook can block a tool call.
@@ -463,7 +463,7 @@ The point is one engine, many surfaces: CLI, TUI, JSON-stream, and an embedded H
 
 <div align="center">
 
-![Built-in tools, compared — Wayland Core vs OpenClaw, Hermes, opencode, aider](docs/img/compare-tools.png)
+![Built-in tools, compared — Genesis Core vs OpenClaw, Hermes, opencode, aider](docs/img/compare-tools.png)
 
 </div>
 
@@ -502,7 +502,7 @@ We ran a file-level audit of the open-source agent CLIs and a docs-level orienta
 
 <div align="center">
 
-![Landscape comparison — Wayland Core vs opencode, aider, Claude Code, Codex CLI](docs/img/compare-capabilities.png)
+![Landscape comparison — Genesis Core vs opencode, aider, Claude Code, Codex CLI](docs/img/compare-capabilities.png)
 
 </div>
 
@@ -530,7 +530,7 @@ Issues and PRs welcome. Before a PR: `cargo fmt --all`, `cargo clippy --workspac
 
 ## License
 
-[Apache-2.0](LICENSE). Wayland Core is a derivative work; see [NOTICE](NOTICE) for upstream attribution.
+[Apache-2.0](LICENSE). Genesis Core is a derivative work; see [NOTICE](NOTICE) for upstream attribution.
 
 <div align="center">
 <sub>Part of the Forge Suite · <a href="https://getwayland.com">getwayland.com</a></sub>

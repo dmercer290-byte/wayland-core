@@ -34,7 +34,7 @@ use wcore_types::message::{ContentBlock, Message, Role};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
-use wayland_ollama::OllamaProvider;
+use genesis_ollama::OllamaProvider;
 
 /// Build a minimal `Config` whose `model` field is `ollama:llama4` so we
 /// exercise the prefix-strip in `OllamaProvider::stream`. Provider type

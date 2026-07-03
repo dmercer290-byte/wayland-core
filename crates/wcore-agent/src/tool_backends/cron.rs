@@ -5,7 +5,7 @@
 //!
 //! The `wcore-cron` crate already ships a production scheduler:
 //! [`wcore_cron::FileCronStore`] (JSON-file persisted at
-//! `$WAYLAND_HOME/cron/jobs.json` with atomic tempfile+rename writes),
+//! `$GENESIS_HOME/cron/jobs.json` with atomic tempfile+rename writes),
 //! [`wcore_cron::CronRunner`] (30 s tokio tick loop + history JSONL),
 //! and [`wcore_cron::JobHandler`] / [`crate::cron::EngineJobHandler`]
 //! (dispatches `Target::Slash` / `Target::Channel` / `Target::Skill`
@@ -77,11 +77,11 @@ use wcore_tools::cronjob_tools::{
 /// clone (Arc'd mutex internally) and shared with `bootstrap.rs`'s
 /// runner so model-driven `create_job` / `pause` / etc. mutations land
 /// in the same JSON file the runner reads on its next tick.
-pub struct WaylandCronScheduler {
+pub struct GenesisCronScheduler {
     store: Arc<dyn CronStore>,
 }
 
-impl WaylandCronScheduler {
+impl GenesisCronScheduler {
     /// New scheduler over a shared store. Bootstrap clones its existing
     /// `Arc<FileCronStore>` into both the runner and this adapter so
     /// the tool and the tick loop see the same job set.
@@ -91,7 +91,7 @@ impl WaylandCronScheduler {
 }
 
 /// Resolve the tool backend. Returns `None` only when neither
-/// `$WAYLAND_HOME` nor `$HOME` resolve (extremely rare; matches the
+/// `$GENESIS_HOME` nor `$HOME` resolve (extremely rare; matches the
 /// runner's existing graceful-skip path at `bootstrap.rs:1884-1891`).
 ///
 /// Unlike most W1 backends this resolver does NOT key on an env var —
@@ -104,9 +104,9 @@ pub fn build_cron_backend() -> Option<Arc<dyn CronScheduler>> {
             let store: Arc<dyn CronStore> = Arc::new(store);
             info!(
                 target: "wcore_agent::tool_backends::cron",
-                "cronjob: wiring WaylandCronScheduler over default FileCronStore"
+                "cronjob: wiring GenesisCronScheduler over default FileCronStore"
             );
-            Some(Arc::new(WaylandCronScheduler::new(store)))
+            Some(Arc::new(GenesisCronScheduler::new(store)))
         }
         Err(e) => {
             warn!(
@@ -308,7 +308,7 @@ fn map_store_err(e: CronError) -> SchedulerError {
 }
 
 #[async_trait]
-impl CronScheduler for WaylandCronScheduler {
+impl CronScheduler for GenesisCronScheduler {
     async fn create_job(&self, spec: CreateJobSpec) -> Result<ToolCronJob, SchedulerError> {
         let expr = schedule_to_cron_expr(&spec.schedule)?;
         let target = spec_to_target(&spec);
@@ -561,7 +561,7 @@ mod tests {
     async fn cron_persistence_round_trips_through_json() {
         let dir = tempdir().unwrap();
         let store = store_in(dir.path().join("jobs.json"));
-        let sched = WaylandCronScheduler::new(store.clone());
+        let sched = GenesisCronScheduler::new(store.clone());
 
         let spec = CreateJobSpec {
             prompt: "summarise inbox".into(),
@@ -582,7 +582,7 @@ mod tests {
         // re-list via a fresh store handle to prove cross-process
         // durability.
         let fresh_store = store_in(dir.path().join("jobs.json"));
-        let fresh_sched = WaylandCronScheduler::new(fresh_store);
+        let fresh_sched = GenesisCronScheduler::new(fresh_store);
         let listed_again = fresh_sched.list_jobs(false).await.unwrap();
         assert_eq!(listed_again.len(), 1);
         assert_eq!(listed_again[0].job_id, created.job_id);
@@ -702,7 +702,7 @@ mod tests {
     async fn trigger_clears_last_fired_so_next_tick_re_fires() {
         let dir = tempdir().unwrap();
         let store = store_in(dir.path().join("jobs.json"));
-        let sched = WaylandCronScheduler::new(store.clone());
+        let sched = GenesisCronScheduler::new(store.clone());
         let created = sched
             .create_job(CreateJobSpec {
                 prompt: "p".into(),

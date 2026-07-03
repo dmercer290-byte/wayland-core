@@ -1,4 +1,4 @@
-# wayland-core justfile — run tasks with `vx just <recipe>`
+# genesis-core justfile — run tasks with `vx just <recipe>`
 # All commands route through `vx` so the correct tool versions are used.
 
 # Cross-platform shell defaults for linewise recipes.
@@ -132,7 +132,7 @@ _auto-commit-fixes:
 check-all: fmt-check lint test-ci hakari-verify audit
 
 # ── User-flow harness (CLI + TUI + failure injection) ────────────────────
-# Drives the COMPILED wayland-core binary the way a user does:
+# Drives the COMPILED genesis-core binary the way a user does:
 #   Layer 1 — CLI surface (subcommands, stdout/stderr/exit codes)
 #   Layer 2 — TUI flow via PTY (chrome, tab nav, /exit, resize)
 #   Layer 3 — failure injection (wedged MCP, Ctrl+C mid-turn)

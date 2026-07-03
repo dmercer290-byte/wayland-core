@@ -1,6 +1,6 @@
 [package]
 name = "wcore-repomap"
-description = "Light symbol extractor + codebase index (Aider-style repo map). Isolated from the rest of wayland-core: no internal wcore deps."
+description = "Light symbol extractor + codebase index (Aider-style repo map). Isolated from the rest of genesis-core: no internal wcore deps."
 version.workspace      = true
 edition.workspace      = true
 license.workspace      = true

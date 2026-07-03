@@ -2,7 +2,7 @@
 //!
 //! Mirrors the pricing-layer cache pattern (`wcore-pricing::refresh`): each
 //! provider's live `/v1/models` (or equivalent) result is snapshotted to
-//! `~/.wayland/cache/models/{provider}.json` with a `fetched_at` timestamp and
+//! `~/.genesis/cache/models/{provider}.json` with a `fetched_at` timestamp and
 //! a 24h TTL. A live model fetch consults this cache first; a fresh snapshot is
 //! served without re-hitting the provider, and the file is rewritten after every
 //! successful live fetch.
@@ -13,7 +13,7 @@
 //! callers: every fallible op here returns `Option`/`io::Result` so a corrupt
 //! or missing cache degrades to "no cache" rather than propagating an error.
 //!
-//! Rollback flag: `WAYLAND_MODEL_DISCOVERY=off` disables live discovery; check
+//! Rollback flag: `GENESIS_MODEL_DISCOVERY=off` disables live discovery; check
 //! [`discovery_enabled`] before invoking a live fetch path.
 
 use std::path::PathBuf;
@@ -39,7 +39,7 @@ const PROVIDER_REFRESH_TIMEOUT: Duration = Duration::from_secs(8);
 /// Rollback env var. When set to `off` (case-insensitive), live model
 /// discovery is disabled and callers should fall back to the static alias
 /// catalog without touching the network or this cache.
-const DISCOVERY_ENV: &str = "WAYLAND_MODEL_DISCOVERY";
+const DISCOVERY_ENV: &str = "GENESIS_MODEL_DISCOVERY";
 
 /// Where a cached model list came from: a live provider `/v1/models` fetch, or
 /// the static built-in alias catalog (for providers with no live endpoint, or
@@ -67,7 +67,7 @@ pub struct CachedModels {
 }
 
 /// Whether live model discovery is enabled. Returns `false` only when
-/// `WAYLAND_MODEL_DISCOVERY` is set to `off` (case-insensitive); the default
+/// `GENESIS_MODEL_DISCOVERY` is set to `off` (case-insensitive); the default
 /// (unset, or any other value) is enabled.
 pub fn discovery_enabled() -> bool {
     match std::env::var(DISCOVERY_ENV) {
@@ -77,16 +77,16 @@ pub fn discovery_enabled() -> bool {
 }
 
 /// Resolve the cache file for `provider`:
-/// `${WAYLAND_HOME|~/.wayland|./.wayland}/cache/models/{provider}.json`.
+/// `${GENESIS_HOME|~/.genesis|./.genesis}/cache/models/{provider}.json`.
 ///
 /// The provider segment is sanitized (path separators and NULs rewritten to
 /// `_`, same rule as `OAuthStorage::path_for`) so a hostile provider name can't
 /// escape the cache directory.
 pub fn cache_path(provider: &str) -> PathBuf {
-    let home = std::env::var_os("WAYLAND_HOME")
+    let home = std::env::var_os("GENESIS_HOME")
         .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".wayland")))
-        .unwrap_or_else(|| PathBuf::from("./.wayland"));
+        .or_else(|| dirs::home_dir().map(|h| h.join(".genesis")))
+        .unwrap_or_else(|| PathBuf::from("./.genesis"));
     let safe = provider.replace(['/', '\\', '\0'], "_");
     home.join("cache")
         .join("models")
@@ -162,7 +162,7 @@ pub fn save(provider: &str, models: &[ModelInfo]) -> std::io::Result<()> {
 /// For each provider reported by [`connected_providers`]
 /// (`wcore-config` — the single credential source of truth):
 ///
-/// - **Disabled**: when `WAYLAND_MODEL_DISCOVERY=off` ([`discovery_enabled`] is
+/// - **Disabled**: when `GENESIS_MODEL_DISCOVERY=off` ([`discovery_enabled`] is
 ///   false) the whole refresh is a no-op; the static alias catalog is served as
 ///   the live floor by each provider's `list_models`, so there's nothing to
 ///   pre-warm.
@@ -284,7 +284,7 @@ mod tests {
     use serial_test::serial;
     use tempfile::TempDir;
 
-    /// Point WAYLAND_HOME at a fresh tempdir for the duration of the returned
+    /// Point GENESIS_HOME at a fresh tempdir for the duration of the returned
     /// guard. The guard keeps the dir alive and restores the prior env on drop.
     struct HomeGuard {
         _tmp: TempDir,
@@ -294,10 +294,10 @@ mod tests {
     impl HomeGuard {
         fn new() -> Self {
             let tmp = TempDir::new().unwrap();
-            let prior = std::env::var_os("WAYLAND_HOME");
+            let prior = std::env::var_os("GENESIS_HOME");
             // SAFETY: tests are serialized via #[serial]; no other thread reads
             // the env concurrently.
-            unsafe { std::env::set_var("WAYLAND_HOME", tmp.path()) };
+            unsafe { std::env::set_var("GENESIS_HOME", tmp.path()) };
             Self { _tmp: tmp, prior }
         }
     }
@@ -307,8 +307,8 @@ mod tests {
             // SAFETY: serialized; restore the prior value (or clear it).
             unsafe {
                 match &self.prior {
-                    Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                    None => std::env::remove_var("WAYLAND_HOME"),
+                    Some(v) => std::env::set_var("GENESIS_HOME", v),
+                    None => std::env::remove_var("GENESIS_HOME"),
                 }
             }
         }

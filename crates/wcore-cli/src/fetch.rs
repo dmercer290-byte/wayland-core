@@ -1,4 +1,4 @@
-//! CLI surface: `wayland-core fetch` — FluxRouter web_fetch.
+//! CLI surface: `genesis-core fetch` — FluxRouter web_fetch.
 //!
 //! A thin command wrapper over [`wcore_providers::flux_fetch::FluxFetchClient`]
 //! (the dedicated, non-chat web_fetch client). It resolves the Flux Bearer key
@@ -27,7 +27,7 @@ use wcore_providers::ProviderError;
 use wcore_providers::flux_fetch::{FetchRequest, FluxFetchClient};
 use wcore_providers::flux_router::FLUX_ROUTER_DEFAULT_BASE_URL;
 
-/// `wayland-core fetch` arguments.
+/// `genesis-core fetch` arguments.
 #[derive(Args, Debug)]
 pub struct FetchArgs {
     /// The URL to fetch (required, non-empty, http(s) only). One URL per call.

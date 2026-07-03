@@ -100,7 +100,7 @@ pub fn validate_user_path(path: &Path) -> Result<PathBuf, PathValidationError> {
     // Defense-in-depth: a symlink whose target does NOT yet exist makes
     // `fs::canonicalize` fail, so `canonicalize_existing_prefix` falls back to
     // the link's own name and the deny check never sees the target — e.g.
-    // `notes.txt -> $WAYLAND_HOME/cron/jobs.json` (or `~/.ssh/id_rsa`) before
+    // `notes.txt -> $GENESIS_HOME/cron/jobs.json` (or `~/.ssh/id_rsa`) before
     // the target exists. Resolve a symlink leaf explicitly (bounded hops, even
     // through a dangling final target) and re-run the deny check, so the
     // guarantee lives here rather than relying on a calling tool's write
@@ -200,19 +200,19 @@ fn is_denied_system_path(path: &Path) -> bool {
         "/.aws/credentials",
         "/.gnupg/private-keys-v1.d",
         "/.kube/config",
-        // F-054: Wayland-Core own credential files — a prompt-injected agent
+        // F-054: Genesis-Core own credential files — a prompt-injected agent
         // must not be able to Read the engine's stored secrets back to the model.
-        "/.config/wayland-core/credentials.toml",
-        "/.wayland/credentials.toml",
-        "/wayland-core/auth.json",
-        "/wayland-core/credentials.enc",
-        "/wayland-core/credentials.key.json",
-        // M-19: cron state directory (`~/.wayland/cron/` — `jobs.json` +
+        "/.config/genesis-core/credentials.toml",
+        "/.genesis/credentials.toml",
+        "/genesis-core/auth.json",
+        "/genesis-core/credentials.enc",
+        "/genesis-core/credentials.key.json",
+        // M-19: cron state directory (`~/.genesis/cron/` — `jobs.json` +
         // `.integrity.key`). store.rs gates loading on ownership/0600 + a keyed
         // integrity tag, but a same-uid prompt-injected agent with Write/Edit
         // could still author this file directly. Deny the whole dir so the
         // agent-facing file tools refuse to touch it.
-        "/.wayland/cron/",
+        "/.genesis/cron/",
         // Broad per-app credential files used by common developer tooling.
         "/.netrc",
         "/.npmrc",
@@ -248,12 +248,12 @@ fn is_denied_system_path(path: &Path) -> bool {
             r"\.aws\credentials",
             r"\.gnupg\private-keys-v1.d",
             r"\.kube\config",
-            r"\.config\wayland-core\credentials.toml",
-            r"\.wayland\credentials.toml",
-            r"\wayland-core\auth.json",
-            r"\wayland-core\credentials.enc",
-            r"\wayland-core\credentials.key.json",
-            r"\.wayland\cron\",
+            r"\.config\genesis-core\credentials.toml",
+            r"\.genesis\credentials.toml",
+            r"\genesis-core\auth.json",
+            r"\genesis-core\credentials.enc",
+            r"\genesis-core\credentials.key.json",
+            r"\.genesis\cron\",
             r"\.netrc",
             r"\.npmrc",
             r"\.pypirc",
@@ -280,8 +280,8 @@ fn is_denied_system_path(path: &Path) -> bool {
         }
     }
 
-    // M-19 (residual bypass): the `/.wayland/cron/` suffix above only matches
-    // the DEFAULT cron dir. The cron store resolves `$WAYLAND_HOME` first
+    // M-19 (residual bypass): the `/.genesis/cron/` suffix above only matches
+    // the DEFAULT cron dir. The cron store resolves `$GENESIS_HOME` first
     // (`wcore_cron::store::default_store_path`), so a relocated home puts
     // `jobs.json` + `.integrity.key` somewhere the substring never matches —
     // letting a same-uid prompt-injected agent author a Trusted cron job
@@ -298,22 +298,22 @@ fn is_denied_system_path(path: &Path) -> bool {
 }
 
 /// The cron state directory(ies), resolved exactly as the cron store resolves
-/// it: `$WAYLAND_HOME/cron` when set, else `~/.wayland/cron`. Mirrors
+/// it: `$GENESIS_HOME/cron` when set, else `~/.genesis/cron`. Mirrors
 /// `wcore_cron::store::default_store_path`; `wcore-tools` must not depend on
 /// `wcore-cron`, so the resolution is duplicated rather than imported.
 ///
 /// Returns BOTH the raw (as-configured) dir and, when it differs, the
 /// canonical (symlink-resolved) dir. `validate_user_path` deny-checks the
 /// request path in both its lexical and canonicalized forms, so a symlinked
-/// `WAYLAND_HOME` is caught whichever way the agent spells the target: a
+/// `GENESIS_HOME` is caught whichever way the agent spells the target: a
 /// write via the canonical real path matches the canonical entry, while a
 /// write via the symlink path matches the raw entry. Without the canonical
 /// entry, a symlinked home let a write to the real inode slip past the
 /// lexical compare.
 fn resolved_cron_dirs() -> Vec<PathBuf> {
-    let Some(home) = std::env::var_os("WAYLAND_HOME")
+    let Some(home) = std::env::var_os("GENESIS_HOME")
         .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".wayland")))
+        .or_else(|| dirs::home_dir().map(|h| h.join(".genesis")))
     else {
         return Vec::new();
     };
@@ -422,12 +422,12 @@ mod tests {
         assert_eq!(p, PathBuf::from("/tmp/wcore/work.txt"));
     }
 
-    // F-054: Wayland-Core own credential files must be blocked.
+    // F-054: Genesis-Core own credential files must be blocked.
     #[cfg(unix)]
     #[test]
-    fn wayland_core_credentials_toml_rejected() {
+    fn genesis_core_credentials_toml_rejected() {
         let err = validate_user_path(Path::new(
-            "/home/alice/.config/wayland-core/credentials.toml",
+            "/home/alice/.config/genesis-core/credentials.toml",
         ))
         .unwrap_err();
         assert!(matches!(err, PathValidationError::SystemPath(_)));
@@ -435,9 +435,9 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn wayland_credentials_toml_rejected() {
+    fn genesis_credentials_toml_rejected() {
         let err =
-            validate_user_path(Path::new("/home/alice/.wayland/credentials.toml")).unwrap_err();
+            validate_user_path(Path::new("/home/alice/.genesis/credentials.toml")).unwrap_err();
         assert!(matches!(err, PathValidationError::SystemPath(_)));
     }
 
@@ -445,32 +445,32 @@ mod tests {
     // same-uid prompt-injected agent cannot author jobs.json directly.
     #[cfg(unix)]
     #[test]
-    fn wayland_cron_jobs_json_rejected() {
-        let err = validate_user_path(Path::new("/home/alice/.wayland/cron/jobs.json")).unwrap_err();
+    fn genesis_cron_jobs_json_rejected() {
+        let err = validate_user_path(Path::new("/home/alice/.genesis/cron/jobs.json")).unwrap_err();
         assert!(matches!(err, PathValidationError::SystemPath(_)));
     }
 
     #[cfg(unix)]
     #[test]
-    fn wayland_cron_integrity_key_rejected() {
+    fn genesis_cron_integrity_key_rejected() {
         let err =
-            validate_user_path(Path::new("/home/alice/.wayland/cron/.integrity.key")).unwrap_err();
+            validate_user_path(Path::new("/home/alice/.genesis/cron/.integrity.key")).unwrap_err();
         assert!(matches!(err, PathValidationError::SystemPath(_)));
     }
 
-    // M-19 (residual bypass): with WAYLAND_HOME relocated, the cron store no
-    // longer lives under `~/.wayland/cron`, so the hardcoded substring missed
+    // M-19 (residual bypass): with GENESIS_HOME relocated, the cron store no
+    // longer lives under `~/.genesis/cron`, so the hardcoded substring missed
     // it. The deny-list must derive the cron dir from the same env the store
-    // reads. The literal `/home/alice/.wayland/...` tests above prove the
+    // reads. The literal `/home/alice/.genesis/...` tests above prove the
     // default path stays denied regardless of this env var.
     #[cfg(unix)]
     #[test]
-    fn wayland_cron_relocated_home_jobs_and_key_rejected() {
+    fn genesis_cron_relocated_home_jobs_and_key_rejected() {
         // SAFETY: single-threaded test setup; no other test mutates this var.
-        unsafe { std::env::set_var("WAYLAND_HOME", "/srv/wl-relocated-test") };
+        unsafe { std::env::set_var("GENESIS_HOME", "/srv/wl-relocated-test") };
         let jobs = validate_user_path(Path::new("/srv/wl-relocated-test/cron/jobs.json"));
         let key = validate_user_path(Path::new("/srv/wl-relocated-test/cron/.integrity.key"));
-        unsafe { std::env::remove_var("WAYLAND_HOME") };
+        unsafe { std::env::remove_var("GENESIS_HOME") };
         assert!(
             matches!(jobs, Err(PathValidationError::SystemPath(_))),
             "relocated cron jobs.json must be denied, got {jobs:?}"
@@ -481,12 +481,12 @@ mod tests {
         );
     }
 
-    // M-19 (residual of the residual): a symlinked WAYLAND_HOME let a write to
+    // M-19 (residual of the residual): a symlinked GENESIS_HOME let a write to
     // the canonical cron inode slip past the raw-string compare. The
     // comparator now also canonicalizes, so the canonical write path is denied.
     #[cfg(unix)]
     #[test]
-    fn wayland_cron_symlinked_home_canonical_write_rejected() {
+    fn genesis_cron_symlinked_home_canonical_write_rejected() {
         use std::os::unix::fs::symlink;
 
         let base = std::env::temp_dir().join(format!("wl-cron-symlink-{}", std::process::id()));
@@ -498,16 +498,16 @@ mod tests {
         symlink(&realhome, &link).expect("symlink link -> realhome");
 
         // SAFETY: single-threaded test setup; restored below.
-        unsafe { std::env::set_var("WAYLAND_HOME", &link) };
+        unsafe { std::env::set_var("GENESIS_HOME", &link) };
         // The agent writes via the CANONICAL real path, which under the raw
         // (symlink) comparator did not match `link/cron`.
         let res = validate_user_path(&cron.join("jobs.json"));
-        unsafe { std::env::remove_var("WAYLAND_HOME") };
+        unsafe { std::env::remove_var("GENESIS_HOME") };
         let _ = fs::remove_dir_all(&base);
 
         assert!(
             matches!(res, Err(PathValidationError::SystemPath(_))),
-            "write to the canonical cron dir under a symlinked WAYLAND_HOME must be denied, got {res:?}"
+            "write to the canonical cron dir under a symlinked GENESIS_HOME must be denied, got {res:?}"
         );
     }
 
@@ -540,8 +540,8 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn wayland_auth_json_rejected() {
-        let err = validate_user_path(Path::new("/home/alice/.config/wayland-core/auth.json"))
+    fn genesis_auth_json_rejected() {
+        let err = validate_user_path(Path::new("/home/alice/.config/genesis-core/auth.json"))
             .unwrap_err();
         assert!(matches!(err, PathValidationError::SystemPath(_)));
     }

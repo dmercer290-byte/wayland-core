@@ -5,7 +5,7 @@
 //! Pattern: see `browser_spec::BrowserToolSpec` for the analogous
 //! browser mirror, and `BundledSkillSpec` for the skills mirror.
 //!
-//! `wayland-cua` (the plugin shell) cannot depend on `wcore-cua`
+//! `genesis-cua` (the plugin shell) cannot depend on `wcore-cua`
 //! because the `FORBIDDEN_CORE_IMPORTS` build.rs lint forbids it —
 //! plugin crates may depend ONLY on `wcore-plugin-api`, `wcore-types`,
 //! `wcore-protocol` + external deps. The mirror lets the plugin

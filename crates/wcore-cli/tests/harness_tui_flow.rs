@@ -2,7 +2,7 @@
 //!
 //! Layer 1 covers the non-interactive subcommands. This layer drives the
 //! **real ratatui TUI** through a pseudo-terminal: spawn the compiled
-//! `wayland-core` binary attached to a PTY, send keystrokes the way a
+//! `genesis-core` binary attached to a PTY, send keystrokes the way a
 //! human's keyboard would, parse the rendered byte stream into a screen
 //! grid with `vt100`, and assert on stable text anchors.
 //!
@@ -11,8 +11,8 @@
 //! subprocess would always fall through to the line-based REPL — only a
 //! PTY makes the real full-screen UI run.
 //!
-//! Hermetic environment: every test points `WAYLAND_HOME` at a tempdir
-//! (F-010 hermetic-sandbox env in `wcore-config::wayland_config_dir()`)
+//! Hermetic environment: every test points `GENESIS_HOME` at a tempdir
+//! (F-010 hermetic-sandbox env in `wcore-config::genesis_config_dir()`)
 //! and pre-writes a minimal `config.toml` so the TUI's first-run gate
 //! resolves to `Workspace` (not `Onboarding`) without any real provider
 //! key being required (the binary boots the engine but never makes a
@@ -50,13 +50,13 @@ mod support;
 
 /// Path to the debug binary under test.
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_wayland-core")
+    env!("CARGO_BIN_EXE_genesis-core")
 }
 
 /// Seed `<home>/config.toml` with a minimal valid config so the TUI's
 /// first-run gate (`!global_config_path().exists()`) resolves to
-/// `Workspace`. The spawn helper sets `WAYLAND_HOME=<home>` (F-010), so
-/// `wcore_config::wayland_config_dir()` returns `<home>` directly —
+/// `Workspace`. The spawn helper sets `GENESIS_HOME=<home>` (F-010), so
+/// `wcore_config::genesis_config_dir()` returns `<home>` directly —
 /// `global_config_path()` is then `<home>/config.toml` on all three
 /// platforms. The api key is a non-credential placeholder; nothing in
 /// the test path sends a network request.
@@ -102,7 +102,7 @@ fn seed_config_with_base_url(home: &Path, base_url: &str) {
     .expect("write config.toml");
 }
 
-/// Drives one PTY-attached `wayland-core` process for a single test.
+/// Drives one PTY-attached `genesis-core` process for a single test.
 ///
 /// Owns the master PTY, the spawned child, a reader thread that pumps
 /// the byte stream into a `vt100::Parser`, and a guard against runaway
@@ -123,7 +123,7 @@ struct PtyHarness {
 }
 
 impl PtyHarness {
-    /// Spawn `wayland-core` on a fresh PTY sized 120x40.
+    /// Spawn `genesis-core` on a fresh PTY sized 120x40.
     ///
     /// 120 columns is wide enough that the right rail stays visible
     /// (`RAIL_RESPONSIVE_MIN_WIDTH = 100` in `workspace.rs`); the
@@ -136,7 +136,7 @@ impl PtyHarness {
     /// Like [`spawn`](Self::spawn) but passes extra CLI args to the binary
     /// (e.g. `["--continue"]` to resume the most-recent saved session). Used
     /// by the session-resume journey, which re-boots a second process against
-    /// the same `WAYLAND_HOME` to assert the prior conversation is restored.
+    /// the same `GENESIS_HOME` to assert the prior conversation is restored.
     fn spawn_with_args(home: &Path, args: &[&str]) -> Self {
         let pty = native_pty_system()
             .openpty(PtySize {
@@ -148,7 +148,7 @@ impl PtyHarness {
             .expect("open PTY");
 
         // Build a hermetic command: tempdir HOME, a TTY-capable TERM, no
-        // ambient provider key. Cwd is the tempdir so any `.wayland-core.toml`
+        // ambient provider key. Cwd is the tempdir so any `.genesis-core.toml`
         // walk-up search never finds a developer's project config.
         let mut cmd = CommandBuilder::new(binary());
         for arg in args {
@@ -156,11 +156,11 @@ impl PtyHarness {
         }
         cmd.env("HOME", home);
         // F-010 hermetic-sandbox override — wcore-config's
-        // `wayland_config_dir()` honours this before falling back to
+        // `genesis_config_dir()` honours this before falling back to
         // platform-native paths, so the seeded `<home>/config.toml`
         // resolves cleanly on Windows (where `HOME` alone would leak
-        // to `%APPDATA%\wayland-core\`).
-        cmd.env("WAYLAND_HOME", home);
+        // to `%APPDATA%\genesis-core\`).
+        cmd.env("GENESIS_HOME", home);
         cmd.env("TERM", "xterm-256color");
         // Strip any inherited credentials — the harness never needs a
         // real key, and an accidental hit on the provider would be a
@@ -169,7 +169,7 @@ impl PtyHarness {
         cmd.env_remove("ANTHROPIC_API_KEY");
         cmd.env_remove("OPENAI_API_KEY");
         cmd.cwd(home);
-        let child = pty.slave.spawn_command(cmd).expect("spawn wayland-core");
+        let child = pty.slave.spawn_command(cmd).expect("spawn genesis-core");
 
         // The reader thread pumps the PTY's byte stream into a shared
         // vt100 parser; tests query the screen grid by locking the
@@ -291,7 +291,7 @@ impl Drop for PtyHarness {
     }
 }
 
-/// Boot the TUI and block until `WAYLAND` (the chrome wordmark) lands on
+/// Boot the TUI and block until `GENESIS` (the chrome wordmark) lands on
 /// screen. Reused by every test in this file.
 ///
 /// The first boot has to spin up the full agent bootstrap (plugin
@@ -303,7 +303,7 @@ impl Drop for PtyHarness {
 fn boot_to_workspace(home: &Path) -> PtyHarness {
     let h = PtyHarness::spawn(home);
     h.wait_for(
-        |s| s.contains("WAYLAND") && s.contains("Workspace"),
+        |s| s.contains("GENESIS") && s.contains("Workspace"),
         Duration::from_secs(60),
         "TUI to render the chrome wordmark and Workspace tab",
     );
@@ -319,7 +319,7 @@ fn tui_renders_the_chrome_and_every_tab_on_boot() {
     let screen = h.screen_text();
     // The hybrid-branded wordmark sits at the top-left of every surface.
     assert!(
-        screen.contains("WAYLAND"),
+        screen.contains("GENESIS"),
         "chrome wordmark missing on boot.\n--- screen ---\n{screen}\n--- end ---"
     );
 
@@ -419,7 +419,7 @@ fn slash_exit_via_palette_terminates_the_session_cleanly() {
     // loop on a pending future.
     let status = h
         .wait_for_exit(Duration::from_secs(8))
-        .expect("wayland-core did not exit within 8s of /exit");
+        .expect("genesis-core did not exit within 8s of /exit");
     assert!(
         status.success(),
         "expected a clean exit from /exit; got status {status:?}"
@@ -448,7 +448,7 @@ fn narrow_terminal_resize_stays_coherent_without_panicking() {
     // rows would crash the child here.
     h.resize(80, 40);
     h.wait_for(
-        |s| s.contains("WAYLAND") && s.contains("Workspace"),
+        |s| s.contains("GENESIS") && s.contains("Workspace"),
         Duration::from_secs(5),
         "chrome to stay painted after shrinking to 80 cols",
     );
@@ -466,7 +466,7 @@ fn narrow_terminal_resize_stays_coherent_without_panicking() {
     // and never recovered would fail here.
     h.resize(120, 40);
     h.wait_for(
-        |s| s.contains("WAYLAND") && s.contains("Workspace"),
+        |s| s.contains("GENESIS") && s.contains("Workspace"),
         Duration::from_secs(5),
         "chrome to stay coherent after resizing back to 120 cols",
     );
@@ -498,7 +498,7 @@ fn agent_turn_streams_mock_assistant_text_into_the_transcript() {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     let server = rt.block_on(
         support::mock_llm::MockLlm::new()
-            .text("WAYLAND_MOCK_STREAM_OK the agent loop is wired end to end")
+            .text("GENESIS_MOCK_STREAM_OK the agent loop is wired end to end")
             .start(),
     );
 
@@ -512,7 +512,7 @@ fn agent_turn_streams_mock_assistant_text_into_the_transcript() {
 
     // The mock's scripted assistant text must stream into the transcript.
     h.wait_for(
-        |s| s.contains("WAYLAND_MOCK_STREAM_OK"),
+        |s| s.contains("GENESIS_MOCK_STREAM_OK"),
         Duration::from_secs(30),
         "mock-scripted assistant text to render in the transcript after a real agent turn",
     );
@@ -583,7 +583,7 @@ fn tool_call_renders_approval_then_executes_and_continues_on_approve() {
                 "Write",
                 serde_json::json!({ "file_path": note_path_arg, "content": note_body }),
             )
-            .text("WAYLAND_TOOL_DONE the write was approved and the turn continued")
+            .text("GENESIS_TOOL_DONE the write was approved and the turn continued")
             .start(),
     );
 
@@ -609,7 +609,7 @@ fn tool_call_renders_approval_then_executes_and_continues_on_approve() {
     // 3. The turn must CONTINUE: only an approved+executed tool lets the engine
     //    POST the tool result and pull the mock's scripted continuation text.
     h.wait_for(
-        |s| s.contains("WAYLAND_TOOL_DONE"),
+        |s| s.contains("GENESIS_TOOL_DONE"),
         Duration::from_secs(30),
         "the agent turn to continue with the closing assistant text after approval",
     );
@@ -647,7 +647,7 @@ fn provider_transient_error_retries_then_streams_the_response() {
     let server = rt.block_on(
         support::mock_llm::MockLlm::new()
             .http_error(503)
-            .text("WAYLAND_RETRY_OK recovered after a transient 503")
+            .text("GENESIS_RETRY_OK recovered after a transient 503")
             .start(),
     );
 
@@ -659,7 +659,7 @@ fn provider_transient_error_retries_then_streams_the_response() {
     // The success turn must stream — which only happens if the provider retried
     // past the 503 rather than surfacing it as a failure.
     h.wait_for(
-        |s| s.contains("WAYLAND_RETRY_OK"),
+        |s| s.contains("GENESIS_RETRY_OK"),
         Duration::from_secs(30),
         "assistant text to stream after the provider retried past a transient 503",
     );
@@ -785,7 +785,7 @@ fn multi_turn_conversation_threads_history_across_three_rounds() {
 }
 
 /// Phase 1 journey #4 — session save → exit → resume → history threaded. A real
-/// turn in one process is persisted to `$WAYLAND_HOME/sessions/`, the process
+/// turn in one process is persisted to `$GENESIS_HOME/sessions/`, the process
 /// exits, and a SECOND process booted with `--continue` resumes it. This is the
 /// "I closed my laptop and came back" path; the data-integrity guarantee is
 /// what matters most: the conversation is saved completely AND a resumed process
@@ -836,7 +836,7 @@ fn session_save_resume_threads_prior_history_into_the_next_request() {
     }
 
     // The session must be on disk with BOTH sides of the exchange:
-    // $WAYLAND_HOME/sessions/<date>_<id>.json (index.json is the catalog).
+    // $GENESIS_HOME/sessions/<date>_<id>.json (index.json is the catalog).
     let sessions_dir = home.path().join("sessions");
     let saved: Vec<_> = std::fs::read_dir(&sessions_dir)
         .map(|rd| {
@@ -860,7 +860,7 @@ fn session_save_resume_threads_prior_history_into_the_next_request() {
     // --- Process 2: resume with `--continue`, then run one turn. ---
     let mut h2 = PtyHarness::spawn_with_args(home.path(), &["--continue"]);
     h2.wait_for(
-        |s| s.contains("WAYLAND") && s.contains("Workspace"),
+        |s| s.contains("GENESIS") && s.contains("Workspace"),
         Duration::from_secs(60),
         "the resumed process to boot to the workspace",
     );
@@ -971,8 +971,8 @@ fn esc_cancels_an_in_flight_turn_and_the_session_keeps_working() {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     let server = rt.block_on(
         support::mock_llm::MockLlm::new()
-            .slow_text("WAYLAND_SHOULD_NOT_APPEAR slow turn body", 4000)
-            .text("WAYLAND_RECOVERED_OK the session still works after cancel")
+            .slow_text("GENESIS_SHOULD_NOT_APPEAR slow turn body", 4000)
+            .text("GENESIS_RECOVERED_OK the session still works after cancel")
             .start(),
     );
     seed_config_with_base_url(home.path(), &server.uri());
@@ -1017,7 +1017,7 @@ fn esc_cancels_an_in_flight_turn_and_the_session_keeps_working() {
     // The slow body must NOT have rendered — we interrupted before it arrived.
     let after_cancel = h.screen_text();
     assert!(
-        !after_cancel.contains("WAYLAND_SHOULD_NOT_APPEAR"),
+        !after_cancel.contains("GENESIS_SHOULD_NOT_APPEAR"),
         "the cancelled turn's body must not render; screen:\n{after_cancel}"
     );
 
@@ -1027,7 +1027,7 @@ fn esc_cancels_an_in_flight_turn_and_the_session_keeps_working() {
     h.type_text("now a normal turn");
     h.send(b"\r");
     h.wait_for(
-        |s| s.contains("WAYLAND_RECOVERED_OK"),
+        |s| s.contains("GENESIS_RECOVERED_OK"),
         Duration::from_secs(30),
         "a fresh turn to complete normally after the cancel (session not bricked)",
     );

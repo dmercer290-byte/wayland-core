@@ -81,10 +81,10 @@ mod tests {
     fn manifest_with_tools(namespace: &str) -> PluginManifest {
         PluginManifest {
             plugin: PluginInfo {
-                name: "wayland-cua".into(),
+                name: "genesis-cua".into(),
                 version: "0.1.0".into(),
                 description: "test".into(),
-                entry: Some("builtin:wayland_cua".into()),
+                entry: Some("builtin:genesis_cua".into()),
                 authors: vec![],
                 license: "MIT".into(),
                 deferred: false,

@@ -263,7 +263,7 @@ impl BedrockProvider {
                 secret_access_key,
                 session_token.clone(),
                 None,
-                "wayland-core",
+                "genesis-core",
             )),
             AwsCredentials::Profile(profile) => Self::credentials_from_sdk(Some(profile.clone())),
             AwsCredentials::Environment => Self::credentials_from_sdk(None),
@@ -300,7 +300,7 @@ impl BedrockProvider {
                 creds.secret_access_key(),
                 creds.session_token().map(|s| s.to_string()),
                 creds.expiry(),
-                "wayland-core-sdk",
+                "genesis-core-sdk",
             ))
         };
 

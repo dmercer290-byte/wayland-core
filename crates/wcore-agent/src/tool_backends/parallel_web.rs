@@ -114,7 +114,7 @@ impl ParallelWebBackend {
             "params": {
                 "protocolVersion": MCP_PROTOCOL,
                 "capabilities": {},
-                "clientInfo": { "name": "wayland-core", "version": env!("CARGO_PKG_VERSION") },
+                "clientInfo": { "name": "genesis-core", "version": env!("CARGO_PKG_VERSION") },
             },
         });
         let resp = self

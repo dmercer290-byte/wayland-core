@@ -108,10 +108,10 @@ async fn binary_size_baseline() {
     let wcore = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .find(|p| p.join("target").exists())
-        .map(|p| p.join("target").join("release").join("wayland-core"));
+        .map(|p| p.join("target").join("release").join("genesis-core"));
     if let Some(path) = wcore.as_ref().filter(|p| p.exists()) {
         let size = std::fs::metadata(path).unwrap().len();
-        println!("wayland-core release size: {} MB", size / 1024 / 1024);
+        println!("genesis-core release size: {} MB", size / 1024 / 1024);
     } else {
         println!("(release binary not built; H.3 records the measurement)");
     }

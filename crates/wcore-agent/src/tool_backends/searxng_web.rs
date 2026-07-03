@@ -1,5 +1,5 @@
 //! SearXNG meta-search backend. Gated by `SEARXNG_URL` (your own or a public
-//! instance) — wayland-core ships the connector, not the instance.
+//! instance) — genesis-core ships the connector, not the instance.
 //!
 //! GETs `<SEARXNG_URL>/search?q=<query>&format=json` and maps the JSON
 //! `results[]` (sorted by `score` desc) into the engine shape.
@@ -7,7 +7,7 @@
 //! ⚠️ The instance must be **publicly resolvable**: requests go through the
 //! SSRF-safe client, so a `SEARXNG_URL` pointing at `localhost`/a private IP is
 //! rejected by the DNS resolver. Self-hosters must expose SearXNG behind a
-//! public hostname for now (a scoped `WAYLAND_SEARXNG_ALLOW_PRIVATE` opt-in is
+//! public hostname for now (a scoped `GENESIS_SEARXNG_ALLOW_PRIVATE` opt-in is
 //! a planned follow-up).
 
 use async_trait::async_trait;

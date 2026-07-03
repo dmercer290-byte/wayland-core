@@ -30,7 +30,7 @@
 //!
 //! Two classes of check live here:
 //!
-//! 1. **Engine-behavior checks** — provable by driving the REAL `wayland-core`
+//! 1. **Engine-behavior checks** — provable by driving the REAL `genesis-core`
 //!    binary against the scriptable [`support::mock_llm::MockLlm`] and asserting
 //!    on the OUTGOING request the binary actually sent (model / system / the
 //!    `x-api-key` header), read back via
@@ -52,9 +52,9 @@
 //!
 //! ## Hermetic by construction
 //!
-//! Every check points `WAYLAND_HOME` (and `HOME`) at a throwaway tempdir (the
+//! Every check points `GENESIS_HOME` (and `HOME`) at a throwaway tempdir (the
 //! F-010 hermetic-sandbox override honoured by
-//! `wcore_config::wayland_config_dir()`) and strips the full provider-credential
+//! `wcore_config::genesis_config_dir()`) and strips the full provider-credential
 //! env set — exactly the vars listed in `STRIPPED_PROVIDER_ENV` (`API_KEY`,
 //! `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
 //! `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `GROQ_API_KEY`, the concrete
@@ -93,7 +93,7 @@ use wiremock::MockServer;
 
 /// Path to the debug binary under test (Cargo wires this env var).
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_wayland-core")
+    env!("CARGO_BIN_EXE_genesis-core")
 }
 
 /// Seed `<home>/config.toml` for a provider/model, optionally routing the
@@ -156,12 +156,12 @@ const STRIPPED_PROVIDER_ENV: &[&str] = &[
     "GOOGLE_APPLICATION_CREDENTIALS",
 ];
 
-/// Apply the hermetic child env uniformly: point `WAYLAND_HOME` + `HOME` at the
+/// Apply the hermetic child env uniformly: point `GENESIS_HOME` + `HOME` at the
 /// throwaway tempdir, set a deterministic `TERM`, and strip every credential in
 /// [`STRIPPED_PROVIDER_ENV`]. The single place that defines "hermetic child
 /// env" so the headless / PTY / json-stream spawns can never drift apart (M6).
 fn harden_child_env(cmd: &mut std::process::Command, home: &Path) {
-    cmd.env("WAYLAND_HOME", home)
+    cmd.env("GENESIS_HOME", home)
         .env("HOME", home)
         // Headless / json-stream children get a deterministic non-TTY term. The
         // PTY spawn (which needs a real terminal type) sets its own TERM and
@@ -173,10 +173,10 @@ fn harden_child_env(cmd: &mut std::process::Command, home: &Path) {
 }
 
 /// Spawn the binary headless (no TUI) against a hermetic home. The prompt is a
-/// TRAILING POSITIONAL argument — `wayland-core` has no `-p` flag (`-p` is the
+/// TRAILING POSITIONAL argument — `genesis-core` has no `-p` flag (`-p` is the
 /// short for `--provider`); an unknown trailing word is swallowed as the prompt
 /// (`prompt: Vec<String>` with `trailing_var_arg`, main.rs). Strips the full
-/// provider-key set (see [`STRIPPED_PROVIDER_ENV`]), sets `WAYLAND_HOME` +
+/// provider-key set (see [`STRIPPED_PROVIDER_ENV`]), sets `GENESIS_HOME` +
 /// `TERM`, runs in `home` as cwd. Returns (status, stdout, stderr). One-shot:
 /// the process runs the prompt and exits.
 fn run_headless(home: &Path, args: &[&str]) -> (std::process::ExitStatus, String, String) {
@@ -186,7 +186,7 @@ fn run_headless(home: &Path, args: &[&str]) -> (std::process::ExitStatus, String
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    let out = cmd.output().expect("spawn wayland-core headless");
+    let out = cmd.output().expect("spawn genesis-core headless");
     (
         out.status,
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -430,7 +430,7 @@ mod pty {
 
             let mut cmd = CommandBuilder::new(binary());
             cmd.env("HOME", home);
-            cmd.env("WAYLAND_HOME", home);
+            cmd.env("GENESIS_HOME", home);
             // The TUI needs a real terminal type (not "dumb") to render; the
             // hermetic key-strip set is shared with the headless/json-stream
             // spawns via STRIPPED_PROVIDER_ENV (M6).
@@ -439,7 +439,7 @@ mod pty {
                 cmd.env_remove(key);
             }
             cmd.cwd(home);
-            let child = pty.slave.spawn_command(cmd).expect("spawn wayland-core");
+            let child = pty.slave.spawn_command(cmd).expect("spawn genesis-core");
 
             let mut reader = pty.master.try_clone_reader().expect("clone PTY reader");
             let parser = std::sync::Arc::new(std::sync::Mutex::new(vt100::Parser::new(40, 120, 0)));
@@ -528,7 +528,7 @@ mod pty {
     pub fn boot(home: &Path) -> Pty {
         let h = Pty::spawn(home);
         h.wait_for(
-            |s| s.contains("WAYLAND") && s.contains("Workspace"),
+            |s| s.contains("GENESIS") && s.contains("Workspace"),
             Duration::from_secs(60),
             "TUI to render the chrome wordmark and Workspace tab",
         );
@@ -561,7 +561,7 @@ mod pty {
         h.send(b"\r");
         let status = h
             .wait_for_exit(Duration::from_secs(8))
-            .expect("wayland-core did not exit within 8s of /exit");
+            .expect("genesis-core did not exit within 8s of /exit");
         assert!(status.success(), "expected a clean exit; got {status:?}");
     }
 
@@ -675,7 +675,7 @@ mod pty {
         // the child and frozen the vt100 grid.
         let screen = h.screen_text();
         assert!(
-            screen.contains("WAYLAND") && screen.contains("Workspace"),
+            screen.contains("GENESIS") && screen.contains("Workspace"),
             "after `//` the TUI must still be alive and painting; screen:\n{screen}"
         );
 
@@ -787,7 +787,7 @@ mod pty {
 
     /// GAP D002 — catalog-provider onboarding writes NO model, so the first
     /// prompt dead-ends: the Workspace submit blocks and renders the no-model
-    /// banner whose only remedy is "run `wayland-core setup`" or hand-edit
+    /// banner whose only remedy is "run `genesis-core setup`" or hand-edit
     /// `config.toml` (workspace.rs no-model guard). There is NO in-app `/model`
     /// affordance to recover without leaving the session. This is a TUI-path
     /// behavior (the dead-end lives in the Workspace submit, not the headless
@@ -844,7 +844,7 @@ mod pty {
         h.quit();
     }
 
-    /// GAP D011 (project layer) — a corrupt PROJECT `.wayland-core.toml` under an
+    /// GAP D011 (project layer) — a corrupt PROJECT `.genesis-core.toml` under an
     /// INTERACTIVE TUI launch must surface the file-named parse error and refuse
     /// the silent downgrade, exactly like the headless `gap_d011` check does for
     /// the GLOBAL file under `--no-tui`.
@@ -862,7 +862,7 @@ mod pty {
     ///
     /// Fixed contract (D011): a `ConfigLoadError::ParseFailed` is propagated
     /// BEFORE the onboarding branch even under a TUI launch, so the process exits
-    /// non-zero with anyhow's `Error: failed to parse .wayland-core.toml: ...`
+    /// non-zero with anyhow's `Error: failed to parse .genesis-core.toml: ...`
     /// printed to the terminal — never the onboarding chrome. The TUI never opens,
     /// so we assert on the terminal output + the exit status, not rendered chrome.
     ///
@@ -873,11 +873,11 @@ mod pty {
     fn gap_d011_corrupt_project_config_under_tui_surfaces_parse_error() {
         let home = TempDir::new().expect("tempdir");
         // NO global config.toml — only a corrupt PROJECT file in the cwd. The PTY
-        // spawn runs with cwd == home, so `.wayland-core.toml` here is the
+        // spawn runs with cwd == home, so `.genesis-core.toml` here is the
         // project-local config the resolver loads after the (absent) global one.
         // A stray trailing comma / dangling bracket — invalid TOML.
         std::fs::write(
-            home.path().join(".wayland-core.toml"),
+            home.path().join(".genesis-core.toml"),
             "[default\nprovider = \"anthropic\",,\nmodel = \n",
         )
         .expect("write corrupt project config");
@@ -897,17 +897,17 @@ mod pty {
         let screen = h.screen_text();
 
         // L3: assert the SPECIFIC refusal contract on the SAME terminal line — the
-        // parse-class wording and the `.wayland-core.toml` filename together, so a
+        // parse-class wording and the `.genesis-core.toml` filename together, so a
         // stray filename mention plus an unrelated "invalid" word cannot pass.
         let parse_error_names_project_file = screen.lines().any(|line| {
             let l = line.to_lowercase();
-            l.contains(".wayland-core.toml")
+            l.contains(".genesis-core.toml")
                 && (l.contains("parse") || l.contains("invalid") || l.contains("malformed"))
         });
         assert!(
             parse_error_names_project_file && !status.success(),
             "corrupt PROJECT config under a TUI launch must surface a visible parse error that \
-             NAMES .wayland-core.toml and refuse the silent onboarding downgrade (non-zero exit); \
+             NAMES .genesis-core.toml and refuse the silent onboarding downgrade (non-zero exit); \
              got exit success={}\n--- terminal ---\n{screen}\n--- end ---",
             status.success()
         );
@@ -1106,13 +1106,13 @@ fn live_real_key_first_prompt_round_trip() {
     let mut cmd = std::process::Command::new(binary());
     cmd.args(["--no-tui", "Reply with exactly: SMOKE_LIVE_OK"])
         .current_dir(home.path())
-        .env("WAYLAND_HOME", home.path())
+        .env("GENESIS_HOME", home.path())
         .env("HOME", home.path())
         .env("TERM", "dumb")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    let out = cmd.output().expect("spawn live wayland-core");
+    let out = cmd.output().expect("spawn live genesis-core");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         out.status.success(),

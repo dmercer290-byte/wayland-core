@@ -1,6 +1,6 @@
 //! v0.8.1 U6 — autonomous skill creation. After N=3 consecutive successful
 //! turns on the same task signature, draft a candidate skill to
-//! `$WAYLAND_HOME/skills/auto/` and record it in GEPA's `PromptStore` so
+//! `$GENESIS_HOME/skills/auto/` and record it in GEPA's `PromptStore` so
 //! the per-turn `SkillRouter` (v0.8.1 U1) picks it up at next bootstrap.
 //!
 //! This is the closed-loop self-improvement path:

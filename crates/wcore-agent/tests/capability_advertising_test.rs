@@ -17,8 +17,8 @@ fn sink() -> ProtocolSink {
 }
 
 #[test]
-fn browser_suite_advertised_when_wayland_browser_loaded() {
-    let names = vec!["wayland-browser".to_string()];
+fn browser_suite_advertised_when_genesis_browser_loaded() {
+    let names = vec!["genesis-browser".to_string()];
     let caps = PluginCapabilitySet::from_loaded(&names);
     assert!(caps.browser_suite);
     assert!(!caps.computer_use);
@@ -33,8 +33,8 @@ fn browser_suite_advertised_when_wayland_browser_loaded() {
 }
 
 #[test]
-fn computer_use_advertised_when_wayland_cua_loaded() {
-    let names = vec!["wayland-cua".to_string()];
+fn computer_use_advertised_when_genesis_cua_loaded() {
+    let names = vec!["genesis-cua".to_string()];
     let caps = PluginCapabilitySet::from_loaded(&names);
     assert!(caps.computer_use);
     assert!(!caps.browser_suite);
@@ -51,9 +51,9 @@ fn computer_use_advertised_when_wayland_cua_loaded() {
 #[test]
 fn both_capabilities_flip_when_both_plugins_loaded() {
     let names = vec![
-        "wayland-browser".to_string(),
-        "wayland-cua".to_string(),
-        "wayland-ijfw".to_string(),
+        "genesis-browser".to_string(),
+        "genesis-cua".to_string(),
+        "genesis-ijfw".to_string(),
     ];
     let caps = PluginCapabilitySet::from_loaded(&names);
     assert!(caps.browser_suite);
@@ -93,7 +93,7 @@ fn no_capabilities_flip_with_empty_plugin_list() {
 
 #[test]
 fn unknown_plugin_names_do_not_flip_known_flags() {
-    let names = vec!["wayland-totally-unknown".to_string()];
+    let names = vec!["genesis-totally-unknown".to_string()];
     let caps = PluginCapabilitySet::from_loaded(&names);
     assert!(!caps.browser_suite);
     assert!(!caps.computer_use);

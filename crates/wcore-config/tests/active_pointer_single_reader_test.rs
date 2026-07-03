@@ -1,7 +1,7 @@
 //! D2 single-reader lint for the isolated-profile `active` pointer.
 //!
 //! C2/D2: the `active` profile pointer is resolved ONCE, at process entry
-//! (`profile::activate_for_launch`), and materialized into `WAYLAND_HOME`; it is
+//! (`profile::activate_for_launch`), and materialized into `GENESIS_HOME`; it is
 //! never consulted again. The credential/memory corruption bug is precisely what
 //! happens when a sticky pointer is re-read deep in the stack and can disagree
 //! with the env var. To keep that discipline locally reviewable, ALL access to

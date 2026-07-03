@@ -101,7 +101,7 @@ struct EvolveBenchArgs {
     child_timeout_secs: u64,
 
     /// Graveyard root directory. Defaults to
-    /// `<data_dir>/wayland/evolve/graveyard` (see `wcore-evolve` for
+    /// `<data_dir>/genesis/evolve/graveyard` (see `wcore-evolve` for
     /// the per-OS path).
     #[arg(long)]
     graveyard_root: Option<PathBuf>,
@@ -208,7 +208,7 @@ fn resolve_graveyard_root(explicit: Option<PathBuf>) -> PathBuf {
     explicit.unwrap_or_else(|| {
         dirs::data_dir()
             .unwrap_or_else(std::env::temp_dir)
-            .join("wayland")
+            .join("genesis")
             .join("evolve")
             .join("graveyard")
     })

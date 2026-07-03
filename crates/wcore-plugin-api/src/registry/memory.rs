@@ -109,7 +109,7 @@ mod tests {
 
     const HEADER: &str = r#"
 [plugin]
-name = "wayland-mem"
+name = "genesis-mem"
 version = "1.0.0"
 description = "t"
 entry = "builtin:m"
@@ -128,7 +128,7 @@ license = "MIT"
         };
         match err {
             PluginError::PermissionDenied { plugin, operation } => {
-                assert_eq!(plugin, "wayland-mem");
+                assert_eq!(plugin, "genesis-mem");
                 assert_eq!(operation, "memory_access");
             }
             other => panic!("expected PermissionDenied, got {other:?}"),

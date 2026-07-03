@@ -3,7 +3,7 @@
 //! Loads a TOML catalog of provider × model × input/output token rates
 //! (USD per million tokens) and exposes a microcent-integer cost API.
 //! Default catalog is bundled at compile time. Override via
-//! WAYLAND_PRICING_PATH env var.
+//! GENESIS_PRICING_PATH env var.
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -47,7 +47,7 @@ pub struct PricingCatalog {
 
 impl PricingCatalog {
     pub fn load_default() -> Result<Self, PricingError> {
-        let raw = if let Ok(path) = std::env::var("WAYLAND_PRICING_PATH") {
+        let raw = if let Ok(path) = std::env::var("GENESIS_PRICING_PATH") {
             std::fs::read_to_string(&path)?
         } else {
             BUNDLED_PRICING_TOML.to_string()
@@ -58,7 +58,7 @@ impl PricingCatalog {
     /// Parse a catalog from a TOML string. Deserializes directly into the
     /// provider→model map instead of going through `PricingCatalog`'s
     /// `#[serde(flatten)]`, which the `toml` crate mishandles for
-    /// externally-supplied catalogs: a perfectly valid `WAYLAND_PRICING_PATH`
+    /// externally-supplied catalogs: a perfectly valid `GENESIS_PRICING_PATH`
     /// file whose first line is a bare `[provider.model]` table otherwise
     /// fails to load with a spurious "TOML parse error at line 1, column 1".
     pub fn from_toml_str(raw: &str) -> Result<Self, PricingError> {

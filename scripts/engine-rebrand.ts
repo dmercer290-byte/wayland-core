@@ -34,13 +34,13 @@ const RULES: Rule[] = [
   { pattern: /\baion_types\b/g,      replacement: "wcore_types",      note: "snake aion_types" },
 
   // Binary name + config paths
-  { pattern: /\baionrs\b/g,          replacement: "wayland-core",     note: "binary name" },
+  { pattern: /\baionrs\b/g,          replacement: "genesis-core",     note: "binary name" },
   { pattern: /\.aionrs\.toml\b/g,    replacement: ".wcore.toml",      note: "config filename" },
   { pattern: /~\/\.aionrs\b/g,       replacement: "~/.wcore",         note: "user config dir" },
 
   // Product strings in non-license contexts (skip-line rule preserves copyright)
-  { pattern: /\bAionRS\b/g,          replacement: "Wayland Core",     note: "product PascalCase" },
-  { pattern: /\bAionrs\b/g,          replacement: "Wayland Core",     note: "product Mixed" },
+  { pattern: /\bAionRS\b/g,          replacement: "Genesis Core",     note: "product PascalCase" },
+  { pattern: /\bAionrs\b/g,          replacement: "Genesis Core",     note: "product Mixed" },
 ];
 
 const SKIP_LINE_REGEX = /Copyright|@license|Licensed under|All rights reserved/;

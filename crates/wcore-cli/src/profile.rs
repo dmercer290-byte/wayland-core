@@ -1,8 +1,8 @@
-//! CLI surface: `wayland-core profile` — manage isolated profiles.
+//! CLI surface: `genesis-core profile` — manage isolated profiles.
 //!
-//! Each profile is a self-contained `WAYLAND_HOME`-rooted home (its own config,
-//! credentials, OAuth, memory, skills) stored under `$WAYLAND_PROFILES_ROOT`
-//! (default `<os-config>/wayland-core-profiles/`). All active-pointer writes and
+//! Each profile is a self-contained `GENESIS_HOME`-rooted home (its own config,
+//! credentials, OAuth, memory, skills) stored under `$GENESIS_PROFILES_ROOT`
+//! (default `<os-config>/genesis-core-profiles/`). All active-pointer writes and
 //! profile enumeration live in [`wcore_config::profile`] — the D2 single-reader
 //! lint (`wcore-config/tests/active_pointer_single_reader_test.rs`) requires every
 //! pointer read/write to stay in that one module, so this CLI layer NEVER touches
@@ -11,7 +11,7 @@
 //! [`wcore_config::profile::active_profile_name`], …).
 //!
 //! `run` is the production entry; tests drive it directly under an `EnvGuard`
-//! that points `WAYLAND_PROFILES_ROOT` at a tempdir (the same pattern the
+//! that points `GENESIS_PROFILES_ROOT` at a tempdir (the same pattern the
 //! `wcore_config::profile` unit tests use), so every verb is exercised against
 //! an isolated root without touching the real user home.
 
@@ -44,8 +44,8 @@ pub enum ProfileCmd {
     },
     /// Set the active profile for future launches.
     ///
-    /// Writes the `active` pointer; subsequent `wayland-core` invocations that do
-    /// not pass `--profile` or set `WAYLAND_HOME` will use it.
+    /// Writes the `active` pointer; subsequent `genesis-core` invocations that do
+    /// not pass `--profile` or set `GENESIS_HOME` will use it.
     Use {
         /// Name of an existing profile to activate.
         name: String,
@@ -111,7 +111,7 @@ pub enum ProfileCmd {
 }
 
 /// Run a `profile` subcommand. Resolution of the profiles root happens inside the
-/// `wcore_config::profile` helpers (via `WAYLAND_PROFILES_ROOT` / the OS config
+/// `wcore_config::profile` helpers (via `GENESIS_PROFILES_ROOT` / the OS config
 /// dir), so this entry needs no path argument.
 pub fn run(cmd: ProfileCmd) -> Result<()> {
     match cmd {
@@ -154,7 +154,7 @@ fn use_cmd(name: &str) -> Result<()> {
         .with_context(|| format!("setting active profile {name:?}"))?;
     println!("Active profile set to {name:?}.");
     println!(
-        "Launches without --profile or WAYLAND_HOME will now use it; run `wayland-core profile show` to confirm."
+        "Launches without --profile or GENESIS_HOME will now use it; run `genesis-core profile show` to confirm."
     );
     Ok(())
 }
@@ -162,7 +162,7 @@ fn use_cmd(name: &str) -> Result<()> {
 fn list_cmd() -> Result<()> {
     let profiles = profile::list_profiles();
     if profiles.is_empty() {
-        println!("No profiles yet. Create one with `wayland-core profile create <name>`.");
+        println!("No profiles yet. Create one with `genesis-core profile create <name>`.");
         return Ok(());
     }
     let active = profile::active_profile_name();
@@ -342,13 +342,13 @@ mod tests {
         }
     }
 
-    /// Point `WAYLAND_PROFILES_ROOT` at a fresh tempdir; all CLI tests run serial
+    /// Point `GENESIS_PROFILES_ROOT` at a fresh tempdir; all CLI tests run serial
     /// because they mutate the process env.
     fn rooted() -> (EnvGuard, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let g = EnvGuard::set(&[
-            ("WAYLAND_PROFILES_ROOT", Some(dir.path().to_str().unwrap())),
-            ("WAYLAND_HOME", None),
+            ("GENESIS_PROFILES_ROOT", Some(dir.path().to_str().unwrap())),
+            ("GENESIS_HOME", None),
         ]);
         (g, dir)
     }

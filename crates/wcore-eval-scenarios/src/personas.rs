@@ -1,6 +1,6 @@
 //! Lane B "overnight persona" scenarios — plan: `.planning/2026-06-04-e2e-and-wiring-masterplan.md`.
 //!
-//! These drive the REAL `wayland-core` binary against the real DeepSeek
+//! These drive the REAL `genesis-core` binary against the real DeepSeek
 //! provider through complete persona journeys and judge the AGENT BY THE
 //! ARTIFACTS it produces (file exists / parses / contains the brief), the way
 //! a real customer would judge it — not by whether a particular tool fired.

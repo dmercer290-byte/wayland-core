@@ -26,10 +26,10 @@ fn tc_2_1_default_base_dir_uses_platform_config() {
         "memory_base_dir should return Some on this platform"
     );
     let base = base.unwrap();
-    // Should end with "wayland-core" (the brand, not "claude")
+    // Should end with "genesis-core" (the brand, not "claude")
     assert!(
-        base.to_string_lossy().contains("wayland-core"),
-        "base dir should use wayland-core brand: {base:?}"
+        base.to_string_lossy().contains("genesis-core"),
+        "base dir should use genesis-core brand: {base:?}"
     );
 
     restore_env(saved);
@@ -449,13 +449,13 @@ fn v2_global_session_audit_changelog_paths() {
 }
 
 #[test]
-fn v2_project_db_path_under_wayland_core() {
+fn v2_project_db_path_under_genesis_core() {
     let root = Path::new("/home/user/project");
     let p = paths::project_db_path(root);
     let s = p.to_string_lossy();
     assert!(
-        s.ends_with(".wayland-core/memory/memory.db")
-            || s.ends_with(".wayland-core\\memory\\memory.db"),
+        s.ends_with(".genesis-core/memory/memory.db")
+            || s.ends_with(".genesis-core\\memory\\memory.db"),
         "{s}"
     );
     assert!(s.starts_with("/home/user/project") || s.starts_with("\\home\\user\\project"));

@@ -12,7 +12,7 @@
 // deferred from the v0.6.5 WASM export surface and stay native-only until a
 // later task wires them in.
 
-// Package declared in `wayland-host.wit`. Files in the same directory share
+// Package declared in `genesis-host.wit`. Files in the same directory share
 // the package decl and contribute interfaces/worlds to it.
 
 interface hook {
@@ -56,7 +56,7 @@ interface hook {
     on-error: func(error: string) -> result<_, string>;
 }
 
-world wayland-hook {
+world genesis-hook {
     import host;
     export hook;
 }

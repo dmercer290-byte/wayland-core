@@ -213,8 +213,8 @@ impl<H: HttpHandler> RestTransport<H> {
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "wayland-core agent REST API",
-        description = "REST + SSE surface over the wayland-core agent engine."
+        title = "genesis-core agent REST API",
+        description = "REST + SSE surface over the genesis-core agent engine."
     ),
     paths(
         create_session,
@@ -275,7 +275,7 @@ const DOC_HTML: &str = r##"<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>wayland-core agent REST API</title>
+<title>genesis-core agent REST API</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 2rem;
@@ -293,7 +293,7 @@ const DOC_HTML: &str = r##"<!doctype html>
 </style>
 </head>
 <body>
-<h1>wayland-core agent REST API</h1>
+<h1>genesis-core agent REST API</h1>
 <div class="sub">Raw OpenAPI document: <a href="/openapi.json">/openapi.json</a></div>
 <div id="ops">Loading spec&hellip;</div>
 <script>

@@ -56,7 +56,7 @@ fn null_output() -> Arc<dyn wcore_agent::output::OutputSink> {
     Arc::new(NullSink)
 }
 
-/// Pin `WAYLAND_PLUGINS_DIR` to a fresh empty directory so on-disk plugin
+/// Pin `GENESIS_PLUGINS_DIR` to a fresh empty directory so on-disk plugin
 /// discovery cannot pick up plugins installed on the host or CI runner (e.g. an
 /// `ijfw` plugin that registers an `ijfw-memory` MCP server). Without this, the
 /// no-MCP assertions below fail on any machine that has a plugin installed.
@@ -66,7 +66,7 @@ fn null_output() -> Arc<dyn wcore_agent::output::OutputSink> {
 fn isolated_plugins() -> (tempfile::TempDir, EnvGuard) {
     let dir = tempfile::TempDir::new().expect("plugins dir");
     let guard = EnvGuard::set(&[(
-        "WAYLAND_PLUGINS_DIR",
+        "GENESIS_PLUGINS_DIR",
         dir.path().to_str().expect("utf8 plugins dir"),
     )]);
     (dir, guard)
@@ -90,7 +90,7 @@ async fn bootstrap_builds_engine_with_model_in_prompt() {
 
 /// #141 audit item 5 — prove the env flag actually installs
 /// `HostDelegatedTransport` at the registration site: with
-/// `WAYLAND_SEND_MESSAGE_HOST_DELEGATE=1`, an executed `send_message` parks
+/// `GENESIS_SEND_MESSAGE_HOST_DELEGATE=1`, an executed `send_message` parks
 /// a waiter on the SAME `HostSendBridge` exposed on `BootstrapResult`, and
 /// resolving that bridge completes the tool call with the host's receipt.
 /// (The `#[serial]` + `EnvGuard` discipline mirrors the backend-gating
@@ -99,7 +99,7 @@ async fn bootstrap_builds_engine_with_model_in_prompt() {
 #[serial]
 async fn host_delegate_env_installs_host_delegated_send_transport() {
     let (_plugins, _plugins_env) = isolated_plugins();
-    let _env = EnvGuard::set(&[("WAYLAND_SEND_MESSAGE_HOST_DELEGATE", "1")]);
+    let _env = EnvGuard::set(&[("GENESIS_SEND_MESSAGE_HOST_DELEGATE", "1")]);
 
     let config = minimal_config();
     let workdir = tempfile::TempDir::new().expect("workdir");
@@ -169,13 +169,13 @@ async fn without_host_delegate_env_send_message_keeps_channel_path() {
         fn drop(&mut self) {
             if let Some(v) = &self.0 {
                 // SAFETY: `#[serial]` — no concurrent env access.
-                unsafe { std::env::set_var("WAYLAND_SEND_MESSAGE_HOST_DELEGATE", v) };
+                unsafe { std::env::set_var("GENESIS_SEND_MESSAGE_HOST_DELEGATE", v) };
             }
         }
     }
-    let _unset = Unset(std::env::var("WAYLAND_SEND_MESSAGE_HOST_DELEGATE").ok());
+    let _unset = Unset(std::env::var("GENESIS_SEND_MESSAGE_HOST_DELEGATE").ok());
     // SAFETY: `#[serial]` — no concurrent env access.
-    unsafe { std::env::remove_var("WAYLAND_SEND_MESSAGE_HOST_DELEGATE") };
+    unsafe { std::env::remove_var("GENESIS_SEND_MESSAGE_HOST_DELEGATE") };
 
     let config = minimal_config();
     let workdir = tempfile::TempDir::new().expect("workdir");
@@ -705,7 +705,7 @@ async fn w2_v063_bootstrap_initializes_kg_when_memory_enabled() {
 
 #[tokio::test]
 async fn w2_v063_bootstrap_skips_kg_when_disabled() {
-    // W2 v0.6.3 inverse path: WAYLAND_KG=off must not block bootstrap. We
+    // W2 v0.6.3 inverse path: GENESIS_KG=off must not block bootstrap. We
     // can't safely flip the global env var inside a parallel test runner, so
     // this test asserts the surface: `kg_enabled()` honors the env contract.
     // The bootstrap code-path is symmetrical (if kg_enabled() returns false,
@@ -721,7 +721,7 @@ async fn w2_v063_bootstrap_skips_kg_when_disabled() {
     unsafe { std::env::set_var(wcore_memory::kg::ENV_KG, "off") };
     let enabled = wcore_memory::kg::kg_enabled();
     unsafe { std::env::remove_var(wcore_memory::kg::ENV_KG) };
-    assert!(!enabled, "WAYLAND_KG=off must disable KG init in bootstrap");
+    assert!(!enabled, "GENESIS_KG=off must disable KG init in bootstrap");
 }
 
 /// Task 5: a plain (non-channel) bootstrap session must install a Trusted

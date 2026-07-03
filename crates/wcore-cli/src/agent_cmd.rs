@@ -1,4 +1,4 @@
-//! v0.7.0 Task 3.B.2: `wayland-core agent` subcommands.
+//! v0.7.0 Task 3.B.2: `genesis-core agent` subcommands.
 //!
 //! Five flag-driven subcommands wrapping the wcore-agents-pack factory:
 //! create / list / show / edit / delete. Interactive flows live in
@@ -13,7 +13,7 @@ use wcore_agents_pack::factory::{self, FactoryInput};
 
 #[derive(Subcommand, Debug)]
 pub enum AgentCmd {
-    /// Create a new user agent (persists to ~/.wayland/agents/<name>.toml).
+    /// Create a new user agent (persists to ~/.genesis/agents/<name>.toml).
     Create {
         /// Kebab-case slug. Must not duplicate a built-in or an existing user agent.
         name: String,
@@ -60,7 +60,7 @@ pub enum AgentCmd {
 }
 
 pub fn run(cmd: AgentCmd) -> Result<()> {
-    let base = factory::user_agent_dir().context("resolving ~/.wayland/agents")?;
+    let base = factory::user_agent_dir().context("resolving ~/.genesis/agents")?;
     run_with_base(cmd, &base)
 }
 

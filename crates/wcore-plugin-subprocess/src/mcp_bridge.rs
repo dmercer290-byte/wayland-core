@@ -8,9 +8,9 @@
 //! ## Why this exists
 //!
 //! v0.6.5 v0 — "instant-catalog of the MCP ecosystem". When operators drop
-//! an MCP-bridge plugin manifest in `~/.local/share/wayland/plugins/`, the
+//! an MCP-bridge plugin manifest in `~/.local/share/genesis/plugins/`, the
 //! engine spawns the configured MCP server, lists its tools, and registers
-//! them as first-class Wayland plugin tools — no per-server adapter code
+//! them as first-class Genesis plugin tools — no per-server adapter code
 //! required.
 //!
 //! ## Wire protocol
@@ -109,8 +109,8 @@ const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
 
 /// Minimal env vars forwarded to MCP-bridge child processes after
 /// [`std::process::Command::env_clear`]. Everything else — including
-/// `OPENAI_API_KEY`, `WAYLAND_VAULT_*`, `ANTHROPIC_*`, etc. — is withheld
-/// (`WAYLAND_HOME` is an intentional exception below, forwarded so the child
+/// `OPENAI_API_KEY`, `GENESIS_VAULT_*`, `ANTHROPIC_*`, etc. — is withheld
+/// (`GENESIS_HOME` is an intentional exception below, forwarded so the child
 /// resolves the same isolated profile — C3; the vault secret stays withheld).
 /// Kept minimal: just enough for CLI tools to locate executables and
 /// behave correctly under different locales on every supported OS.
@@ -137,9 +137,9 @@ const FORWARDED_ENV_VARS: &[&str] = &[
     "TMPDIR",
     // C3: the isolated-profile home. Engine-controlled children must resolve the
     // SAME profile as the parent — without this they fall back to the default
-    // ~/.wayland (cross-profile leak). Non-secret path; the vault passphrase
-    // (WAYLAND_VAULT_*) is never forwarded.
-    "WAYLAND_HOME",
+    // ~/.genesis (cross-profile leak). Non-secret path; the vault passphrase
+    // (GENESIS_VAULT_*) is never forwarded.
+    "GENESIS_HOME",
     // Windows essentials
     "SYSTEMROOT",
     "WINDIR",
@@ -435,7 +435,7 @@ impl McpBridgePluginRunner {
                 tools: Some(json!({})),
             },
             client_info: ClientInfo {
-                name: "wayland-mcp-bridge".to_string(),
+                name: "genesis-mcp-bridge".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             },
         };
@@ -717,7 +717,7 @@ mod tests {
         use tokio::io::AsyncReadExt;
         use tokio::process::Command;
 
-        let secret_var = "WAYLAND_MCP_TEST_SECRET";
+        let secret_var = "GENESIS_MCP_TEST_SECRET";
         let secret_val = "mcp-should-not-leak";
         // SAFETY: single-threaded test context; no concurrent env mutation.
         unsafe { std::env::set_var(secret_var, secret_val) };
@@ -757,7 +757,7 @@ mod tests {
         assert!(FORWARDED_ENV_VARS.contains(&"USER"));
         assert!(FORWARDED_ENV_VARS.contains(&"LANG"));
         // C3 profile propagation.
-        assert!(FORWARDED_ENV_VARS.contains(&"WAYLAND_HOME"));
+        assert!(FORWARDED_ENV_VARS.contains(&"GENESIS_HOME"));
     }
 
     /// Audit rel-panic-68/M-21: a hostile MCP server that streams an endless

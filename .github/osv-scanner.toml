@@ -1,4 +1,4 @@
-# OSV-Scanner config for wayland-core.
+# OSV-Scanner config for genesis-core.
 #
 # Posture (verified 2026-06-02, wasmtime now 36.0.10):
 #   * 0 vulnerabilities. 0 Critical / High / Medium.
@@ -102,7 +102,7 @@ reason = "proc-macro-error: build-time proc-macro, no runtime surface; transitiv
 # attack surface is the RECEIVING side of context propagation — a server
 # extracting baggage from untrusted inbound requests.
 #
-# NOT REACHABLE in wayland-core: it is a CLI agent and an OTLP trace EXPORTER,
+# NOT REACHABLE in genesis-core: it is a CLI agent and an OTLP trace EXPORTER,
 # not a server that extracts baggage from untrusted inbound headers. The
 # `otlp` feature is optional and DEFAULT-OFF (crates/wcore-observability), the
 # opentelemetry crates enable only `features = ["trace"]` (no baggage
@@ -116,7 +116,7 @@ reason = "proc-macro-error: build-time proc-macro, no runtime surface; transitiv
 [[IgnoredVulns]]
 id = "GHSA-w9wp-h8wv-79jx"
 ignoreUntil = "2026-09-02T00:00:00Z"
-reason = "opentelemetry_sdk baggage-extract DoS: receiving-side only; wayland-core is an OTLP exporter, otlp feature default-off, only trace feature enabled, no BaggagePropagator usage (0 grep hits). Not reachable. Tracked; revisit on opentelemetry 0.32 bump."
+reason = "opentelemetry_sdk baggage-extract DoS: receiving-side only; genesis-core is an OTLP exporter, otlp feature default-off, only trace feature enabled, no BaggagePropagator usage (0 grep hits). Not reachable. Tracked; revisit on opentelemetry 0.32 bump."
 
 # ── ttf-parser 0.25.1 (unmaintained) ─────────────────────────────────────
 # The author has declared ttf-parser unmaintained (no further fixes;

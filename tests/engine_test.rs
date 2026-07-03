@@ -2,13 +2,13 @@ mod common;
 
 use std::sync::Arc;
 
-use wayland-core::engine::{AgentEngine, AgentError};
-use wayland-core::output::terminal::TerminalSink;
-use wayland-core::output::OutputSink;
-use wayland-core::session::SessionManager;
-use wayland-core::tools::registry::ToolRegistry;
-use wayland-core::types::llm::LlmEvent;
-use wayland-core::types::message::{StopReason, TokenUsage};
+use genesis-core::engine::{AgentEngine, AgentError};
+use genesis-core::output::terminal::TerminalSink;
+use genesis-core::output::OutputSink;
+use genesis-core::session::SessionManager;
+use genesis-core::tools::registry::ToolRegistry;
+use genesis-core::types::llm::LlmEvent;
+use genesis-core::types::message::{StopReason, TokenUsage};
 use serde_json::json;
 use tempfile::tempdir;
 

@@ -1,6 +1,6 @@
 [package]
 name = "wcore-protocol"
-description = "JSON stream protocol (events, commands, approval manager) for wayland-core host integration"
+description = "JSON stream protocol (events, commands, approval manager) for genesis-core host integration"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

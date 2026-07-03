@@ -29,7 +29,7 @@ async fn bge_local_smoke() -> anyhow::Result<()> {
     );
 
     for probe in [
-        "wayland-core bge-small local embedding probe",
+        "genesis-core bge-small local embedding probe",
         "the rust async runtime is fast",
     ] {
         let v1 = embedder.embed(probe).await?;

@@ -43,10 +43,10 @@ test build's `dev` profile.
 
 ## Release binary size
 
-Command: `ls -lh target/release/wayland-core`
+Command: `ls -lh target/release/genesis-core`
 
 ```
--rwxr-xr-x@ 1 seandonahoe  staff    20M May 15 21:42 target/release/wayland-core
+-rwxr-xr-x@ 1 seandonahoe  staff    20M May 15 21:42 target/release/genesis-core
 ```
 
 Size: **20 MB** (20,971,520 ≈ 20 MiB; exact byte count varies with
@@ -57,7 +57,7 @@ this entry is the absolute baseline at v0.2.1.
 
 ## CLI cold-start
 
-Command: `time target/release/wayland-core --help` (three runs, BSD
+Command: `time target/release/genesis-core --help` (three runs, BSD
 `/usr/bin/time`, 10 ms precision)
 
 ```

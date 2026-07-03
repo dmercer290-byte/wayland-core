@@ -1,4 +1,4 @@
-# v0.6.5 Task 4.4 — canonical Wayland WASM Tool plugin example.
+# v0.6.5 Task 4.4 — canonical Genesis WASM Tool plugin example.
 #
 # This crate is intentionally OUTSIDE the workspace (see top-level
 # `Cargo.toml`'s `[workspace] exclude` list) because the `wasm32-wasip1`
@@ -20,7 +20,7 @@ name = "plugin-wasm-hello"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Canonical Wayland WASM Tool plugin — returns 'Hello, {input}!'."
+description = "Canonical Genesis WASM Tool plugin — returns 'Hello, {input}!'."
 publish = false
 
 [lib]
@@ -30,8 +30,8 @@ crate-type = ["cdylib"]
 wit-bindgen-rt = { version = "0.32", features = ["bitflags"] }
 
 [package.metadata.component]
-package = "wayland:hello"
+package = "genesis:hello"
 
 [package.metadata.component.target]
 path = "wit"
-world = "wayland-tool"
+world = "genesis-tool"

@@ -1,13 +1,13 @@
 //! Top chrome row — the brand wordmark plus the inline tab strip.
 //!
-//! The hybrid-branding decision: the full WAYLAND ASCII banner is the
+//! The hybrid-branding decision: the full GENESIS ASCII banner is the
 //! hero on the onboarding intro and the idle workspace, but once the user
 //! is working that art would waste a sixth of the screen. This header is
 //! its compact counterpart — a single row, painted as the top row of
 //! every surface.
 //!
 //! The chrome redesign collapsed what used to be two stacked rows (a
-//! stats strip + a tab row) into ONE row: the `◆ WAYLAND` wordmark on the
+//! stats strip + a tab row) into ONE row: the `◆ GENESIS` wordmark on the
 //! left, the surface tabs inline after it. Live stats (provider·model,
 //! ctx, cost, cpu, ram) moved OUT of the header — they live ONLY in the
 //! bottom [`status_bar`](super::status_bar), so nothing is duplicated.
@@ -135,7 +135,7 @@ fn read_sample(system: &System) -> SystemSample {
 ///
 /// `area` must be exactly one row tall; the caller (`Router::render`)
 /// allocates it as a `Length(1)` strip at the top of the screen.
-/// Contents, left to right: the `◆ WAYLAND` wordmark, then the surface
+/// Contents, left to right: the `◆ GENESIS` wordmark, then the surface
 /// tabs inline. No live stats — provider·model / ctx / cost / cpu / ram
 /// all live in the bottom [`status_bar`](super::status_bar) instead, so
 /// nothing is duplicated.
@@ -165,7 +165,7 @@ pub fn top_chrome(f: &mut Frame, area: Rect, t: &Theme, selected: usize) {
     // reserved for the active-tab underline and the user-turn `▌`
     // (load-bearing accents only).
     spans.push(Span::styled(
-        "  ◆ WAYLAND   ",
+        "  ◆ GENESIS   ",
         Style::default()
             .bg(t.bg)
             .fg(t.text)
@@ -183,7 +183,7 @@ pub fn top_chrome(f: &mut Frame, area: Rect, t: &Theme, selected: usize) {
     // now soft-truncate each label with an explicit `…` so the user
     // sees the labels are abbreviated, never just chopped.
     let active = selected.min(SurfaceId::TABS.len() - 1);
-    // Budget: wordmark uses ~16 cols ("  ◆ WAYLAND   ") + 3-col gutters
+    // Budget: wordmark uses ~16 cols ("  ◆ GENESIS   ") + 3-col gutters
     // between the 6 tabs (= 5 gutters · 3 cols = 15 cols). Whatever is
     // left is the tab-label budget. Floor at the minimum useful per-tab
     // width of 2 cols so we always emit at least one glyph + the
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn top_chrome_shows_the_wordmark_and_every_tab() {
         let line = render(&Theme::hearth(), 120, 0);
-        assert!(line.contains("WAYLAND"), "wordmark missing: {line:?}");
+        assert!(line.contains("GENESIS"), "wordmark missing: {line:?}");
         // Every tab label is painted inline on the one row.
         for surface in SurfaceId::TABS {
             assert!(
@@ -308,7 +308,7 @@ mod tests {
     fn top_chrome_renders_with_the_no_color_theme() {
         let line = render(&Theme::no_color(), 120, 0);
         assert!(
-            line.contains("WAYLAND"),
+            line.contains("GENESIS"),
             "uncolored chrome broken: {line:?}"
         );
     }

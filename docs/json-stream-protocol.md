@@ -1,14 +1,14 @@
-# wayland-core JSON Stream Protocol Spec
+# genesis-core JSON Stream Protocol Spec
 
-> This protocol defines the communication between wayland-core (Rust CLI) and a host client (e.g., the Wayland desktop Electron app) via stdin/stdout JSON Lines.
+> This protocol defines the communication between genesis-core (Rust CLI) and a host client (e.g., the Wayland desktop Electron app) via stdin/stdout JSON Lines.
 
 ## Overview
 
 ```
 ┌──────────────┐   stdin (JSON Lines)    ┌──────────────────┐
 │              │ ◄─────────────────────── │                  │
-│ wayland-core│                          │   Host Client    │
-│  (Rust CLI)  │ ──────────────────────► │  (Wayland app)   │
+│ genesis-core│                          │   Host Client    │
+│  (Rust CLI)  │ ──────────────────────► │  (Genesis app)   │
 │              │   stdout (JSON Lines)    │                  │
 └──────────────┘                          └──────────────────┘
      stderr → diagnostic logs (not part of protocol)
@@ -16,7 +16,7 @@
 
 - **Transport**: stdin/stdout, one JSON object per line (JSON Lines / NDJSON)
 - **Encoding**: UTF-8
-- **Activation**: `wayland-core --json-stream [other flags]`
+- **Activation**: `genesis-core --json-stream [other flags]`
 - **Lifecycle**: One process per conversation; process stays alive for multi-turn
 
 ## 1. Agent → Client Events (stdout)
@@ -560,7 +560,7 @@ with the original operation or fails it with a deny reason.
 
 ```
 Client spawns:
-  wayland-core --json-stream \
+  genesis-core --json-stream \
     --provider anthropic \
     --model claude-sonnet-4-20250514 \
     --max-tokens 8192 \
@@ -586,10 +586,10 @@ Between receiving `ready` and sending the first `message`, the client may inject
 
 ```bash
 # New session with a custom ID
-wayland-core --json-stream --session-id my-conv-123 --provider openai --model gpt-4o
+genesis-core --json-stream --session-id my-conv-123 --provider openai --model gpt-4o
 
 # Resume an existing session
-wayland-core --json-stream --resume my-conv-123 --provider openai --model gpt-4o
+genesis-core --json-stream --resume my-conv-123 --provider openai --model gpt-4o
 ```
 
 ### 3.2 Message Turn
@@ -711,7 +711,7 @@ For unrecoverable errors, agent emits error and exits with non-zero status:
 When spawned in `--json-stream` mode, all configuration is passed via CLI flags and environment variables:
 
 ```bash
-wayland-core --json-stream \
+genesis-core --json-stream \
   --provider <anthropic|openai|bedrock|vertex> \
   --model <model-id> \
   --max-tokens <N> \
@@ -746,7 +746,7 @@ Current version: `0.2.0`
 
 > **Production conformance gap.** This contract is enforced for the
 > reference decoder in `crates/wcore-protocol/tests/host_decoder_contract.rs`.
-> The production Wayland Desktop decoder at
+> The production Genesis Desktop decoder at
 > `app/src/process/agent/wcore/index.ts` is the actual consumer. Whether
 > that production decoder honours every clause of this contract is a
 > follow-up audit, not covered by W0. If you are modifying the Electron
@@ -754,7 +754,7 @@ Current version: `0.2.0`
 > authoritative spec.
 
 The JSON event stream evolves additively across wcore versions. To stay
-compatible without per-release host updates, the Wayland Desktop host
+compatible without per-release host updates, the Genesis Desktop host
 decoder MUST honour this contract:
 
 ### Rules
@@ -796,7 +796,7 @@ contains a reference `host_decode` implementation that satisfies this
 contract; use it as the spec when porting the Electron host's decoder
 to match. The production host code lives at
 `app/src/process/agent/wcore/index.ts` — conformance there is a
-follow-up audit owned by the Wayland Desktop side, not by W0.
+follow-up audit owned by the Genesis Desktop side, not by W0.
 
 ### Flag → event-type mapping
 
@@ -831,7 +831,7 @@ exceeds the wire-surface savings.
 
 #537/#141 adds `host_send_message_request` (§1.N+12) to this list:
 it is only ever emitted when the host itself opted in by spawning the
-engine with `WAYLAND_SEND_MESSAGE_HOST_DELEGATE=1`, so a flag would be
+engine with `GENESIS_SEND_MESSAGE_HOST_DELEGATE=1`, so a flag would be
 redundant with the env-var opt-in.
 
 W10B's `gepa_enabled` flag is INDEPENDENT of `structured_traces` — F6 audit
@@ -891,11 +891,11 @@ Ready event for the session.
         "duration_ms": 12,
         "bytes_in": 24,
         "bytes_out": 19,
-        "source_product": "wayland-core"
+        "source_product": "genesis-core"
       }
     ],
     "hook_actions": [],
-    "source_product": "wayland-core"
+    "source_product": "genesis-core"
   }
 }
 ```
@@ -914,7 +914,7 @@ Ready event for the session.
 | `trace.cost_usd` | f64 | USD cost for the turn. W6 populates this from the per-provider list-price rows on `ProviderCompat` (per-model pricing is W6.1). Stays `0.0` when no cost row is set (e.g. local providers like Ollama). |
 | `trace.tool_calls` | array | One `ToolCallTrace` per tool call executed in this turn. |
 | `trace.hook_actions` | array | Hook action records. Empty until W2 wires the hook engine. |
-| `trace.source_product` | string | Always `"wayland-core"` (S5 attribution). |
+| `trace.source_product` | string | Always `"genesis-core"` (S5 attribution). |
 
 #### Host conformance
 
@@ -1173,7 +1173,7 @@ browser op (`Navigate`, `Snapshot`, `Click`, ...) so the host can
 render a compact tool-call trail.
 
 **Gated by `capabilities.browser_suite`.** The engine advertises the
-flag when the `wayland-browser` plugin is loaded (W8c.3 H.2 wire-up).
+flag when the `genesis-browser` plugin is loaded (W8c.3 H.2 wire-up).
 Hosts that don't recognise `browser_event` MUST drop it silently per
 the W0 host decoder contract.
 
@@ -1222,7 +1222,7 @@ op (`LeftClick`, `Type`, `Screenshot`, ...) so the host can render
 a compact action trail.
 
 **Gated by `capabilities.computer_use`.** The engine advertises the
-flag when the `wayland-cua` plugin is loaded (W8c.3 H.2 wire-up).
+flag when the `genesis-cua` plugin is loaded (W8c.3 H.2 wire-up).
 
 ```json
 {
@@ -1274,7 +1274,7 @@ any plugin has loaded (W8c.3 H.2 wire-up).
 ```json
 {
   "type": "plugin_event",
-  "plugin_name": "wayland-ijfw",
+  "plugin_name": "genesis-ijfw",
   "event_type": "memory_capture",
   "payload": {"key": "abc", "tier": "P2"}
 }
@@ -1303,7 +1303,7 @@ about `budget_exceeded` drop the line silently per W0.
 ### 1.N+12 host_send_message_request (#537/#141)
 
 Host-delegated `send_message`: when the host spawned the engine with
-`WAYLAND_SEND_MESSAGE_HOST_DELEGATE=1`, an **approved** `send_message`
+`GENESIS_SEND_MESSAGE_HOST_DELEGATE=1`, an **approved** `send_message`
 tool call is fulfilled by the HOST — the engine emits this request and
 parks the tool call awaiting the host's `host_send_message_result`
 command (§2.11), correlated by `call_id`. The wait is bounded (30s);
@@ -1314,7 +1314,7 @@ false success.
 opted in via the env var ever receive it; others never see it (and
 would drop it silently per W0).
 
-> **Security invariant (wayland#543 audit finding 4).** The host
+> **Security invariant (genesis#543 audit finding 4).** The host
 > performs the delivery WITHOUT re-gating: it trusts that the engine's
 > tool-approval flow (`tool_request` / allow-list / mode gate) already
 > ran for this `send_message` call. The engine guarantees this — the
@@ -1327,7 +1327,7 @@ would drop it silently per W0).
 >
 > The approval gate IS the delegation contract: a host that spawns the
 > engine with `--auto-approve` / `--force` (or grants wire-force via
-> `WAYLAND_ALLOW_WIRE_FORCE=1`) is opting out of that gate and MUST
+> `GENESIS_ALLOW_WIRE_FORCE=1`) is opting out of that gate and MUST
 > supply its own confirmation UX before fulfilling these requests.
 
 ```json

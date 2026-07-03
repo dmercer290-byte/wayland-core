@@ -1,6 +1,6 @@
 [package]
 name = "wcore-agent"
-description = "Agent engine, session management, output sinks, and orchestration for wayland-core"
+description = "Agent engine, session management, output sinks, and orchestration for genesis-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -55,7 +55,7 @@ wcore-budget.workspace        = true
 # the `ProviderCompat` heuristic in `wcore-observability::cost`.
 wcore-pricing.workspace       = true
 # Wave BR — host adapter `plugins::adapters::browser_adapter` translates
-# `BrowserToolSpec` from a loaded `wayland-browser` plugin into a real
+# `BrowserToolSpec` from a loaded `genesis-browser` plugin into a real
 # `BrowserTool` via `wcore_browser::adapter::from_spec`. Plugin shells
 # still cannot depend on `wcore-browser` (audit F2); the host can.
 wcore-browser.workspace       = true
@@ -69,7 +69,7 @@ wcore-cua.workspace           = true
 # shipped as orphan code in v0.6.0 and the ACL never enforced.
 wcore-permissions.workspace   = true
 # v0.8.1 U5 — channel auto-registration. Scans
-# `~/.wayland/channels/*.toml` at engine boot and registers each
+# `~/.genesis/channels/*.toml` at engine boot and registers each
 # adapter (Slack / Telegram / Email / Discord / SMS / WhatsApp /
 # Signal) into a `ChannelManager`. Without this dep the 7 channel
 # crates ship as orphan code; every deploy has to hand-wire them.
@@ -77,7 +77,7 @@ wcore-channels.workspace          = true
 wcore-channels-registry.workspace = true
 # v0.8.1 U7 — production wire-up for `wcore-cron`. `bootstrap.rs` spawns
 # a `CronRunner` with an `EngineJobHandler` (see `cron.rs`) so cron
-# jobs persisted via the `wayland-core cron` CLI fire when the engine
+# jobs persisted via the `genesis-core cron` CLI fire when the engine
 # is running.
 wcore-cron.workspace              = true
 # v0.6.5 Task 1.5 — host adapter `plugins::apply::deliver_user_models`
@@ -85,7 +85,7 @@ wcore-cron.workspace              = true
 # `HonchoClient::from_spec`. Same audit-F2 asymmetry as wcore-browser /
 # wcore-cua: plugin shells cannot depend on `wcore-agent`, but the host
 # can depend on plugin shells.
-wayland-honcho.workspace      = true
+genesis-honcho.workspace      = true
 
 tokio.workspace       = true
 futures.workspace     = true
@@ -220,13 +220,13 @@ wcore-agent = { path = ".", features = ["test-utils"] }
 wcore-mcp = { path = "../wcore-mcp", features = ["test-utils"] }
 # Wave OL: end-to-end wiremock smoke through `OllamaProvider`
 # (`tests/ollama_e2e_test.rs`). Dev-only — no runtime dep edge.
-wayland-ollama = { path = "../wayland-ollama" }
+genesis-ollama = { path = "../genesis-ollama" }
 # C1 / Task A4: end-to-end SessionStart prelude test reads the real
-# `wayland_ijfw::hooks::HOOKS` constant + `mcp::SERVER_NAME` so a rename in
-# the plugin breaks the e2e proof. Dev-only — wayland-ijfw depends solely on
+# `genesis_ijfw::hooks::HOOKS` constant + `mcp::SERVER_NAME` so a rename in
+# the plugin breaks the e2e proof. Dev-only — genesis-ijfw depends solely on
 # wcore-plugin-api/types/protocol (audit F2), so this edge is ACYCLIC and the
 # plugin's own `[dependencies]` are untouched.
-wayland-ijfw = { path = "../wayland-ijfw" }
+genesis-ijfw = { path = "../genesis-ijfw" }
 wiremock.workspace    = true
 tokio-test.workspace  = true
 tempfile.workspace    = true
@@ -251,7 +251,7 @@ path = "tests/acceptance/mod.rs"
 # Lives in wcore-agent because it dispatches through
 # `execute_tool_calls_with_budget` + uses `test_utils::ScriptedProvider`.
 # Built only when the `test-utils` feature is on so the released
-# wayland-core binary doesn't carry it.
+# genesis-core binary doesn't carry it.
 [[bin]]
 name              = "tool_token_bench"
 path              = "src/bin/tool_token_bench.rs"

@@ -62,7 +62,7 @@ pub use failover::{FailoverError, FailoverReason, wrap_provider_error};
 pub use key_rotation::{KeyPool, split_keys};
 pub use openai::{AsyncTokenSource, OpenAIProvider, is_flux_tier_alias};
 pub use openai_chatgpt::{AsyncBearerSource, BearerCreds, OpenAIChatGptProvider};
-pub use registry::{ProviderFactory, ProviderRegistry, RegistryError, WaylandProviderRegistry};
+pub use registry::{ProviderFactory, ProviderRegistry, RegistryError, GenesisProviderRegistry};
 pub use resilient::{
     CircuitBreaker, CircuitConfig, CircuitReporter, CircuitState, NoOpCircuitReporter,
     ResilientProvider,

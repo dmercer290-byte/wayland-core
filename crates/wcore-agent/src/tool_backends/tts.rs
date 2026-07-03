@@ -16,8 +16,8 @@
 //! Output path safety (S-M4 + S-H5 path-traversal defense):
 //! * Caller-supplied `output_path` MUST be under one of:
 //!   - The system temp dir (`std::env::temp_dir()` — covers
-//!     `/tmp/wayland-*`, `$TMPDIR/...`)
-//!   - `~/.wayland/tts/`
+//!     `/tmp/genesis-*`, `$TMPDIR/...`)
+//!   - `~/.genesis/tts/`
 //!   - The user's home dir (legacy `~/`-expanded paths from
 //!     `tts_tool.rs::expand_user`)
 //! * Paths containing `..` segments are rejected up-front.
@@ -154,7 +154,7 @@ pub fn build_tts_backend(config: &Config) -> Option<Arc<dyn TtsBackend>> {
 fn permitted_prefixes() -> Vec<PathBuf> {
     let mut v = vec![std::env::temp_dir()];
     if let Some(home) = dirs::home_dir() {
-        v.push(home.join(".wayland").join("tts"));
+        v.push(home.join(".genesis").join("tts"));
         // Also permit anywhere under $HOME — `tts_tool.rs::expand_user`
         // turns `~/foo.mp3` into `$HOME/foo.mp3`, and the Python original
         // accepted that; we keep the seam compatible but reject `..`
@@ -215,7 +215,7 @@ fn validate_output_path(path: &Path) -> Result<PathBuf, TtsError> {
         .any(|prefix| canonical_parent.starts_with(prefix));
     if !allowed {
         return Err(TtsError::Configuration(format!(
-            "output_path '{}' is outside permitted prefixes (temp dir, ~/.wayland/tts/, $HOME)",
+            "output_path '{}' is outside permitted prefixes (temp dir, ~/.genesis/tts/, $HOME)",
             path.display()
         )));
     }
@@ -303,7 +303,7 @@ impl OpenAiTtsBackend {
     /// by the resolver to point at an OpenAI-wire provider's `base_url`.
     pub(crate) fn with_endpoint(api_key: String, endpoint: String) -> Self {
         let model =
-            std::env::var("WAYLAND_OPENAI_TTS_MODEL").unwrap_or_else(|_| "tts-1".to_string());
+            std::env::var("GENESIS_OPENAI_TTS_MODEL").unwrap_or_else(|_| "tts-1".to_string());
         Self {
             client: build_ssrf_safe_tool_client(),
             api_key,
@@ -436,7 +436,7 @@ impl ElevenLabsTtsBackend {
 
     /// Internal constructor used by tests with a mock-server endpoint.
     pub(crate) fn with_endpoint(api_key: String, endpoint_base: String) -> Self {
-        let model_id = std::env::var("WAYLAND_ELEVENLABS_MODEL")
+        let model_id = std::env::var("GENESIS_ELEVENLABS_MODEL")
             .unwrap_or_else(|_| "eleven_turbo_v2_5".to_string());
         Self {
             client: build_ssrf_safe_tool_client(),
@@ -539,7 +539,7 @@ mod tests {
 
     fn make_request(output_path: PathBuf) -> TtsRequest {
         TtsRequest {
-            text: "hello from wayland".to_string(),
+            text: "hello from genesis".to_string(),
             provider: TtsProvider::OpenAi,
             voice: None,
             model: None,
@@ -953,8 +953,8 @@ mod tests {
 
     #[tokio::test]
     async fn tts_rejects_output_path_outside_permitted_prefix() {
-        // /etc is not under temp dir, $HOME, or ~/.wayland/tts/.
-        // Most CIs don't have /etc/wayland-tts-test writable but that's
+        // /etc is not under temp dir, $HOME, or ~/.genesis/tts/.
+        // Most CIs don't have /etc/genesis-tts-test writable but that's
         // fine — the path validator runs BEFORE write. We point at a
         // real existing directory outside permitted prefixes.
         let evil_path = PathBuf::from("/etc/passwd_tts_test.mp3");

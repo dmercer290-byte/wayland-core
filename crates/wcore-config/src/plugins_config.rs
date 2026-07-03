@@ -1,4 +1,4 @@
-//! `PluginsConfig` — `~/.wayland-core/plugins.toml` schema.
+//! `PluginsConfig` — `~/.genesis-core/plugins.toml` schema.
 //!
 //! Pure data + parser. The actual file-load wiring lands in W4 alongside the
 //! interactive permission-grant UX; W2.5 ships this module so the host
@@ -73,25 +73,25 @@ mod tests {
     fn parses_full_plugins_toml() {
         let s = r#"
 [[plugin]]
-name = "wayland-ijfw"
+name = "genesis-ijfw"
 enabled = true
 permissions_granted = ["register_mcp_server"]
 
 [[plugin]]
-name = "wayland-browser"
+name = "genesis-browser"
 enabled = true
 
 [[plugin]]
-name = "wayland-ollama"
+name = "genesis-ollama"
 enabled = false
 "#;
         let cfg = PluginsConfig::from_toml_str(s).expect("parse");
         assert_eq!(cfg.plugin.len(), 3);
-        assert!(cfg.is_enabled("wayland-ijfw"));
-        assert!(!cfg.is_enabled("wayland-ollama"));
+        assert!(cfg.is_enabled("genesis-ijfw"));
+        assert!(!cfg.is_enabled("genesis-ollama"));
         assert!(cfg.is_enabled("nonexistent")); // default-true
         assert_eq!(
-            cfg.entry("wayland-ijfw").unwrap().permissions_granted,
+            cfg.entry("genesis-ijfw").unwrap().permissions_granted,
             vec!["register_mcp_server"]
         );
     }

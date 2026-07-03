@@ -8,9 +8,9 @@
 [plugin]
 name = "hello"
 version = "0.1.0"
-description = "Canonical Wayland WASM Tool plugin — returns 'Hello, {input}!'."
+description = "Canonical Genesis WASM Tool plugin — returns 'Hello, {input}!'."
 entry = "plugin_wasm_hello.wasm"
-authors = ["Wayland <plugins@wayland.dev>"]
+authors = ["Genesis <plugins@genesis.dev>"]
 license = "Apache-2.0"
 
 [permissions]

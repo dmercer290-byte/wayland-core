@@ -72,7 +72,7 @@ pub struct HttpGoogleMeetBackend {
     single_flight: Arc<SingleFlightRefresh>,
     /// SSRF-safe non-streaming client (AUDIT B-5 + #279 redirect policy).
     client: Client,
-    /// File-backed OAuth token storage (`~/.wayland/oauth/google_meet.json`).
+    /// File-backed OAuth token storage (`~/.genesis/oauth/google_meet.json`).
     storage: OAuthStorage,
     /// In-memory cached tokens. Loaded lazily on first call; the storage
     /// layer is the source of truth across processes.
@@ -111,12 +111,12 @@ impl HttpGoogleMeetBackend {
     /// **NOTE:** v0.9.0 B0 deliberately stops short of binding the real
     /// hyper listener; this method is a stub that returns the same
     /// `MeetError::BackendNotConfigured` until W4 E1 wires the listener.
-    /// Until then, the user must seed `~/.wayland/oauth/google_meet.json`
+    /// Until then, the user must seed `~/.genesis/oauth/google_meet.json`
     /// manually (or the test path passes seeded tokens in).
     pub async fn authenticate_blocking(&self) -> Result<OAuthTokens, MeetError> {
         Err(MeetError::BackendNotConfigured(
             "/auth google-meet is wired in Wave-1 W4 E1 — until then, seed \
-             ~/.wayland/oauth/google_meet.json with the access_token/refresh_token \
+             ~/.genesis/oauth/google_meet.json with the access_token/refresh_token \
              from a manual oauth2l flow."
                 .into(),
         ))
@@ -162,7 +162,7 @@ impl HttpGoogleMeetBackend {
         let Some(tokens) = existing else {
             return Err(MeetError::BackendNotConfigured(
                 "no stored Google Meet OAuth tokens — run `/auth google-meet` first \
-                 (or seed ~/.wayland/oauth/google_meet.json manually)."
+                 (or seed ~/.genesis/oauth/google_meet.json manually)."
                     .into(),
             ));
         };
@@ -973,7 +973,7 @@ mod tests {
                 url: "https://meet.google.com/abc-defg-hij".into(),
                 meeting_id: "abc-defg-hij".into(),
                 mode: MeetMode::Transcribe,
-                guest_name: "Wayland Agent".into(),
+                guest_name: "Genesis Agent".into(),
                 duration: None,
                 headed: false,
                 node: None,

@@ -8,7 +8,7 @@
 //! semantic grade: a second LLM reads `agent_output`, scores it against a
 //! natural-language `criterion`, and returns a structured [`Verdict`].
 //!
-//! Unlike the runner, the judge does NOT spawn the `wayland-core` binary —
+//! Unlike the runner, the judge does NOT spawn the `genesis-core` binary —
 //! it is a direct OpenAI-compatible chat-completions client. Default backend
 //! is DeepSeek (`deepseek-v4-pro`) over `https://api.deepseek.com`, keyed via
 //! [`ProviderConfig::resolved_key`] (so `DEEPSEEK_API_KEY` resolves the same

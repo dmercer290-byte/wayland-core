@@ -6,28 +6,28 @@
 API error 400: ... tools[0].function.name ...   # or any bug fixed releases ago
 ```
 
-If you launch the engine with `npx @ferroxlabs/wayland-core` (or `@latest`),
+If you launch the engine with `npx @ferroxlabs/genesis-core` (or `@latest`),
 npx caches the resolved package **by spec string** and never re-queries the
 registry (npm/cli#2329) — the box freezes on whatever `latest` was the *first*
 time you ran it. Check with:
 
 ```bash
-npx @ferroxlabs/wayland-core --version   # what you're actually running
-npm view @ferroxlabs/wayland-core version  # what's actually latest
+npx @ferroxlabs/genesis-core --version   # what you're actually running
+npm view @ferroxlabs/genesis-core version  # what's actually latest
 ```
 
 Only an **exact-version** spec is a guaranteed cache miss:
 
 ```bash
-npx @ferroxlabs/wayland-core@<latest-version> ...
+npx @ferroxlabs/genesis-core@<latest-version> ...
 # or install globally and stop depending on the npx cache:
-npm i -g @ferroxlabs/wayland-core@latest
+npm i -g @ferroxlabs/genesis-core@latest
 ```
 
 The launcher also self-heals: it checks the registry in the background (at
 most once a day, never blocking a launch) and prints a warning with the exact
 pinned command when the cached engine is behind. Opt out with
-`WAYLAND_CORE_SKIP_UPDATE_CHECK=1`.
+`GENESIS_CORE_SKIP_UPDATE_CHECK=1`.
 
 ## API Key Not Configured
 
@@ -76,7 +76,7 @@ The session was started as `--provider openai`, so requests went to
 ```
 
 Grok must run as `--provider xai`. Spawned as `--provider openai` it ignores the
-OAuth token files (`~/.grok/auth.json`, `~/.wayland/oauth/xai.json`) and sends an
+OAuth token files (`~/.grok/auth.json`, `~/.genesis/oauth/xai.json`) and sends an
 unsupported `stop` parameter. Under `--provider xai` the stop suppression is
 automatic.
 

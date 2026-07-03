@@ -1,6 +1,6 @@
 # Marketplace allowlist index format (v1.0)
 
-Wayland-Core's `wayland-core plugin install <name>` searches a curated,
+Genesis-Core's `genesis-core plugin install <name>` searches a curated,
 signed JSON index for the resolved repo+tag+sha+pubkey of each plugin.
 This document specifies that index format.
 
@@ -44,13 +44,13 @@ Today only `schema_version: "1.0"` is accepted. A future bump
 
 ## Cache
 
-The verified body is cached to `$HOME/.wayland/index.json`. Default
+The verified body is cached to `$HOME/.genesis/index.json`. Default
 TTL: 86400s (24h). The CLI re-fetches on TTL expiry and falls back to
 the cached body if the network fetch fails.
 
 ## Install path (Phase 2 follow-up)
 
-`wayland-core plugin install <name>` will:
+`genesis-core plugin install <name>` will:
 
 1. Load the cached index (or fetch + verify if absent / expired).
 2. Resolve `<name>` to an `IndexEntry`.

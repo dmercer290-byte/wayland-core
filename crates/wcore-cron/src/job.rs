@@ -113,7 +113,7 @@ pub enum CronFireOutcome {
 }
 
 /// Snapshot of a single cron fire, written to the ring-buffer history
-/// file (`$WAYLAND_HOME/cron/history.jsonl`) by the runner.
+/// file (`$GENESIS_HOME/cron/history.jsonl`) by the runner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CronFireRecord {
     pub job_id: String,

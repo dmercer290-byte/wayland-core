@@ -1,6 +1,6 @@
 [package]
 name = "wcore-mcp"
-description = "MCP (Model Context Protocol) client implementation for wayland-core"
+description = "MCP (Model Context Protocol) client implementation for genesis-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

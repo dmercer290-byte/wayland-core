@@ -96,7 +96,7 @@ impl PluginsSurface {
     /// Re-read installed + available plugins from the read-only backend.
     ///
     /// Installed plugins come from `install::list_installed()` against the
-    /// default install root (`dirs::data_dir()/wayland-core/plugins`).
+    /// default install root (`dirs::data_dir()/genesis-core/plugins`).
     /// Available plugins come from the embedded default `Registry`, minus
     /// any name already installed (an installed plugin is never also
     /// offered for install). A backend failure is captured in
@@ -287,7 +287,7 @@ impl PluginsSurface {
         ]);
         // Reversibility — Krug error-tolerance: state it plainly.
         let reversible = Line::from(Span::styled(
-            " installs to ~/…/wayland-core/plugins · you can remove any plugin anytime",
+            " installs to ~/…/genesis-core/plugins · you can remove any plugin anytime",
             Style::default().fg(theme.text_muted),
         ));
         let para = Paragraph::new(vec![hint, reversible]).style(Style::default().bg(theme.surface));
@@ -451,13 +451,13 @@ impl Surface for PluginsSurface {
 // Backend helpers
 // ─────────────────────────────────────────────────────────────────────────
 
-/// The default plugin install root: `dirs::data_dir()/wayland-core/plugins`.
+/// The default plugin install root: `dirs::data_dir()/genesis-core/plugins`.
 /// Mirrors the path logic in `crate::plugin::run` so the TUI install/remove
-/// verbs target the same directory the `wayland-core plugin` subcommand does.
+/// verbs target the same directory the `genesis-core plugin` subcommand does.
 pub(crate) fn plugin_install_root() -> anyhow::Result<PathBuf> {
     let base = dirs::data_dir()
         .ok_or_else(|| anyhow::anyhow!("could not determine the data directory"))?;
-    Ok(base.join("wayland-core").join("plugins"))
+    Ok(base.join("genesis-core").join("plugins"))
 }
 
 /// Read installed plugin manifests from the default install root.
@@ -583,7 +583,7 @@ mod tests {
     fn fixture_surface() -> PluginsSurface {
         let installed = PluginRow {
             manifest: PluginManifest {
-                name: "wayland-ollama".into(),
+                name: "genesis-ollama".into(),
                 version: "0.6.1".into(),
                 requires_sandbox: false,
                 description: "local inference provider".into(),
@@ -593,11 +593,11 @@ mod tests {
         };
         let available = PluginRow {
             manifest: PluginManifest {
-                name: "wayland-cua".into(),
+                name: "genesis-cua".into(),
                 version: "0.6.1".into(),
                 requires_sandbox: true,
                 description: "computer use".into(),
-                dependencies: vec!["wayland-browser".into()],
+                dependencies: vec!["genesis-browser".into()],
             },
             section: Section::Available,
         };
@@ -638,8 +638,8 @@ mod tests {
         let out = render_to_string(&mut surface);
         assert!(out.contains("INSTALLED"), "missing INSTALLED header");
         assert!(out.contains("AVAILABLE"), "missing AVAILABLE header");
-        assert!(out.contains("wayland-ollama"), "missing installed row");
-        assert!(out.contains("wayland-cua"), "missing available row");
+        assert!(out.contains("genesis-ollama"), "missing installed row");
+        assert!(out.contains("genesis-cua"), "missing available row");
         // The footer states reversibility plainly.
         assert!(
             out.contains("remove any plugin anytime"),
@@ -655,7 +655,7 @@ mod tests {
         // state (Krug).
         assert!(out.contains("✓"), "installed row missing ✓ glyph");
         assert!(
-            out.contains("+ wayland-cua"),
+            out.contains("+ genesis-cua"),
             "available row missing + glyph"
         );
     }
@@ -668,7 +668,7 @@ mod tests {
         let action = surface.handle_key(key(KeyCode::Enter), &mut app);
         match action {
             SurfaceAction::Command(cmd) => {
-                assert_eq!(cmd, "/plugins remove wayland-ollama");
+                assert_eq!(cmd, "/plugins remove genesis-ollama");
             }
             _ => panic!("expected a Command action, got something else"),
         }
@@ -683,7 +683,7 @@ mod tests {
         let action = surface.handle_key(key(KeyCode::Enter), &mut app);
         match action {
             SurfaceAction::Command(cmd) => {
-                assert_eq!(cmd, "/plugins install wayland-cua");
+                assert_eq!(cmd, "/plugins install genesis-cua");
             }
             _ => panic!("expected a Command action, got something else"),
         }
@@ -823,7 +823,7 @@ mod tests {
         surface.handle_key(key(KeyCode::Down), &mut app);
         surface.handle_key(key(KeyCode::Char('i')), &mut app);
         let out = render_to_string(&mut surface);
-        assert!(out.contains("wayland-browser"), "dependency must show");
+        assert!(out.contains("genesis-browser"), "dependency must show");
         assert!(out.contains("sandbox"), "sandbox field must show");
     }
 

@@ -279,7 +279,7 @@ mod tests {
         use std::sync::Arc;
 
         let jail = tempfile::tempdir().expect("tempdir");
-        let marker = "WAYLAND_GREP_JAIL_MARKER_F36";
+        let marker = "GENESIS_GREP_JAIL_MARKER_F36";
         std::fs::write(jail.path().join("needle.txt"), format!("{marker}\n"))
             .expect("write marker into the jail");
 

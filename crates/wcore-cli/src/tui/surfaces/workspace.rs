@@ -35,7 +35,7 @@ use crate::tui::render::safe_split::last_safe_split_point;
 use crate::tui::surfaces::{Surface, SurfaceAction, SurfaceId};
 use crate::tui::theme::Theme;
 use crate::tui::turn_element::TurnElement;
-use crate::tui::widgets::{panel, render_sources, render_streaming_status, wayland_banner};
+use crate::tui::widgets::{panel, render_sources, render_streaming_status, genesis_banner};
 
 /// Width of the right rail, in columns (mockup `.rail` is 312px ≈ 34
 /// cells; clamped against the area so a narrow terminal still renders).
@@ -1870,7 +1870,7 @@ impl WorkspaceSurface {
             // resolved config has an empty model. The banner must offer an
             // IN-APP recovery (`/model`, reachable right here — slash commands
             // bypass the no-model submit block) instead of a quit-and-hand-edit
-            // dead-end. `wayland-core setup` stays as a secondary option.
+            // dead-end. `genesis-core setup` stays as a secondary option.
             // The first line always carries the literal "No model configured"
             // string (the no-model state's stable fingerprint). When the
             // provider is known we name it on the next line so the user knows
@@ -1899,7 +1899,7 @@ impl WorkspaceSurface {
                 Style::default().fg(theme.text_dim),
             )]));
             lines.push(Line::from(vec![Span::styled(
-                "Or run  wayland-core setup  to change provider.",
+                "Or run  genesis-core setup  to change provider.",
                 Style::default().fg(theme.text_muted),
             )]));
             let banner = Paragraph::new(lines)
@@ -2262,16 +2262,16 @@ impl WorkspaceSurface {
     }
 }
 
-/// Draw the idle hero — the full WAYLAND banner.
+/// Draw the idle hero — the full GENESIS banner.
 ///
 /// An empty transcript was previously blank space with a one-line prompt;
-/// the hybrid-branding decision makes it the home for the full WAYLAND
+/// the hybrid-branding decision makes it the home for the full GENESIS
 /// ASCII banner (the same wordmark the onboarding intro shows). The
-/// [`wayland_banner`] widget paints the wordmark, the "the autonomous AI
+/// [`genesis_banner`] widget paints the wordmark, the "the autonomous AI
 /// agent" tagline, and the "type / for commands" hint, centered, and
 /// degrades to the tagline + hint alone on a terminal too small for the
 /// art. The transcript background is painted under it for cohesion.
-/// The idle/empty Workspace hero: the WAYLAND banner plus a factual one-line
+/// The idle/empty Workspace hero: the GENESIS banner plus a factual one-line
 /// "what is this" subtitle and 2-3 concrete example prompts. Rendered ONLY when
 /// the transcript is empty (the sole caller is the idle branch of
 /// [`WorkspaceSurface::render_transcript`]).
@@ -2279,7 +2279,7 @@ impl WorkspaceSurface {
 /// D044: the bare banner (wordmark + tagline) left the first-keystroke-after-
 /// onboarding user staring at a blank canvas with no model of what to type. The
 /// hero block answers "what now?" directly: a one-line description of what
-/// Wayland is, then three copy-pasteable starter prompts. The banner keeps the
+/// Genesis is, then three copy-pasteable starter prompts. The banner keeps the
 /// top of the pane; the hero copy sits in a fixed slot at the bottom so it never
 /// collides with the centered wordmark on a tall terminal and gracefully drops
 /// when the pane is too short for both.
@@ -2301,13 +2301,13 @@ fn render_idle_hero(frame: &mut Frame, area: Rect, theme: &Theme) {
     let hero_rows: u16 = 6 + u16::from(!detected.is_empty()) + u16::from(!forge.is_empty());
     let show_hero = area.height >= hero_rows + 8;
     if !show_hero {
-        wayland_banner(frame, area, theme);
+        genesis_banner(frame, area, theme);
         return;
     }
 
     let [banner_area, hero_area] =
         Layout::vertical([Constraint::Min(1), Constraint::Length(hero_rows)]).areas(area);
-    wayland_banner(frame, banner_area, theme);
+    genesis_banner(frame, banner_area, theme);
 
     // No em-dashes in user-facing copy (project rule) — the bullet is a middle
     // dot.
@@ -2447,7 +2447,7 @@ fn build_live_tail_lines(lines: &mut Vec<Line<'static>>, app: &App, theme: &Them
     let session = &app.session;
 
     // The in-flight assistant turn: thinking first (dimmed), then the
-    // streamed text. v0.9.1 W1 A drops the explicit `wayland` role
+    // streamed text. v0.9.1 W1 A drops the explicit `genesis` role
     // label from the streaming block (the 2-space gutter is the role
     // signal; the streaming-status widget in the composer carries the
     // personality) and renders the partial buffer through markdown via
@@ -2833,7 +2833,7 @@ pub fn render_files_changed(paths: &[String], theme: &Theme) -> Vec<Line<'static
 
 /// Append one completed turn to `lines`, styled by its role.
 ///
-/// v0.9.1 W1 A: Assistant turns no longer render a `"wayland"` role
+/// v0.9.1 W1 A: Assistant turns no longer render a `"genesis"` role
 /// label — per the HTML mockup §5.2 the 2-space gutter (user has a `›`
 /// glyph, assistant has plain indentation) is the only role signal we
 /// need, and the explicit label conflicted with the personality the
@@ -3044,7 +3044,7 @@ fn indent_line(line: Line<'static>, n: usize) -> Line<'static> {
 ///
 /// v0.9.1.2 F17: the live tail is indented to match the completed
 /// assistant text (2-space gutter, no glyph). The `render_streaming_status`
-/// widget in the composer already owns the "wayland is working" affordance
+/// widget in the composer already owns the "genesis is working" affordance
 /// (the rotating verb + elapsed + token counter), so a duplicate gutter
 /// spinner in the transcript was redundant — and the prior implementation
 /// painted it at column 0 below the indented assistant text, which read
@@ -3847,9 +3847,9 @@ mod tests {
     }
 
     #[test]
-    fn idle_state_renders_the_wayland_banner() {
+    fn idle_state_renders_the_genesis_banner() {
         // An empty session is the idle state (mockup surface 02). The
-        // hybrid-branding decision makes it the home for the full WAYLAND
+        // hybrid-branding decision makes it the home for the full GENESIS
         // banner — the wordmark art, the tagline, and the `/` hint.
         let mut app = App::new();
         // B2 guard: set a model so the no-model banner doesn't override
@@ -3872,7 +3872,7 @@ mod tests {
     #[test]
     fn idle_hero_shows_subtitle_and_example_prompts_d044() {
         // D044: the blank Workspace must answer "what now?" — a one-line
-        // factual description of what Wayland is, plus 2-3 concrete starter
+        // factual description of what Genesis is, plus 2-3 concrete starter
         // prompts. An empty session (no model-banner override) renders it.
         let mut app = App::new();
         app.config.model = "anthropic/claude-opus-4-5".to_string();
@@ -3960,18 +3960,18 @@ mod tests {
         assert!(!app.session.streaming_active);
         let mut surface = WorkspaceSurface::new();
         let out = render_to_string(&mut surface, &app, 100, 30);
-        // v0.9.1 W1 A: the literal `"wayland"` role label is GONE — the
+        // v0.9.1 W1 A: the literal `"genesis"` role label is GONE — the
         // 2-space gutter is the only role signal. We assert the body
         // text lands (markdown-rendered, indented). The lowercase
-        // `"wayland"` string used to mark each assistant turn header;
+        // `"genesis"` string used to mark each assistant turn header;
         // its absence is the regression guard for Part 3 of A's scope.
         assert!(
             out.contains("How can I help?"),
             "assistant turn text missing:\n{out}"
         );
         assert!(
-            !out.contains("wayland"),
-            "v0.9.1 W1 A removed the lowercase 'wayland' role label, but it leaked:\n{out}"
+            !out.contains("genesis"),
+            "v0.9.1 W1 A removed the lowercase 'genesis' role label, but it leaked:\n{out}"
         );
     }
 

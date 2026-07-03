@@ -294,7 +294,7 @@ async fn initialize_all_populates_plugin_hook_with_plugin_name() {
 
     static HOOK_MANIFEST_TOML: &str = r#"
 [plugin]
-name = "wayland-hook-fixture"
+name = "genesis-hook-fixture"
 version = "0.0.1"
 description = "registers a hook for Task 1.3 test"
 entry = "builtin:hook-fixture"
@@ -326,7 +326,7 @@ register_hooks = true
     struct HookFactory;
     impl PluginFactory for HookFactory {
         fn name(&self) -> &'static str {
-            "wayland-hook-fixture"
+            "genesis-hook-fixture"
         }
         fn build(&self) -> Box<dyn Plugin> {
             Box::new(HookPlugin)
@@ -346,7 +346,7 @@ register_hooks = true
         .find(|h| h.name == "fixture-pre-tool")
         .expect("fixture hook must be in InitializeOutcome.hooks");
 
-    assert_eq!(hook.plugin, "wayland-hook-fixture");
+    assert_eq!(hook.plugin, "genesis-hook-fixture");
     assert!(matches!(hook.phase, HookPhase::PreToolUse));
 }
 
@@ -359,7 +359,7 @@ register_hooks = true
 /// that drain sites route to `tracing::debug!`.
 ///
 /// Sean's screenshots #78 + #79 showed
-/// `[plugin-hook:wayland-ijfw:ijfw_observation_capture] post_tool_use fired
+/// `[plugin-hook:genesis-ijfw:ijfw_observation_capture] post_tool_use fired
 /// for tool "web"` landing in the transcript on every tool call. The F2 fix
 /// (v0.9.1.1) added a filter at engine drain points but missed the
 /// orchestration-layer drain that ran INSIDE the tool execution loop. This
@@ -369,7 +369,7 @@ register_hooks = true
 async fn post_tool_use_hook_does_not_leak_to_transcript_v0912() {
     let mut engine = empty_engine();
     engine.register_plugin_hook(PluginHook {
-        plugin: "wayland-ijfw".into(),
+        plugin: "genesis-ijfw".into(),
         phase: HookPhase::PostToolUse,
         name: "ijfw_observation_capture".into(),
     });
@@ -412,7 +412,7 @@ async fn post_tool_use_hook_does_not_leak_to_transcript_v0912() {
 async fn pre_tool_use_per_tool_drain_filters_hook_lines_v0912() {
     let mut engine = empty_engine();
     engine.register_plugin_hook(PluginHook {
-        plugin: "wayland-ijfw".into(),
+        plugin: "genesis-ijfw".into(),
         phase: HookPhase::PreToolUse,
         name: "ijfw_observation_capture".into(),
     });

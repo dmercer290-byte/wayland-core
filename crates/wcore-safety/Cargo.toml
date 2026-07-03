@@ -1,6 +1,6 @@
 [package]
 name = "wcore-safety"
-description = "Output validation and PII scrubbing primitives for wayland-core (R8 + Sec5)"
+description = "Output validation and PII scrubbing primitives for genesis-core (R8 + Sec5)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

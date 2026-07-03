@@ -32,7 +32,7 @@ impl ConsolidationEngine {
         let procedures_crystallized = self.crystallize().await?;
         // v0.6.4 Task 6.6c — run transitive inference AFTER consolidate has
         // landed any new (subject, predicate, object) edges via
-        // `semantic.assert` / `kg_ingest_facts`. Skipped when `WAYLAND_KG=off`
+        // `semantic.assert` / `kg_ingest_facts`. Skipped when `GENESIS_KG=off`
         // or no Session-tier connection is configured (best-effort: errors
         // do not abort the dream cycle).
         let kg_edges_inferred = self.infer_kg().await.unwrap_or_else(|e| {
@@ -56,7 +56,7 @@ impl ConsolidationEngine {
     /// `PartitionDispatcher::kg_ingest_facts` for the canonical accessor
     /// pattern). Returns the number of inferred edges materialized.
     ///
-    /// No-ops when `WAYLAND_KG=off` or when the dispatcher has no
+    /// No-ops when `GENESIS_KG=off` or when the dispatcher has no
     /// Session-tier configured (e.g. test harnesses that only build a
     /// Project tier). Best-effort: callers should treat errors as a
     /// "skip this cycle" signal, not a fatal failure.

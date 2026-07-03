@@ -127,30 +127,30 @@ mod tests {
         // Use a name unlikely to be set.
         // SAFETY: tests run sequentially with `serial_test` per-suite, but
         // this helper does not mutate process env, so a stray-set is fine.
-        let v = std::env::var("WAYLAND_TEST_DEFINITELY_UNSET_12345").ok();
+        let v = std::env::var("GENESIS_TEST_DEFINITELY_UNSET_12345").ok();
         assert!(v.is_none() || v.as_deref() == Some(""));
-        assert!(read_env_key("WAYLAND_TEST_DEFINITELY_UNSET_12345").is_none());
+        assert!(read_env_key("GENESIS_TEST_DEFINITELY_UNSET_12345").is_none());
     }
 
     #[test]
     fn read_env_key_returns_none_for_empty() {
         // SAFETY: tests in this module run on isolated threads; we never
         // assume cross-test env hygiene.
-        unsafe { std::env::set_var("WAYLAND_TEST_EMPTY_KEY_VAR", "") };
-        assert_eq!(read_env_key("WAYLAND_TEST_EMPTY_KEY_VAR"), None);
-        unsafe { std::env::set_var("WAYLAND_TEST_EMPTY_KEY_VAR", "   ") };
-        assert_eq!(read_env_key("WAYLAND_TEST_EMPTY_KEY_VAR"), None);
-        unsafe { std::env::remove_var("WAYLAND_TEST_EMPTY_KEY_VAR") };
+        unsafe { std::env::set_var("GENESIS_TEST_EMPTY_KEY_VAR", "") };
+        assert_eq!(read_env_key("GENESIS_TEST_EMPTY_KEY_VAR"), None);
+        unsafe { std::env::set_var("GENESIS_TEST_EMPTY_KEY_VAR", "   ") };
+        assert_eq!(read_env_key("GENESIS_TEST_EMPTY_KEY_VAR"), None);
+        unsafe { std::env::remove_var("GENESIS_TEST_EMPTY_KEY_VAR") };
     }
 
     #[test]
     fn read_env_key_returns_some_for_set_nonempty() {
-        unsafe { std::env::set_var("WAYLAND_TEST_NONEMPTY_KEY_VAR", "secret123") };
+        unsafe { std::env::set_var("GENESIS_TEST_NONEMPTY_KEY_VAR", "secret123") };
         assert_eq!(
-            read_env_key("WAYLAND_TEST_NONEMPTY_KEY_VAR"),
+            read_env_key("GENESIS_TEST_NONEMPTY_KEY_VAR"),
             Some("secret123".to_string())
         );
-        unsafe { std::env::remove_var("WAYLAND_TEST_NONEMPTY_KEY_VAR") };
+        unsafe { std::env::remove_var("GENESIS_TEST_NONEMPTY_KEY_VAR") };
     }
 
     #[test]

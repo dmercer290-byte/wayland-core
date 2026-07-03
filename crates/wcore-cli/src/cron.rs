@@ -1,11 +1,11 @@
-//! v0.8.1 U7 + W6-K-rest: `wayland-core cron` subcommands.
+//! v0.8.1 U7 + W6-K-rest: `genesis-core cron` subcommands.
 //!
 //! CRUD ops (add / list / remove / enable / disable) plus diagnostic
 //! ops (status / history / logs) against the `wcore-cron` store, and a
 //! `daemon` subcommand that spawns the runner detached.
 //!
-//! Store path: `$WAYLAND_HOME/cron/jobs.json`, falling back to
-//! `~/.wayland/cron/jobs.json`. History: same dir, `history.jsonl`.
+//! Store path: `$GENESIS_HOME/cron/jobs.json`, falling back to
+//! `~/.genesis/cron/jobs.json`. History: same dir, `history.jsonl`.
 //!
 //! The runner picks up changes on its next tick — there's no in-band
 //! `reload()` signal because the file store re-reads from disk every
@@ -28,9 +28,9 @@ pub enum CronCmd {
     /// `--skill` must be provided (with matching companion flags).
     ///
     /// Examples:
-    ///   wayland-core cron add "0 9 * * *" --skill hello
-    ///   wayland-core cron add "*/15 * * * *" --slash "/status"
-    ///   wayland-core cron add "0 8 * * 1" --channel team --text "Good morning"
+    ///   genesis-core cron add "0 9 * * *" --skill hello
+    ///   genesis-core cron add "*/15 * * * *" --slash "/status"
+    ///   genesis-core cron add "0 8 * * 1" --channel team --text "Good morning"
     // F-075: examples surface in `cron add --help` so users can copy-paste
     // a working invocation without reading the full man page.
     Add {
@@ -82,7 +82,7 @@ pub enum CronCmd {
     /// attempt (success + duration, or error message).
     ///
     /// Example:
-    ///   wayland-core cron status <id>
+    ///   genesis-core cron status <id>
     Status {
         /// UUID returned by `cron list` / `cron add`.
         id: String,
@@ -93,7 +93,7 @@ pub enum CronCmd {
     /// ring-buffer written by the runner alongside jobs.json.
     ///
     /// Example:
-    ///   wayland-core cron history <id> --limit 10
+    ///   genesis-core cron history <id> --limit 10
     History {
         /// UUID returned by `cron list`.
         id: String,
@@ -108,7 +108,7 @@ pub enum CronCmd {
     /// with the engine's tracing output.
     ///
     /// Example:
-    ///   wayland-core cron logs <id> --limit 50
+    ///   genesis-core cron logs <id> --limit 50
     Logs {
         /// UUID returned by `cron list`.
         id: String,
@@ -120,10 +120,10 @@ pub enum CronCmd {
     /// Spawn the cron runner as a detached background daemon.
     ///
     /// The daemon:
-    /// - Writes its PID to `$WAYLAND_HOME/cron-daemon.pid`
-    /// - Logs to `$WAYLAND_HOME/cron-daemon.log`
+    /// - Writes its PID to `$GENESIS_HOME/cron-daemon.pid`
+    /// - Logs to `$GENESIS_HOME/cron-daemon.log`
     /// - Honours SIGTERM for clean shutdown
-    /// - Persists fire history to `$WAYLAND_HOME/cron/history.jsonl`
+    /// - Persists fire history to `$GENESIS_HOME/cron/history.jsonl`
     ///
     /// To install as a persistent system service, see the templates under
     /// `templates/cron-daemon/` (launchd.plist / systemd.service).
@@ -132,7 +132,7 @@ pub enum CronCmd {
 
 pub async fn run(cmd: CronCmd) -> Result<()> {
     let store = FileCronStore::from_default_path()
-        .context("could not resolve cron store path (no WAYLAND_HOME and no $HOME)")?;
+        .context("could not resolve cron store path (no GENESIS_HOME and no $HOME)")?;
     let history_path = wcore_cron::default_history_path();
     run_inner(cmd, &store, history_path.as_ref()).await
 }
@@ -390,29 +390,29 @@ async fn logs_cmd(id: &str, limit: usize, history_path: Option<&PathBuf>) -> Res
 ///
 /// Spawns a child process that runs the cron runner detached from the
 /// controlling terminal. The child:
-/// - Writes its PID to `$WAYLAND_HOME/cron-daemon.pid`
-/// - Logs to `$WAYLAND_HOME/cron-daemon.log`
+/// - Writes its PID to `$GENESIS_HOME/cron-daemon.pid`
+/// - Logs to `$GENESIS_HOME/cron-daemon.log`
 /// - Honours SIGTERM for clean shutdown (via tokio::signal)
-/// - Persists fire history to `$WAYLAND_HOME/cron/history.jsonl`
+/// - Persists fire history to `$GENESIS_HOME/cron/history.jsonl`
 ///
 /// On non-Unix platforms, prints an informational error and exits cleanly.
 async fn daemon_cmd(store: &FileCronStore) -> Result<()> {
     use std::fs;
 
     // Resolve home dir for PID + log files.
-    let wayland_home = std::env::var_os("WAYLAND_HOME")
+    let genesis_home = std::env::var_os("GENESIS_HOME")
         .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".wayland")))
-        .context("cannot resolve WAYLAND_HOME for daemon files")?;
+        .or_else(|| dirs::home_dir().map(|h| h.join(".genesis")))
+        .context("cannot resolve GENESIS_HOME for daemon files")?;
 
-    fs::create_dir_all(&wayland_home).context("cannot create WAYLAND_HOME")?;
+    fs::create_dir_all(&genesis_home).context("cannot create GENESIS_HOME")?;
 
-    let pid_path = wayland_home.join("cron-daemon.pid");
-    let log_path = wayland_home.join("cron-daemon.log");
-    let history_path = wayland_home.join("cron").join("history.jsonl");
+    let pid_path = genesis_home.join("cron-daemon.pid");
+    let log_path = genesis_home.join("cron-daemon.log");
+    let history_path = genesis_home.join("cron").join("history.jsonl");
 
     // If we are the daemon child body, run the runner loop.
-    if std::env::var("WAYLAND_CRON_DAEMON_CHILD").is_ok() {
+    if std::env::var("GENESIS_CRON_DAEMON_CHILD").is_ok() {
         return daemon_body(store, &pid_path, &history_path).await;
     }
 
@@ -447,8 +447,8 @@ async fn daemon_cmd(store: &FileCronStore) -> Result<()> {
         use std::os::unix::process::CommandExt as _;
         std::process::Command::new(&current_exe)
             .args(["cron", "daemon"])
-            .env("WAYLAND_CRON_DAEMON_CHILD", "1")
-            .env("WAYLAND_HOME", wayland_home.to_string_lossy().as_ref())
+            .env("GENESIS_CRON_DAEMON_CHILD", "1")
+            .env("GENESIS_HOME", genesis_home.to_string_lossy().as_ref())
             .stdin(std::process::Stdio::null())
             .stdout(log_file.try_clone().context("log file clone")?)
             .stderr(log_file)
@@ -463,8 +463,8 @@ async fn daemon_cmd(store: &FileCronStore) -> Result<()> {
     let child = {
         std::process::Command::new(&current_exe)
             .args(["cron", "daemon"])
-            .env("WAYLAND_CRON_DAEMON_CHILD", "1")
-            .env("WAYLAND_HOME", wayland_home.to_string_lossy().as_ref())
+            .env("GENESIS_CRON_DAEMON_CHILD", "1")
+            .env("GENESIS_HOME", genesis_home.to_string_lossy().as_ref())
             .stdin(std::process::Stdio::null())
             .stdout(log_file.try_clone().context("log file clone")?)
             .stderr(log_file)

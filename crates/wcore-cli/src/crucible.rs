@@ -1,4 +1,4 @@
-//! `wayland-core crucible "<task>"` — run the cross-provider council (Crucible /
+//! `genesis-core crucible "<task>"` — run the cross-provider council (Crucible /
 //! Mixture-of-Providers).
 //!
 //! Two modes, decided by `[crucible].assembly` + CLI overrides:
@@ -43,10 +43,10 @@ fn council_budget_tracker(
     })
 }
 
-/// The CLI council charge identity: WAYLAND_USER_ID (default "default"), and a
+/// The CLI council charge identity: GENESIS_USER_ID (default "default"), and a
 /// per-process session id (cross-process daily accumulation is a later stage).
 fn cli_budget_identity() -> (String, String) {
-    let user = std::env::var("WAYLAND_USER_ID").unwrap_or_else(|_| "default".to_string());
+    let user = std::env::var("GENESIS_USER_ID").unwrap_or_else(|_| "default".to_string());
     ("cli".to_string(), user)
 }
 

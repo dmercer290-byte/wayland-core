@@ -1,6 +1,6 @@
 //! USER-FLOW HARNESS — Regression suite: v0.8.2 campaign + 4 live-test fixes.
 //!
-//! This file covers R-001..R-015 against the compiled `wayland-core` binary.
+//! This file covers R-001..R-015 against the compiled `genesis-core` binary.
 //! It lives alongside the existing Layer 1 / Layer 2 / Layer 3 harness files
 //! in `crates/wcore-cli/tests/` and follows the same conventions:
 //!
@@ -50,7 +50,7 @@ use wcore_eval_scenarios::scenario::{Category, Scenario, Turn};
 /// Path to the debug binary under test.  Cargo guarantees this is built
 /// before integration tests run (the crate declares the bin target).
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_wayland-core")
+    env!("CARGO_BIN_EXE_genesis-core")
 }
 
 fn stdout_of(o: &Output) -> String {
@@ -68,8 +68,8 @@ fn seed_config(home: &Path) {
     let macos_dir = home
         .join("Library")
         .join("Application Support")
-        .join("wayland-core");
-    let linux_dir = home.join(".config").join("wayland-core");
+        .join("genesis-core");
+    let linux_dir = home.join(".config").join("genesis-core");
     let body = "[default]\n\
                 provider = \"anthropic\"\n\
                 model = \"claude-sonnet-4-20250514\"\n\
@@ -88,8 +88,8 @@ fn seed_config_no_model(home: &Path) {
     let macos_dir = home
         .join("Library")
         .join("Application Support")
-        .join("wayland-core");
-    let linux_dir = home.join(".config").join("wayland-core");
+        .join("genesis-core");
+    let linux_dir = home.join(".config").join("genesis-core");
     // Intentionally omit `model = ...` so the engine hits the no-model path.
     let body = "[default]\n\
                 provider = \"anthropic\"\n\
@@ -104,8 +104,8 @@ fn seed_config_no_model(home: &Path) {
 
 /// Write a jobs.json shaped the way the Desktop app writes it — using the
 /// field name `schedule` instead of `expression`.  Used by R-001.
-fn seed_desktop_jobs_json(wayland_home: &Path) {
-    let cron_dir = wayland_home.join("cron");
+fn seed_desktop_jobs_json(genesis_home: &Path) {
+    let cron_dir = genesis_home.join("cron");
     std::fs::create_dir_all(&cron_dir).expect("create cron dir");
     // Desktop app emits "schedule" instead of "expression" — the engine must
     // accept it via `#[serde(alias = "schedule")]` on `CronJob::expression`.
@@ -130,7 +130,7 @@ fn seed_desktop_jobs_json(wayland_home: &Path) {
 // ---------------------------------------------------------------------------
 
 /// Locate the binary to use for json-stream tests: WCORE_EVAL_BIN env var
-/// first, then target/{release,debug}/wayland-core relative to workspace root.
+/// first, then target/{release,debug}/genesis-core relative to workspace root.
 /// Returns None (SKIP) if the binary can't be found.
 fn maybe_eval_binary() -> Option<std::path::PathBuf> {
     if let Ok(p) = std::env::var("WCORE_EVAL_BIN") {
@@ -143,7 +143,7 @@ fn maybe_eval_binary() -> Option<std::path::PathBuf> {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest_dir.parent().and_then(|p| p.parent())?;
     for profile in ["release", "debug"] {
-        let cand = workspace.join("target").join(profile).join("wayland-core");
+        let cand = workspace.join("target").join(profile).join("genesis-core");
         if cand.exists() {
             return Some(cand);
         }
@@ -152,7 +152,7 @@ fn maybe_eval_binary() -> Option<std::path::PathBuf> {
 }
 
 /// Seed a hermetic env suitable for json-stream invocation:
-/// `<root>/.wayland-core/config.toml` with absolute session dir.
+/// `<root>/.genesis-core/config.toml` with absolute session dir.
 /// Returns (tempdir, sessions_path).
 fn seed_json_stream_env(
     root: &Path,
@@ -162,7 +162,7 @@ fn seed_json_stream_env(
 ) -> std::path::PathBuf {
     let sessions = root.join("sessions");
     std::fs::create_dir_all(&sessions).expect("create sessions dir");
-    let cfg_dir = root.join(".wayland-core");
+    let cfg_dir = root.join(".genesis-core");
     std::fs::create_dir_all(&cfg_dir).expect("create cfg dir");
     let sessions_str = sessions.to_string_lossy().replace('\\', "\\\\");
     let body = format!(
@@ -184,16 +184,16 @@ fn seed_json_stream_env(
 #[test]
 fn r001_cron_schedule_alias_deserializes() {
     let home = TempDir::new().expect("tempdir HOME");
-    let wayland_home = home.path().join(".wayland");
-    std::fs::create_dir_all(&wayland_home).expect("create .wayland");
+    let genesis_home = home.path().join(".genesis");
+    std::fs::create_dir_all(&genesis_home).expect("create .genesis");
 
-    seed_desktop_jobs_json(&wayland_home);
+    seed_desktop_jobs_json(&genesis_home);
 
     let out = Command::new(binary())
         .args(["cron", "list"])
         .current_dir(home.path())
         .env("HOME", home.path())
-        .env("WAYLAND_HOME", &wayland_home)
+        .env("GENESIS_HOME", &genesis_home)
         .env_remove("API_KEY")
         .env_remove("ANTHROPIC_API_KEY")
         .env_remove("OPENAI_API_KEY")
@@ -236,12 +236,12 @@ fn r002_yaml_config_migration() {
     // yaml in `--help` or attempting to use it.  If the engine doesn't
     // implement yaml-to-toml migration, this scenario documents the gap.
     let home = TempDir::new().expect("tempdir HOME");
-    let wayland_home = home.path().join(".wayland");
-    std::fs::create_dir_all(&wayland_home).expect("create .wayland");
+    let genesis_home = home.path().join(".genesis");
+    std::fs::create_dir_all(&genesis_home).expect("create .genesis");
 
-    // Drop a legacy IJFW-style config.yaml under WAYLAND_HOME.
+    // Drop a legacy IJFW-style config.yaml under GENESIS_HOME.
     let yaml_body = "model:\n  default: gpt-4o-mini\n  provider: openai\n";
-    std::fs::write(wayland_home.join("config.yaml"), yaml_body).expect("write legacy config.yaml");
+    std::fs::write(genesis_home.join("config.yaml"), yaml_body).expect("write legacy config.yaml");
 
     // Also seed a valid TOML so the binary boots (yaml migration may be
     // applied before or instead of TOML; either way the binary must not crash).
@@ -251,7 +251,7 @@ fn r002_yaml_config_migration() {
         .args(["--version"])
         .current_dir(home.path())
         .env("HOME", home.path())
-        .env("WAYLAND_HOME", &wayland_home)
+        .env("GENESIS_HOME", &genesis_home)
         .env_remove("API_KEY")
         .env_remove("ANTHROPIC_API_KEY")
         .env_remove("OPENAI_API_KEY")
@@ -287,15 +287,15 @@ fn r002_yaml_config_migration() {
 #[tokio::test]
 async fn r003_no_model_guard() {
     let Some(bin) = maybe_eval_binary() else {
-        eprintln!("[R-003 SKIP] wayland-core binary not found — build first or set WCORE_EVAL_BIN");
+        eprintln!("[R-003 SKIP] genesis-core binary not found — build first or set WCORE_EVAL_BIN");
         return;
     };
 
     let home = TempDir::new().expect("tempdir");
     seed_config_no_model(home.path());
 
-    // Seed a hermetic .wayland-core/config.toml with NO model.
-    let cfg_dir = home.path().join(".wayland-core");
+    // Seed a hermetic .genesis-core/config.toml with NO model.
+    let cfg_dir = home.path().join(".genesis-core");
     std::fs::create_dir_all(&cfg_dir).expect("create cfg dir");
     let sessions = home.path().join("sessions");
     std::fs::create_dir_all(&sessions).expect("sessions dir");
@@ -415,13 +415,13 @@ async fn r003_no_model_guard() {
 #[tokio::test]
 async fn r004_crash_sentinel_clears_on_clean_exit() {
     let Some(bin) = maybe_eval_binary() else {
-        eprintln!("[R-004 SKIP] wayland-core binary not found");
+        eprintln!("[R-004 SKIP] genesis-core binary not found");
         return;
     };
 
     let home = TempDir::new().expect("tempdir");
-    let wayland_home = home.path().join(".wayland");
-    std::fs::create_dir_all(&wayland_home).expect("create .wayland");
+    let genesis_home = home.path().join(".genesis");
+    std::fs::create_dir_all(&genesis_home).expect("create .genesis");
 
     seed_config(home.path());
     seed_json_stream_env(
@@ -441,7 +441,7 @@ async fn r004_crash_sentinel_clears_on_clean_exit() {
         .arg("claude-sonnet-4-20250514")
         .current_dir(home.path())
         .env("HOME", home.path())
-        .env("WAYLAND_HOME", &wayland_home)
+        .env("GENESIS_HOME", &genesis_home)
         .env_remove("ANTHROPIC_API_KEY")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -472,7 +472,7 @@ async fn r004_crash_sentinel_clears_on_clean_exit() {
         .arg("--version")
         .current_dir(home.path())
         .env("HOME", home.path())
-        .env("WAYLAND_HOME", &wayland_home)
+        .env("GENESIS_HOME", &genesis_home)
         .env_remove("ANTHROPIC_API_KEY")
         .output()
         .await
@@ -499,7 +499,7 @@ async fn r004_crash_sentinel_clears_on_clean_exit() {
 #[tokio::test]
 async fn r005_force_mode_aliases() {
     let Some(bin) = maybe_eval_binary() else {
-        eprintln!("[R-005 SKIP] wayland-core binary not found");
+        eprintln!("[R-005 SKIP] genesis-core binary not found");
         return;
     };
 
@@ -586,7 +586,7 @@ async fn r005_force_mode_aliases() {
 #[tokio::test]
 async fn r006_init_history_injects_system_prompt() {
     let Some(bin) = maybe_eval_binary() else {
-        eprintln!("[R-006 SKIP] wayland-core binary not found");
+        eprintln!("[R-006 SKIP] genesis-core binary not found");
         return;
     };
 
@@ -665,7 +665,7 @@ async fn r006_init_history_injects_system_prompt() {
 #[tokio::test]
 async fn r007_session_wal_survives_mid_turn_kill() {
     let Some(bin) = maybe_eval_binary() else {
-        eprintln!("[R-007 SKIP] wayland-core binary not found");
+        eprintln!("[R-007 SKIP] genesis-core binary not found");
         return;
     };
 
@@ -885,7 +885,7 @@ async fn r010_openrouter_url_no_double_v1() {
     };
 
     let Some(bin) = maybe_eval_binary() else {
-        eprintln!("[R-010 SKIP] wayland-core binary not found");
+        eprintln!("[R-010 SKIP] genesis-core binary not found");
         return;
     };
 
@@ -1218,7 +1218,7 @@ async fn r013_customer_flow_assistants() {
     };
 
     let Some(bin) = maybe_eval_binary() else {
-        eprintln!("[R-013 SKIP] wayland-core binary not found");
+        eprintln!("[R-013 SKIP] genesis-core binary not found");
         return;
     };
 
@@ -1339,7 +1339,7 @@ async fn r014_customer_flow_skills_hello() {
     };
 
     let Some(bin) = maybe_eval_binary() else {
-        eprintln!("[R-014 SKIP] wayland-core binary not found");
+        eprintln!("[R-014 SKIP] genesis-core binary not found");
         return;
     };
 
@@ -1449,8 +1449,8 @@ async fn r014_customer_flow_skills_hello() {
 #[test]
 fn r015_customer_flow_routines_cli_plumbing() {
     let home = TempDir::new().expect("tempdir HOME");
-    let wayland_home = home.path().join(".wayland");
-    std::fs::create_dir_all(&wayland_home).expect("create .wayland");
+    let genesis_home = home.path().join(".genesis");
+    std::fs::create_dir_all(&genesis_home).expect("create .genesis");
 
     // cron add — should exit 0 and print the new job id.
     let add_out = Command::new(binary())
@@ -1465,7 +1465,7 @@ fn r015_customer_flow_routines_cli_plumbing() {
         ])
         .current_dir(home.path())
         .env("HOME", home.path())
-        .env("WAYLAND_HOME", &wayland_home)
+        .env("GENESIS_HOME", &genesis_home)
         .env_remove("API_KEY")
         .env_remove("ANTHROPIC_API_KEY")
         .env_remove("OPENAI_API_KEY")
@@ -1484,7 +1484,7 @@ fn r015_customer_flow_routines_cli_plumbing() {
             .args(["cron", "add", "*/1 * * * *", "--skill", "hello"])
             .current_dir(home.path())
             .env("HOME", home.path())
-            .env("WAYLAND_HOME", &wayland_home)
+            .env("GENESIS_HOME", &genesis_home)
             .env_remove("API_KEY")
             .env_remove("ANTHROPIC_API_KEY")
             .env_remove("OPENAI_API_KEY")
@@ -1510,7 +1510,7 @@ fn r015_customer_flow_routines_cli_plumbing() {
         .args(["cron", "list"])
         .current_dir(home.path())
         .env("HOME", home.path())
-        .env("WAYLAND_HOME", &wayland_home)
+        .env("GENESIS_HOME", &genesis_home)
         .env_remove("API_KEY")
         .env_remove("ANTHROPIC_API_KEY")
         .env_remove("OPENAI_API_KEY")

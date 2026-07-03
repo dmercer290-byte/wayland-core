@@ -1254,7 +1254,7 @@ mod tests {
         ]);
         let (url, _state, _pkce) = flow.build_authorize_url("http://localhost:1455/auth/callback");
         assert!(url.contains("id_token_add_organizations=true"), "url={url}");
-        assert!(url.contains("originator=wayland"), "url={url}");
+        assert!(url.contains("originator=genesis"), "url={url}");
         assert!(url.contains("code_challenge_method=S256"));
         // The extras must come AFTER the standard params + PKCE challenge.
         let extra_at = url.find("id_token_add_organizations").unwrap();

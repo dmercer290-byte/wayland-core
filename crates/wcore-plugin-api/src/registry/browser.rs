@@ -83,10 +83,10 @@ mod tests {
     fn manifest_with_tools(namespace: &str) -> PluginManifest {
         PluginManifest {
             plugin: PluginInfo {
-                name: "wayland-browser".into(),
+                name: "genesis-browser".into(),
                 version: "0.1.0".into(),
                 description: "test".into(),
-                entry: Some("builtin:wayland_browser".into()),
+                entry: Some("builtin:genesis_browser".into()),
                 authors: vec![],
                 license: "MIT".into(),
                 deferred: false,

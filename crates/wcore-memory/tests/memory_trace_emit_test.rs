@@ -89,7 +89,7 @@ fn ep() -> Episode {
         summary: "hello".into(),
         atomic_facts: vec![],
         source: "test".into(),
-        source_product: "wayland-core".into(),
+        source_product: "genesis-core".into(),
         session_id: None,
         project_root: None,
         decay_score: 1.0,

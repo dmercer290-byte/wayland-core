@@ -10,7 +10,7 @@
 
 ## 1. Summary
 
-**Crucible** is wayland-core's **Mixture-of-Providers (MoP)** capability: multiple
+**Crucible** is genesis-core's **Mixture-of-Providers (MoP)** capability: multiple
 sub-agents, **each pinned to a different LLM provider**, answer a task in parallel; a
 provenance-aware aggregator fuses them into one result. Built at the **agent end**
 (the engine), not the Flux router — only an agent runtime can ensemble *agents*, and

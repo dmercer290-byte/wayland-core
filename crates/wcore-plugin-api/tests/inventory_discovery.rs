@@ -17,7 +17,7 @@ impl Plugin for DummyPlugin {
             PluginManifest::from_toml_str(
                 r#"
 [plugin]
-name = "wayland-test-dummy"
+name = "genesis-test-dummy"
 version = "0.0.1"
 description = "inventory discovery test"
 entry = "builtin:dummy"
@@ -34,7 +34,7 @@ struct DummyFactory;
 
 impl PluginFactory for DummyFactory {
     fn name(&self) -> &'static str {
-        "wayland-test-dummy"
+        "genesis-test-dummy"
     }
     fn build(&self) -> Box<dyn Plugin> {
         Box::new(DummyPlugin)
@@ -49,7 +49,7 @@ inventory::submit! {
 fn dummy_plugin_discoverable_via_inventory() {
     let names: Vec<&str> = plugin_inventory::iter().map(|f| f.name()).collect();
     assert!(
-        names.contains(&"wayland-test-dummy"),
+        names.contains(&"genesis-test-dummy"),
         "expected dummy plugin in inventory, got {names:?}"
     );
 }
@@ -57,10 +57,10 @@ fn dummy_plugin_discoverable_via_inventory() {
 #[test]
 fn discovered_factory_builds_a_working_plugin() {
     let factory = plugin_inventory::iter()
-        .find(|f| f.name() == "wayland-test-dummy")
+        .find(|f| f.name() == "genesis-test-dummy")
         .expect("dummy plugin not found");
     let plugin = factory.build();
-    assert_eq!(plugin.manifest().plugin.name, "wayland-test-dummy");
+    assert_eq!(plugin.manifest().plugin.name, "genesis-test-dummy");
     assert_eq!(plugin.manifest().plugin.version, "0.0.1");
 }
 
@@ -92,7 +92,7 @@ fn version_mismatch_rejects() {
 plugin_api_version = "0.9"
 
 [plugin]
-name = "wayland-test-bad-version"
+name = "genesis-test-bad-version"
 version = "0.0.1"
 description = "version mismatch test"
 entry = "builtin:bad"
@@ -111,7 +111,7 @@ license = "MIT"
             expected,
             found,
         } => {
-            assert_eq!(plugin, "wayland-test-bad-version");
+            assert_eq!(plugin, "genesis-test-bad-version");
             assert_eq!(expected, PLUGIN_API_VERSION);
             assert_eq!(found, "0.9");
         }
@@ -126,7 +126,7 @@ fn matching_version_accepted() {
 plugin_api_version = "1.0"
 
 [plugin]
-name = "wayland-test-good-version"
+name = "genesis-test-good-version"
 version = "0.0.1"
 description = "version match test"
 entry = "builtin:good"
@@ -147,7 +147,7 @@ fn missing_version_is_compatible() {
     let manifest = PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-test-no-version"
+name = "genesis-test-no-version"
 version = "0.0.1"
 description = "missing version test"
 entry = "builtin:none"
@@ -166,7 +166,7 @@ fn unknown_kind_rejects() {
     let err = PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-test-bad-runtime"
+name = "genesis-test-bad-runtime"
 version = "0.0.1"
 description = "bad runtime kind test"
 entry = "builtin:bad"
@@ -180,7 +180,7 @@ kind = "wat"
     .expect_err("unknown runtime kind should fail");
     match err {
         PluginError::UnknownRuntimeKind { plugin, kind } => {
-            assert_eq!(plugin, "wayland-test-bad-runtime");
+            assert_eq!(plugin, "genesis-test-bad-runtime");
             assert_eq!(kind, "wat");
         }
         other => panic!("expected UnknownRuntimeKind, got {other:?}"),
@@ -194,7 +194,7 @@ fn default_runtime_kind_is_static_implicit() {
     let m = PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-test-default-runtime"
+name = "genesis-test-default-runtime"
 version = "0.0.1"
 description = "default runtime test"
 entry = "builtin:default"
@@ -211,7 +211,7 @@ fn explicit_static_runtime_accepted() {
     let m = PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-test-static-runtime"
+name = "genesis-test-static-runtime"
 version = "0.0.1"
 description = "explicit static runtime test"
 entry = "builtin:static"
@@ -233,7 +233,7 @@ fn unknown_top_level_field_rejects() {
     let err = PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-test-typo"
+name = "genesis-test-typo"
 version = "0.0.1"
 description = "typo test"
 entry = "builtin:typo"

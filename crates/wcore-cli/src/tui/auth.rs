@@ -119,7 +119,7 @@ fn build_google_meet_flow() -> Result<OAuthFlow, String> {
         None => {
             return Err(
                 "Google Meet auth needs `GOOGLE_CLIENT_ID` (and `GOOGLE_CLIENT_SECRET`) in \
-                    `~/.wayland/.env`. Open `/config` → Tools & Providers → Google Meet to set \
+                    `~/.genesis/.env`. Open `/config` → Tools & Providers → Google Meet to set \
                     them, or add them directly to the env file."
                     .to_string(),
             );
@@ -240,7 +240,7 @@ async fn run_google_meet_connect(flow: OAuthFlow) -> String {
         }
     };
 
-    // 6. Persist the bundle to `~/.wayland/oauth/google_meet.json`.
+    // 6. Persist the bundle to `~/.genesis/oauth/google_meet.json`.
     let storage = match OAuthStorage::from_home() {
         Ok(s) => s,
         Err(e) => {
@@ -304,7 +304,7 @@ mod tests {
         let out = build_google_meet_flow()
             .expect_err("missing client id must be an Err with a setup hint");
         assert!(out.contains("GOOGLE_CLIENT_ID"), "want env-var hint: {out}");
-        assert!(out.contains(".wayland/.env"), "want setup hint: {out}");
+        assert!(out.contains(".genesis/.env"), "want setup hint: {out}");
         if let Some(v) = saved {
             unsafe { std::env::set_var("GOOGLE_CLIENT_ID", v) };
         }

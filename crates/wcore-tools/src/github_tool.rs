@@ -1,6 +1,6 @@
 //! v0.6.3 Tier 2B T3 — GitHub REST API operations tool.
 //!
-//! Ported from the prior Wayland Python engine. The Python
+//! Ported from the prior Genesis Python engine. The Python
 //! original talks to `api.github.com` directly (httpx + a `GITHUB_TOKEN`).
 //! Mirroring the established `wcore-tools` discipline (see
 //! [`discord_tool`](crate::discord_tool), [`web_tools`](crate::web_tools),
@@ -61,7 +61,7 @@ pub const GITHUB_API_BASE: &str = "https://api.github.com";
 
 /// `User-Agent` sent on every request — GitHub rejects requests without
 /// one with `403 Forbidden`.
-pub const GITHUB_USER_AGENT: &str = "wayland-core";
+pub const GITHUB_USER_AGENT: &str = "genesis-core";
 
 /// `X-GitHub-Api-Version` pin — keeps responses stable across GitHub's
 /// dated API revisions.

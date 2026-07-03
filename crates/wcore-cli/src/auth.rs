@@ -1,4 +1,4 @@
-//! CLI surface: `wayland-core auth` — provider API-key CRUD.
+//! CLI surface: `genesis-core auth` — provider API-key CRUD.
 //!
 //! Three flag-driven ops against the global `config.toml`'s
 //! `[providers.<slug>]` tables:
@@ -61,7 +61,7 @@ pub enum AuthCmd {
     ///
     /// Currently only `chatgpt` (aliases: `openai-chatgpt`) is wired: it
     /// runs the loopback PKCE flow against OpenAI's Codex client and stores
-    /// the tokens encrypted under `~/.wayland/oauth/chatgpt.json`.
+    /// the tokens encrypted under `~/.genesis/oauth/chatgpt.json`.
     Login {
         /// Subscription provider to sign in to (`chatgpt`).
         provider: String,
@@ -211,11 +211,11 @@ fn resolve_provider(arg: &str, key: &str) -> Result<Provider> {
             Detected::Ambiguous => bail!(
                 "could not autodetect the provider — this key shape is shared by \
                  several providers. Re-run with an explicit provider, e.g. \
-                 `wayland-core auth add openai <key>`"
+                 `genesis-core auth add openai <key>`"
             ),
             Detected::Unknown => bail!(
                 "could not autodetect the provider from this key. Re-run with an \
-                 explicit provider, e.g. `wayland-core auth add anthropic <key>`"
+                 explicit provider, e.g. `genesis-core auth add anthropic <key>`"
             ),
         };
     }
@@ -232,11 +232,11 @@ fn resolve_provider(arg: &str, key: &str) -> Result<Provider> {
 fn list_cmd(config_path: &std::path::Path) -> Result<()> {
     let doc = load_doc(config_path)?;
     let Some(providers) = providers_table(&doc) else {
-        println!("No providers configured. Add one with `wayland-core auth add <provider> <key>`.");
+        println!("No providers configured. Add one with `genesis-core auth add <provider> <key>`.");
         return Ok(());
     };
     if providers.is_empty() {
-        println!("No providers configured. Add one with `wayland-core auth add <provider> <key>`.");
+        println!("No providers configured. Add one with `genesis-core auth add <provider> <key>`.");
         return Ok(());
     }
     // Sort by slug for stable output.
@@ -341,7 +341,7 @@ fn resolve_oauth_provider(arg: &str) -> Result<&'static str> {
     }
 }
 
-/// `wayland-core auth login chatgpt [--import-codex] [--device]`.
+/// `genesis-core auth login chatgpt [--import-codex] [--device]`.
 ///
 /// Routing (first match wins):
 /// - `--import-codex`: import an existing Codex CLI login
@@ -381,7 +381,7 @@ fn import_codex_login() -> Result<()> {
     Ok(())
 }
 
-/// `wayland-core auth logout chatgpt`.
+/// `genesis-core auth logout chatgpt`.
 ///
 /// C5: removing the on-disk token is not enough — also unlink any
 /// `*.json.tmp` orphan left by an interrupted atomic write. A live
@@ -419,10 +419,10 @@ async fn logout_cmd(provider_arg: &str) -> Result<()> {
     Ok(())
 }
 
-/// `wayland-core auth status`.
+/// `genesis-core auth status`.
 ///
 /// Loads the stored ChatGPT token, decodes the access-token claims, and
-/// prints signed-in + plan + expiry, or a not-signed-in line. When no wayland
+/// prints signed-in + plan + expiry, or a not-signed-in line. When no genesis
 /// token exists it tries a Codex CLI import once before reporting logged-out.
 async fn status_cmd() -> Result<()> {
     let storage = OAuthStorage::from_home().map_err(|e| anyhow!("opening token store: {e}"))?;
@@ -447,7 +447,7 @@ async fn status_cmd() -> Result<()> {
     };
 
     let Some(tokens) = tokens else {
-        println!("ChatGPT: not signed in. Run `wayland-core auth login chatgpt`.");
+        println!("ChatGPT: not signed in. Run `genesis-core auth login chatgpt`.");
         return Ok(());
     };
 
@@ -536,7 +536,7 @@ async fn login_chatgpt() -> Result<()> {
     chatgpt::decode_codex_claims(&tokens.access_token)
         .map_err(|e| anyhow!("ChatGPT login returned a token without an account id: {e}"))?;
 
-    // 6. Persist the bundle to `~/.wayland/oauth/chatgpt.json`.
+    // 6. Persist the bundle to `~/.genesis/oauth/chatgpt.json`.
     let storage = OAuthStorage::from_home().map_err(|e| anyhow!("opening token store: {e}"))?;
     storage
         .store(chatgpt::PROVIDER, &tokens)
@@ -555,7 +555,7 @@ async fn login_chatgpt() -> Result<()> {
     bail!(
         "ChatGPT login needs the network-backed build (the `remote-registry` feature); \
          this binary was built without it. If you have the Codex CLI installed, run \
-         `wayland-core auth login chatgpt --import-codex` instead."
+         `genesis-core auth login chatgpt --import-codex` instead."
     )
 }
 
@@ -577,7 +577,7 @@ async fn login_chatgpt_device() -> Result<()> {
     chatgpt::decode_codex_claims(&tokens.access_token)
         .map_err(|e| anyhow!("ChatGPT login returned a token without an account id: {e}"))?;
 
-    // Persist the bundle to `~/.wayland/oauth/chatgpt.json`.
+    // Persist the bundle to `~/.genesis/oauth/chatgpt.json`.
     let storage = OAuthStorage::from_home().map_err(|e| anyhow!("opening token store: {e}"))?;
     storage
         .store(chatgpt::PROVIDER, &tokens)
@@ -596,7 +596,7 @@ async fn login_chatgpt_device() -> Result<()> {
     bail!(
         "ChatGPT device-code login needs the network-backed build (the `remote-registry` \
          feature); this binary was built without it. If you have the Codex CLI installed, run \
-         `wayland-core auth login chatgpt --import-codex` instead."
+         `genesis-core auth login chatgpt --import-codex` instead."
     )
 }
 

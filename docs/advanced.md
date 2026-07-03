@@ -60,7 +60,7 @@ command = "npx prettier --write ${TOOL_INPUT_FILE_PATH}"
 [[hooks.post_tool_use]]
 name = "audit-log"
 tool_match = ["Bash"]
-command = "echo \"$(date): ${TOOL_INPUT_COMMAND}\" >> .wayland-core/audit.log"
+command = "echo \"$(date): ${TOOL_INPUT_COMMAND}\" >> .genesis-core/audit.log"
 
 # Run lint on session end
 [[hooks.stop]]
@@ -121,7 +121,7 @@ Two providers authenticate via OAuth rather than a raw API key, with tokens
 managed entirely by the engine:
 
 - **Sign in with ChatGPT** — interactive subscription login. Run
-  `wayland-core auth login chatgpt` (loopback PKCE flow; `--device` for a
+  `genesis-core auth login chatgpt` (loopback PKCE flow; `--device` for a
   headless device-code flow, `--import-codex` to reuse an existing Codex CLI
   login). This is the only wired `auth login` verb.
 - **Grok (xAI)** — there is no `auth login` verb for Grok. Use it with
@@ -131,7 +131,7 @@ managed entirely by the engine:
 
 ### Token Storage & Security
 
-- Tokens are stored encrypted at `~/.wayland/oauth/{provider}.json`, with
+- Tokens are stored encrypted at `~/.genesis/oauth/{provider}.json`, with
   directory mode `0700` and file mode `0600` on Unix.
 - PKCE (S256) and a CSRF `state` token are mandatory on the login flow; the
   callback compares `state` in constant time.
@@ -150,11 +150,11 @@ Record real API interactions and replay them in tests — no API key or network 
 ```bash
 # Record mode
 VCR_MODE=record VCR_CASSETTE=tests/cassettes/my_test.json \
-  wayland-core -k sk-ant-xxx "Read Cargo.toml"
+  genesis-core -k sk-ant-xxx "Read Cargo.toml"
 
 # Replay mode (in tests)
 VCR_MODE=replay VCR_CASSETTE=tests/cassettes/my_test.json \
-  wayland-core "Read Cargo.toml"
+  genesis-core "Read Cargo.toml"
 ```
 
 ### Features
@@ -169,7 +169,7 @@ VCR_MODE=replay VCR_CASSETTE=tests/cassettes/my_test.json \
 
 AGENTS.md files provide project-specific instructions that are automatically injected into the system prompt. Files are discovered hierarchically and merged from remote to near:
 
-1. **Global**: `<config_dir>/wayland-core/AGENTS.md` — user-level instructions for all projects
+1. **Global**: `<config_dir>/genesis-core/AGENTS.md` — user-level instructions for all projects
 2. **Project hierarchy**: Walk up from cwd to the git root (or home directory), collecting every `AGENTS.md` found along the way
 
 Files closer to the working directory appear later in the prompt and take precedence (via LLM recency bias). Each file is annotated with its absolute path for traceability.
@@ -219,7 +219,7 @@ Persistent, file-based memory that allows the agent to retain project-specific k
 Memory files live in a per-project directory under the global config:
 
 ```
-<config_dir>/wayland-core/projects/<sanitized-project-path>/memory/
+<config_dir>/genesis-core/projects/<sanitized-project-path>/memory/
 ├── MEMORY.md              # Index (auto-loaded into prompt, max 200 lines)
 ├── user_role.md
 ├── feedback_testing.md
@@ -252,8 +252,8 @@ The legacy `AIONRS_MEMORY_DIR` is still honored as a backward-compat alias —
 useful if you're migrating from an older `aionrs` configuration. When both are
 set, `WCORE_MEMORY_DIR` wins.
 
-On Windows, `WAYLAND_BASH_SHELL=powershell` (Windows PowerShell 5.1) or
-`WAYLAND_BASH_SHELL=pwsh` (PowerShell 7+) switches the BashTool interpreter
+On Windows, `GENESIS_BASH_SHELL=powershell` (Windows PowerShell 5.1) or
+`GENESIS_BASH_SHELL=pwsh` (PowerShell 7+) switches the BashTool interpreter
 from the default `cmd`. It is a no-op on Unix. See
 [docs/tools.md](tools.md) for details.
 
@@ -281,7 +281,7 @@ A read-only exploration mode where the agent focuses on understanding the codeba
 ```toml
 [plan]
 enabled = true                    # Register Plan Mode tools (default: true)
-plan_directory = ".wayland-core/plans"  # Where plan files are saved
+plan_directory = ".genesis-core/plans"  # Where plan files are saved
 ```
 
 ### Workflow Phases
@@ -485,7 +485,7 @@ When `observability.skills_lifecycle = true` in `wcore.toml`, three subsystems b
 
 ### Enabling
 
-The `skills_lifecycle` flag is **default-off**. Turn it on per project in `.wayland-core.toml`:
+The `skills_lifecycle` flag is **default-off**. Turn it on per project in `.genesis-core.toml`:
 
 ```toml
 [observability]
@@ -526,7 +526,7 @@ via `BrowserBinaryManager`. There is deliberately NO `Evaluate` op
 in v1 — arbitrary JS injection is too easy a security regression
 for the first wave.
 
-The plugin shell is `wayland-browser` (registers a `BrowserToolSpec`
+The plugin shell is `genesis-browser` (registers a `BrowserToolSpec`
 through `wcore-plugin-api`; **no direct `wcore-browser` dep**, per
 audit F2). Capability advertised on the wire via
 `capabilities.browser_suite` whenever the plugin loads.
@@ -548,9 +548,9 @@ this at the type level and additionally gates:
 On restricted Linux Wayland compositors the host adapter refuses
 registration at boot rather than silently degrading — operators
 explicitly opt out by flipping `register_tools = false` in
-`plugins.toml` for `wayland-cua`.
+`plugins.toml` for `genesis-cua`.
 
-The plugin shell is `wayland-cua` (registers a `CuaToolSpec`
+The plugin shell is `genesis-cua` (registers a `CuaToolSpec`
 through `wcore-plugin-api`; no direct `wcore-cua` dep). Capability
 advertised via `capabilities.computer_use`.
 
@@ -565,10 +565,10 @@ Currently shipped:
 
 | Plugin | Surface(s) | Role |
 |---|---|---|
-| `wayland-ollama` | `register_providers` | Reference provider-only plugin — local Ollama inference |
-| `wayland-browser` | `register_tools` | Packaging of `wcore-browser` via `BrowserToolSpec` mirror |
-| `wayland-cua` | `register_tools` | Packaging of `wcore-cua` via `CuaToolSpec` mirror |
-| `wayland-ijfw` | every surface | Anchor plugin — exercises tools, hooks, agents, skills, rules, and MCP server end-to-end |
+| `genesis-ollama` | `register_providers` | Reference provider-only plugin — local Ollama inference |
+| `genesis-browser` | `register_tools` | Packaging of `wcore-browser` via `BrowserToolSpec` mirror |
+| `genesis-cua` | `register_tools` | Packaging of `wcore-cua` via `CuaToolSpec` mirror |
+| `genesis-ijfw` | every surface | Anchor plugin — exercises tools, hooks, agents, skills, rules, and MCP server end-to-end |
 
 The wire-side capability flags (`Capabilities.plugins`,
 `.browser_suite`, `.computer_use`) flip when the matching plugin is

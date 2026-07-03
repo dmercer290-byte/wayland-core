@@ -7,7 +7,7 @@
 //! Crate-graph position (mid-tier): depends DOWNWARD on `wcore-types`,
 //! `wcore-tools`, `wcore-protocol`, `wcore-config`. MUST NOT depend on
 //! `wcore-agent`, `wcore-cli`, `wcore-evolve`, `wcore-eval`. Plugin shells
-//! (`wayland-*`) MUST NOT depend on this crate directly; they go through
+//! (`genesis-*`) MUST NOT depend on this crate directly; they go through
 //! `wcore-plugin-api::browser_spec::BrowserToolSpec` mirrors (audit F2).
 //!
 //! Three backends:
@@ -39,7 +39,7 @@ pub use supervisor::BrowserSupervisor;
 pub use tool::BrowserTool;
 
 /// Re-export of the host-adapter spec-to-type translator surface. The
-/// `wayland-browser` plugin registers a `BrowserToolSpec` via the
+/// `genesis-browser` plugin registers a `BrowserToolSpec` via the
 /// plugin-api mirror; the host (wcore-agent) calls into this module to
 /// reify a concrete tool.
 pub mod adapter;

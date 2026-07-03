@@ -67,10 +67,10 @@ struct EvolveArgs {
     /// `<graveyard_root>/<run-id>/<generation>/<child>.json`.
     ///
     /// Default: `dirs::data_dir().unwrap_or_else(std::env::temp_dir)
-    ///   .join("wayland/evolve/graveyard")` — resolves to
-    ///   `~/Library/Application Support/wayland/evolve/graveyard` on macOS,
-    ///   `~/.local/share/wayland/evolve/graveyard` on Linux,
-    ///   `%APPDATA%\wayland\evolve\graveyard` on Windows.
+    ///   .join("genesis/evolve/graveyard")` — resolves to
+    ///   `~/Library/Application Support/genesis/evolve/graveyard` on macOS,
+    ///   `~/.local/share/genesis/evolve/graveyard` on Linux,
+    ///   `%APPDATA%\genesis\evolve\graveyard` on Windows.
     /// The path is created with `fs::create_dir_all` on first use.
     #[arg(long)]
     graveyard_root: Option<PathBuf>,
@@ -111,7 +111,7 @@ fn resolve_graveyard_root(explicit: Option<PathBuf>) -> PathBuf {
     explicit.unwrap_or_else(|| {
         dirs::data_dir()
             .unwrap_or_else(std::env::temp_dir)
-            .join("wayland")
+            .join("genesis")
             .join("evolve")
             .join("graveyard")
     })

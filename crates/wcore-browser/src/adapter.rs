@@ -1,7 +1,7 @@
 //! Host-adapter surface: translate a `wcore-plugin-api`-mirrored browser
 //! spec into a concrete `BrowserTool`.
 //!
-//! The plugin shell (`wayland-browser`) cannot depend on `wcore-browser`
+//! The plugin shell (`genesis-browser`) cannot depend on `wcore-browser`
 //! (REV-2 audit F2 — the `FORBIDDEN_CORE_IMPORTS` lint in
 //! `crates/wcore-plugin-api/build.rs` enforces it). Instead, the plugin
 //! registers a `BrowserToolSpec` via the api-crate mirror, and the host

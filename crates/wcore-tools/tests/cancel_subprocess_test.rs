@@ -159,8 +159,8 @@ async fn bash_tool_returns_promptly_when_cancelled_mid_sleep() {
     // container). Opt into the documented no-sandbox degraded mode.
     // SAFETY: test-only env mutation; `#[serial]` prevents env races.
     unsafe {
-        std::env::set_var("WAYLAND_SANDBOX", "none");
-        std::env::set_var("WAYLAND_ALLOW_NO_SANDBOX", "1");
+        std::env::set_var("GENESIS_SANDBOX", "none");
+        std::env::set_var("GENESIS_ALLOW_NO_SANDBOX", "1");
     }
     let cancel = CancellationToken::new();
     let cancel2 = cancel.clone();

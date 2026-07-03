@@ -86,7 +86,7 @@ impl MsTeamsChannel {
         token_url: String,
     ) -> Self {
         let http = wcore_egress::EgressClient::builder()
-            .user_agent(concat!("wayland-core/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("genesis-core/", env!("CARGO_PKG_VERSION")))
             .build()
             .unwrap_or_default();
 

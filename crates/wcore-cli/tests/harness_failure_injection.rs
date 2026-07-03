@@ -50,7 +50,7 @@ use tempfile::TempDir;
 
 /// Path to the debug binary under test.
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_wayland-core")
+    env!("CARGO_BIN_EXE_genesis-core")
 }
 
 /// Seed `HOME` with a config that (a) has a valid provider table for
@@ -66,8 +66,8 @@ fn seed_config_with_wedged_mcp(home: &Path) {
     let macos_dir = home
         .join("Library")
         .join("Application Support")
-        .join("wayland-core");
-    let linux_dir = home.join(".config").join("wayland-core");
+        .join("genesis-core");
+    let linux_dir = home.join(".config").join("genesis-core");
     let body = "[default]\n\
                 provider = \"anthropic\"\n\
                 model = \"claude-sonnet-4-20250514\"\n\
@@ -104,8 +104,8 @@ fn seed_config_plain(home: &Path, api_key: &str) {
     let macos_dir = home
         .join("Library")
         .join("Application Support")
-        .join("wayland-core");
-    let linux_dir = home.join(".config").join("wayland-core");
+        .join("genesis-core");
+    let linux_dir = home.join(".config").join("genesis-core");
     let body = format!(
         "[default]\n\
          provider = \"anthropic\"\n\
@@ -154,7 +154,7 @@ impl PtyHarness {
             cmd.env(*k, *v);
         }
         cmd.cwd(home);
-        let child = pty.slave.spawn_command(cmd).expect("spawn wayland-core");
+        let child = pty.slave.spawn_command(cmd).expect("spawn genesis-core");
 
         let mut reader = pty.master.try_clone_reader().expect("clone PTY reader");
         let parser = std::sync::Arc::new(std::sync::Mutex::new(vt100::Parser::new(40, 120, 0)));
@@ -255,7 +255,7 @@ fn wedged_mcp_server_does_not_hang_boot() {
     // bootstrap (provider plugins, agent pack, etc.).
     //
     // If a regression re-introduces unbounded waiting, the TUI never
-    // renders WAYLAND within 35s and this test fails with the very
+    // renders GENESIS within 35s and this test fails with the very
     // failure-mode the audit named.
     let home = TempDir::new().expect("tempdir");
     seed_config_with_wedged_mcp(home.path());
@@ -280,12 +280,12 @@ fn wedged_mcp_server_does_not_hang_boot() {
         h.screen_text()
     );
 
-    // (a) BOOT TERMINATES — the TUI must render the WAYLAND wordmark
+    // (a) BOOT TERMINATES — the TUI must render the GENESIS wordmark
     // within 35s despite the wedged server. The bound is chosen as
     // 30s (CONNECT_TIMEOUT) + 5s slack; any longer and a regression
     // has dropped the timeout or reintroduced a serial wait.
     let booted = h.wait_for(
-        |s| s.contains("WAYLAND") && s.contains("Workspace"),
+        |s| s.contains("GENESIS") && s.contains("Workspace"),
         Duration::from_secs(35),
         "TUI to reach Workspace despite a wedged MCP server",
     );
@@ -338,7 +338,7 @@ fn ctrl_c_during_a_real_turn_does_not_brick_the_session() {
     // Wait for the workspace to render.
     assert!(
         h.wait_for(
-            |s| s.contains("WAYLAND") && s.contains("Workspace"),
+            |s| s.contains("GENESIS") && s.contains("Workspace"),
             Duration::from_secs(60),
             "TUI to boot",
         ),
@@ -359,7 +359,7 @@ fn ctrl_c_during_a_real_turn_does_not_brick_the_session() {
     // turn starts — none of them appear at boot:
     //   * `thinking…`  — `render_turns` emits this once `session.thinking`
     //     is non-empty (workspace.rs ~line 703);
-    //   * `wayland` (the assistant role marker) — emitted once a turn
+    //   * `genesis` (the assistant role marker) — emitted once a turn
     //     has streamed any text (workspace.rs ~line 725);
     //   * the spawned tool's name in a tool card (`Glob` / `Read` / etc.).
     // The user message echo (`› list the files…`) is NOT enough — that
@@ -370,12 +370,12 @@ fn ctrl_c_during_a_real_turn_does_not_brick_the_session() {
                 || s.contains("Glob")
                 || s.contains("Grep")
                 || s.contains("Read ")
-                // The assistant role marker is `wayland` painted bold —
-                // distinct from `WAYLAND` (the chrome wordmark, all caps).
-                || s.contains("wayland")
+                // The assistant role marker is `genesis` painted bold —
+                // distinct from `GENESIS` (the chrome wordmark, all caps).
+                || s.contains("genesis")
         },
         Duration::from_secs(45),
-        "engine to start streaming a turn (thinking… / wayland / tool card)",
+        "engine to start streaming a turn (thinking… / genesis / tool card)",
     );
     assert!(
         streaming,
@@ -417,7 +417,7 @@ fn ctrl_c_during_a_real_turn_does_not_brick_the_session() {
 
     let status = h
         .wait_for_exit(Duration::from_secs(10))
-        .expect("wayland-core did not exit within 10s of /exit after Ctrl+C — session bricked");
+        .expect("genesis-core did not exit within 10s of /exit after Ctrl+C — session bricked");
     assert!(
         status.success(),
         "expected clean exit after Ctrl+C + /exit; got {status:?}"

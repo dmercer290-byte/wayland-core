@@ -1,5 +1,5 @@
 //! `wcore-permissions` — Wave B2 multi-actor ACL + bearer-token authn/authz
-//! for wayland-core sessions.
+//! for genesis-core sessions.
 //!
 //! v0.3 scope:
 //! - Explicit ACL over `(Actor, Resource, Action)` tuples via [`PolicyEngine`].

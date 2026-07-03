@@ -119,14 +119,14 @@ impl WebBackend for FirecrawlWebBackend {
 
     async fn extract(&self, _req: ExtractRequest) -> WebOutcome {
         WebOutcome::Err {
-            message: "Firecrawl extract not yet wired in wayland-core; use the WebFetch tool."
+            message: "Firecrawl extract not yet wired in genesis-core; use the WebFetch tool."
                 .to_string(),
         }
     }
 
     async fn crawl(&self, _req: CrawlRequest) -> WebOutcome {
         WebOutcome::Err {
-            message: "Firecrawl crawl not yet wired in wayland-core.".to_string(),
+            message: "Firecrawl crawl not yet wired in genesis-core.".to_string(),
         }
     }
 

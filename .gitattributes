@@ -1,4 +1,4 @@
-# Force LF line endings for all text files in this repo. The wayland-ijfw
+# Force LF line endings for all text files in this repo. The genesis-ijfw
 # snapshots (included via `include_str!` at compile time) parse YAML
 # frontmatter via literal `---\n` matches — Windows autocrlf converting
 # them to CRLF on checkout broke `each_vendored_agent_parses` on
@@ -9,7 +9,7 @@
 
 # Belt-and-suspenders: snapshot content + Rust + TOML stays LF even if
 # someone later flips the top-level rule.
-crates/wayland-ijfw/snapshots/** text eol=lf
+crates/genesis-ijfw/snapshots/** text eol=lf
 *.rs                              text eol=lf
 *.toml                            text eol=lf
 *.md                              text eol=lf

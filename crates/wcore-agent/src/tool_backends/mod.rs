@@ -176,7 +176,7 @@ pub fn build_fetch_backend() -> Arc<dyn FetchBackend> {
     Arc::new(HttpFetchBackend::new())
 }
 
-/// Explicit web-backend selection via `WAYLAND_WEB_BACKEND`.
+/// Explicit web-backend selection via `GENESIS_WEB_BACKEND`.
 ///
 /// This is an EXPLICIT override layered ON TOP of the key-presence priority
 /// ladder below — distinct from the vision/transcription builders, which are
@@ -206,20 +206,20 @@ fn disclose_parallel_once() {
     ONCE.call_once(|| {
         tracing::info!(
             "web search: using Parallel.ai free search (anonymous). Your search queries are sent \
-             to parallel.ai. Set WAYLAND_WEB_BACKEND=duckduckgo to keep queries on DuckDuckGo, \
+             to parallel.ai. Set GENESIS_WEB_BACKEND=duckduckgo to keep queries on DuckDuckGo, \
              =off to disable, or set FIRECRAWL_API_KEY / TAVILY_API_KEY / EXA_API_KEY / \
              SEARXNG_URL / BRAVE_SEARCH_API_KEY for a configured provider."
         );
     });
 }
 
-/// Pick the active `WebBackend`. Explicit `WAYLAND_WEB_BACKEND` wins; otherwise
+/// Pick the active `WebBackend`. Explicit `GENESIS_WEB_BACKEND` wins; otherwise
 /// the first configured key (the provider preference order) is used. Every selected
 /// primary is wrapped so it falls back to DuckDuckGo on failure — DDG is the
 /// floor for all tiers except an explicit `off`.
 ///
 /// Resolution order (first match wins):
-/// * `WAYLAND_WEB_BACKEND` = `off` | `duckduckgo` | `parallel` (explicit override)
+/// * `GENESIS_WEB_BACKEND` = `off` | `duckduckgo` | `parallel` (explicit override)
 /// * `FIRECRAWL_API_KEY` → Firecrawl
 /// * `PARALLEL_API_KEY` → Parallel (keyed REST)
 /// * `TAVILY_API_KEY` → Tavily
@@ -236,13 +236,13 @@ pub fn build_web_search_backend() -> Arc<dyn WebBackend> {
     }
 
     // A. Explicit override always wins.
-    match resolve_backend_choice(std::env::var("WAYLAND_WEB_BACKEND").ok().as_deref()) {
+    match resolve_backend_choice(std::env::var("GENESIS_WEB_BACKEND").ok().as_deref()) {
         WebBackendChoice::Off => {
-            tracing::info!("web search: disabled (WAYLAND_WEB_BACKEND=off)");
+            tracing::info!("web search: disabled (GENESIS_WEB_BACKEND=off)");
             return Arc::new(DisabledWebBackend);
         }
         WebBackendChoice::DuckDuckGo => {
-            tracing::info!("web search: DuckDuckGo (WAYLAND_WEB_BACKEND=duckduckgo)");
+            tracing::info!("web search: DuckDuckGo (GENESIS_WEB_BACKEND=duckduckgo)");
             return ddg();
         }
         WebBackendChoice::Parallel => {
@@ -283,7 +283,7 @@ pub fn build_web_search_backend() -> Arc<dyn WebBackend> {
     chain(Arc::new(ParallelWebBackend::free()))
 }
 
-/// `WebBackend` returned when `WAYLAND_WEB_BACKEND=off` — every call fails
+/// `WebBackend` returned when `GENESIS_WEB_BACKEND=off` — every call fails
 /// loudly so the model knows web search is intentionally disabled.
 pub struct DisabledWebBackend;
 
@@ -305,7 +305,7 @@ impl WebBackend for DisabledWebBackend {
 
 fn disabled_err() -> WebOutcome {
     WebOutcome::Err {
-        message: "web search is disabled (WAYLAND_WEB_BACKEND=off). Unset it or set it to \
+        message: "web search is disabled (GENESIS_WEB_BACKEND=off). Unset it or set it to \
                   `auto`/`duckduckgo`/`parallel` to re-enable."
             .to_string(),
     }
@@ -395,7 +395,7 @@ impl ImageFetcher for HttpImageFetcher {
             .timeout(std::time::Duration::from_secs(20))
             .header(
                 reqwest::header::USER_AGENT,
-                "Mozilla/5.0 (compatible; wayland-core/Vision)",
+                "Mozilla/5.0 (compatible; genesis-core/Vision)",
             )
             .header(reqwest::header::ACCEPT, "image/*,*/*;q=0.8")
             .send()
@@ -448,7 +448,7 @@ impl AudioFetcher for HttpAudioFetcher {
             .timeout(std::time::Duration::from_secs(30))
             .header(
                 reqwest::header::USER_AGENT,
-                "Mozilla/5.0 (compatible; wayland-core/Transcribe)",
+                "Mozilla/5.0 (compatible; genesis-core/Transcribe)",
             )
             .send()
             .await

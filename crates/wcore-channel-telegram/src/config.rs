@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Per-channel Telegram config. Parsed from the `[options]` table of
-/// `~/.wayland/channels/<name>.toml`.
+/// `~/.genesis/channels/<name>.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TelegramConfig {

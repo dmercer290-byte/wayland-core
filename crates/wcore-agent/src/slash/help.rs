@@ -26,7 +26,7 @@ Available slash commands:
   /clear             Clear the screen.
   /exit              Exit the session.
 
-Pass `--help` to wayland-core for full CLI documentation.";
+Pass `--help` to genesis-core for full CLI documentation.";
         Ok(SlashOutcome::Handled {
             output: Some(body.to_string()),
         })

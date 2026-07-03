@@ -1,11 +1,11 @@
 //! T3-3.7 (sub-wave 7): Spotify toolset — seven agent-facing tools that
 //! share a single pluggable [`SpotifyBackend`].
 //!
-//! Ported from the prior Wayland Python engine (the 597-LOC Spotify
+//! Ported from the prior Genesis Python engine (the 597-LOC Spotify
 //! toolset and the URI/ID normalization helpers from its Spotify client).
 //!
 //! The Python original is built on top of a concrete `SpotifyClient`
-//! (httpx-based, OAuth token from `wayland auth spotify`). Wayland's
+//! (httpx-based, OAuth token from `genesis auth spotify`). Genesis's
 //! engine deliberately ships **no HTTP client and no embedded Spotify
 //! integration** — credentials, refresh, and the actual REST call are
 //! the host's responsibility. This module mirrors the seam discipline

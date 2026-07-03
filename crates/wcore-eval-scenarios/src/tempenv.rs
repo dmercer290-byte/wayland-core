@@ -1,14 +1,14 @@
 //! Hermetic per-scenario tempdir + seeded `config.toml`.
 //!
-//! Cross-audit C-3 caught the trap: `WAYLAND_HOME` does NOT reroute
+//! Cross-audit C-3 caught the trap: `GENESIS_HOME` does NOT reroute
 //! the session directory. `config.session.directory` defaults to the
-//! relative string `".wayland-core/sessions"` (`wcore-config/src/config.rs:482-484`).
+//! relative string `".genesis-core/sessions"` (`wcore-config/src/config.rs:482-484`).
 //! Setting env vars without also `cd`-ing or pointing the config at an
 //! absolute path leaks session files into the worktree.
 //!
 //! [`build`] therefore:
 //! 1. Mints a `TempDir`.
-//! 2. Writes `<tempdir>/.wayland-core/config.toml` with an **absolute**
+//! 2. Writes `<tempdir>/.genesis-core/config.toml` with an **absolute**
 //!    `[session].directory = "<tempdir>/sessions"`.
 //! 3. Writes `[provider.<id>] api_key = "..."` so the binary picks up
 //!    the key from config rather than env (more deterministic).
@@ -62,7 +62,7 @@ pub fn build_with(provider: &ProviderConfig, opts: &TempEnvOptions) -> anyhow::R
     let sessions_dir = root.join("sessions");
     fs::create_dir_all(&sessions_dir)?;
 
-    let cfg_dir = root.join(".wayland-core");
+    let cfg_dir = root.join(".genesis-core");
     fs::create_dir_all(&cfg_dir)?;
 
     // Build the TOML by hand — `toml::to_string` of a `serde_json::Value`
@@ -159,7 +159,7 @@ mod tests {
     fn seeded_config_has_absolute_session_dir() {
         let p = ProviderConfig::new(ProviderId::DeepSeek, "deepseek-chat").with_api_key("test-key");
         let env = build(&p).expect("build env");
-        let cfg = fs::read_to_string(env.path().join(".wayland-core/config.toml"))
+        let cfg = fs::read_to_string(env.path().join(".genesis-core/config.toml"))
             .expect("seeded config exists");
         assert!(
             cfg.contains("[session]"),
@@ -183,7 +183,7 @@ mod tests {
         let p = ProviderConfig::new(ProviderId::Anthropic, "claude-sonnet-4-6")
             .with_api_key("sk-ant-test-12345");
         let env = build(&p).expect("build env");
-        let cfg = fs::read_to_string(env.path().join(".wayland-core/config.toml"))
+        let cfg = fs::read_to_string(env.path().join(".genesis-core/config.toml"))
             .expect("seeded config exists");
         assert!(cfg.contains("[provider.anthropic]"), "config: {cfg}");
         assert!(cfg.contains("sk-ant-test-12345"), "config: {cfg}");
@@ -199,7 +199,7 @@ mod tests {
             },
         )
         .expect("build env");
-        let cfg = fs::read_to_string(env.path().join(".wayland-core/config.toml"))
+        let cfg = fs::read_to_string(env.path().join(".genesis-core/config.toml"))
             .expect("seeded config exists");
         assert!(cfg.contains("[budget]"), "config: {cfg}");
         assert!(cfg.contains("max_cost_usd = 0.05"), "config: {cfg}");

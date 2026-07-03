@@ -17,20 +17,20 @@ pub mod bash;
 // Native per-command Bash output compaction (cargo/git/test/grep) — engine-owned,
 // fail-open, size-gated. See `.planning/2026-06-11-NATIVE-BASH-COMPACTION-DESIGN.md`.
 pub mod bash_compact;
-// T3-3.2.1: pure-string binary extension filter ported from the prior Wayland Python engine (sub-wave 2).
+// T3-3.2.1: pure-string binary extension filter ported from the prior Genesis Python engine (sub-wave 2).
 pub mod binary_extensions;
-// T3-3.1.1: clarify_tool ported from the prior Wayland Python engine (sub-wave 1).
+// T3-3.1.1: clarify_tool ported from the prior Genesis Python engine (sub-wave 1).
 pub mod clarify;
 // W8a A.3: ToolContext threaded into every tool dispatch (cancel + vfs + sink).
 pub mod context;
-// T3-3.1.8: per-tool opt-in JSON call log (port of the prior Wayland Python engine).
+// T3-3.1.8: per-tool opt-in JSON call log (port of the prior Genesis Python engine).
 pub mod debug_helpers;
 // T3-3.4 (sub-wave 4): env var passthrough registry — HELPER. Ported
-// from the prior Wayland Python engine. Skill-declared
+// from the prior Genesis Python engine. Skill-declared
 // `required_environment_variables` (plus host config) survive
 // sandboxed sub-process env stripping in BashTool / ScriptTool.
 pub mod env_passthrough;
-// T3-3.1.3: delegate tool ported from the prior Wayland Python engine — bridges to wcore-types `Spawner`
+// T3-3.1.3: delegate tool ported from the prior Genesis Python engine — bridges to wcore-types `Spawner`
 // trait so the actual sub-agent dispatch stays in wcore-agent.
 pub mod delegate;
 pub mod dispatcher;
@@ -41,12 +41,12 @@ pub mod edit;
 pub mod email_parse_tool;
 pub mod file_cache;
 // T3-3.2.2: shared file-safety policy (write deny list + skill-hub read
-// block) ported from the prior Wayland Python engine.
+// block) ported from the prior Genesis Python engine.
 pub mod file_safety;
-// T3-3.2.3: cross-agent file state coordination (port of the prior Wayland Python engine).
+// T3-3.2.3: cross-agent file state coordination (port of the prior Genesis Python engine).
 pub mod file_state;
 // T3-3.2.7: 9-strategy fuzzy find-and-replace helper (port of the prior
-// Wayland Python engine). Wired into EditTool as an opt-in fallback (Rank 41):
+// Genesis Python engine). Wired into EditTool as an opt-in fallback (Rank 41):
 // `EditTool::with_fuzzy_fallback(true)` retries an exact-match failure
 // through this chain; default OFF so the exact path is byte-identical.
 pub mod fuzzy_match;
@@ -61,14 +61,14 @@ pub mod git_commit_message;
 // T4 (v0.6.3 Tier 2B): GitLab REST API v4 tool — issue/MR/file read +
 // note posts via a pluggable GitLabBackend (NullGitLabBackend fails
 // loud, NO-STUBS). Configurable base URL for self-hosted GitLab.
-// Ported from the prior Wayland Python engine.
+// Ported from the prior Genesis Python engine.
 pub mod gitlab_tool;
 pub mod glob;
 // T3-3.7.3 (sub-wave 7): Google Meet conferencing tool ported from
-// the prior Wayland Python engine.
+// the prior Genesis Python engine.
 pub mod google_meet_tool;
 pub mod grep;
-// T3-3.1.5: per-thread interrupt signaling (port of the prior Wayland Python engine).
+// T3-3.1.5: per-thread interrupt signaling (port of the prior Genesis Python engine).
 pub mod interrupt;
 // T11 (Plan v2 Tier 2B): JSON Lines streaming tool — large-file-friendly
 // ranged slice / count / key filter / per-line JSON validation via a
@@ -91,25 +91,25 @@ pub mod moa;
 // (NullNotionBackend fails loud, NO-STUBS). Mirrors github_tool.
 pub mod notion_tool;
 // T3-3.3.4 (sub-wave 4): Office-side skill enable/disable runtime (HELPER)
-// ported from the prior Wayland Python engine. Manages
+// ported from the prior Genesis Python engine. Manages
 // materialization of optional skill bundles under the user's skills
 // directory in response to Desktop-driven enable/disable toggles.
 pub mod office_runtime;
 // T3-3.8.4: OSV malware advisory check before launching MCP package-runner
-// shims (`npx` / `uvx`) — ported from the prior Wayland Python engine (sub-wave 8).
+// shims (`npx` / `uvx`) — ported from the prior Genesis Python engine (sub-wave 8).
 pub mod osv_check;
 // Wave SD: path validation for legacy `execute()` entry points (closes
 // SECURITY MAJOR #14 — top-level Read/Write/Edit without sandbox).
 pub mod path_validation;
-// T3-3.2.8: V4A patch-format parser (HELPER) ported from the prior Wayland Python engine (sub-wave 2).
+// T3-3.2.8: V4A patch-format parser (HELPER) ported from the prior Genesis Python engine (sub-wave 2).
 pub mod patch_parser;
-// T15: read-only PDF text-extraction tool (port of the prior Wayland Python engine).
+// T15: read-only PDF text-extraction tool (port of the prior Genesis Python engine).
 // Pure-Rust `pdf-extract` backend gated behind the default-on `pdf`
 // cargo feature; PdfTool degrades to an honest error when the feature
 // is off so the schema stays stable across build configs.
 pub mod pdf_tool;
 // T3-3.8 (sub-wave 8): Piper TTS voice + binary downloader (HELPER) ported
-// from the prior Wayland Python engine. Pluggable
+// from the prior Genesis Python engine. Pluggable
 // ModelDownloader + BinaryExtractor traits (Null = fail-loud,
 // Capturing = test double); not surfaced as a tool because `tts_tool`
 // explicitly delegates Piper voice/binary acquisition to the backend.
@@ -130,15 +130,15 @@ pub mod record_episode;
 pub mod registry;
 pub mod repomap;
 // T3-3.3.2: HELPER — broad JSON-Schema sanitizer for llama.cpp / strict
-// backend compat (port of the prior Wayland Python engine). Distinct from
+// backend compat (port of the prior Genesis Python engine). Distinct from
 // the Bedrock-targeted `wcore_config::compat::sanitize_json_schema`.
 pub mod schema_sanitizer;
 pub mod script;
 // T3-3.1.4: cross-channel `send_message` tool (port of
-// the prior Wayland Python engine).
+// the prior Genesis Python engine).
 pub mod send_message;
 // T3-3.7 (sub-wave 7): Discord server tool — port of
-// the prior Wayland Python engine. Dispatch surface only;
+// the prior Genesis Python engine. Dispatch surface only;
 // host wires a `DiscordBackend` implementation for real REST I/O.
 // NullDiscordBackend fails loud (NO-STUBS). Composes url_safety for
 // defense-in-depth on string fields that could carry URLs.
@@ -150,7 +150,7 @@ pub mod discord_tool;
 pub mod github_tool;
 // T3-3.7 (sub-wave 7): cronjob scheduled-task management tool —
 // pluggable CronScheduler seam (NullCronScheduler fails loud). Ported
-// from the prior Wayland Python engine.
+// from the prior Genesis Python engine.
 pub mod cronjob_tools;
 // T3-3.1.7: SessionSearchTool — past-session recall via MemoryApi.
 pub mod session_search;
@@ -158,27 +158,27 @@ pub mod session_search;
 // truncation. Postgres/MySQL are out of scope (would be `sql-extra`-gated).
 pub mod sql_query_tool;
 // T3-3.7 (sub-wave 7): Tencent Yuanbao platform toolset
-// (port of the prior Wayland Python engine). Single
+// (port of the prior Genesis Python engine). Single
 // `YuanbaoTool` with an `action` discriminator dispatches all five
 // operations (group_info / group_members / search_sticker /
 // send_sticker / send_dm) through a host-supplied YuanbaoBackend.
 pub mod yuanbao_tools;
 // T3-3.3.3: Tirith pre-exec security scanner wrapper (HELPER) ported from
-// the prior Wayland Python engine. Auto-installer is documented out-of-scope.
+// the prior Genesis Python engine. Auto-installer is documented out-of-scope.
 pub mod tirith_security;
-// T3-3.1.2: in-memory planning/task list tool ported from the prior Wayland Python engine.
+// T3-3.1.2: in-memory planning/task list tool ported from the prior Genesis Python engine.
 pub mod todo;
 // T3-3.3.3: configurable tool-output truncation limits (HELPER) — port of
-// the prior Wayland Python engine. Adds user-tunable
+// the prior Genesis Python engine. Adds user-tunable
 // `max_bytes` / `max_lines` / `max_line_length` knobs that complement the
 // existing per-tool `max_result_size()` and `truncate_utf8()` primitives.
 pub mod tool_output_limits;
 // T3-3.3.3: tool-result persistence helper (port of
-// the prior Wayland Python engine).
+// the prior Genesis Python engine).
 pub mod tool_result_storage;
 pub mod tool_search;
 // T3-3.3.3: SSRF / private-network URL safety helper (port of the prior
-// Wayland Python engine). HELPER module — callers wire it into HTTP-client
+// Genesis Python engine). HELPER module — callers wire it into HTTP-client
 // redirect hooks and tool pre-flight checks.
 pub mod url_safety;
 // W8a A.3: VirtualFs trait + RealFs / InMemoryFs / SandboxedFs (X2).
@@ -188,7 +188,7 @@ pub mod vfs;
 pub mod video_analyze_tool;
 // T3-3.6 (sub-wave 6): image_generate tool — text-to-image generation
 // via a pluggable ImageGenerationBackend (NullImageGenerationBackend
-// fails loud). Ported from the prior Wayland Python engine.
+// fails loud). Ported from the prior Genesis Python engine.
 pub mod image_generation_tool;
 // T8 (v0.6.3 Tier 2B): image_inspect tool — read-only image metadata
 // (dimensions / format / color type via `image`; EXIF via
@@ -197,51 +197,51 @@ pub mod image_generation_tool;
 pub mod image_inspect_tool;
 // T3-3.6 (sub-wave 6): text_to_speech tool — multi-provider TTS via a
 // pluggable TtsBackend (NullTtsBackend fails loud). Ported from
-// the prior Wayland Python engine.
+// the prior Genesis Python engine.
 pub mod tts_tool;
 // T3-3.3.3: website blocklist helper ported from
-// the prior Wayland Python engine (sub-wave 3).
+// the prior Genesis Python engine (sub-wave 3).
 pub mod website_policy;
 // T3-3.5: vision_analyze tool ported from
-// the prior Wayland Python engine (sub-wave 5).
+// the prior Genesis Python engine (sub-wave 5).
 pub mod vision_tools;
 // T3-3.8 (sub-wave 8): web tool — search/extract/crawl via a pluggable
 // WebBackend (NullWebBackend fails loud). Ported from
-// the prior Wayland Python engine. Composes url_safety +
+// the prior Genesis Python engine. Composes url_safety +
 // website_policy for SSRF + blocklist gating before backend dispatch.
 pub mod web_tools;
 // Wave RC (2026-05-23): simple HTTP-GET tool — `WebFetch`. The Browser
 // tool requires a Camoufox / Chromium sidecar that is NOT installed on a
-// fresh wayland-core, so a user asking "fetch this URL" used to watch a
+// fresh genesis-core, so a user asking "fetch this URL" used to watch a
 // 60s spinner. WebFetch is a plain HTTP GET via a `FetchBackend` seam
 // (host wires `HttpFetchBackend` in `wcore-agent`); it is what the model
 // reaches for by default for read-only page fetches now.
 pub mod web_fetch;
 // T3-3.6: transcribe_audio tool ported from
-// the prior Wayland Python engine (sub-wave 6).
+// the prior Genesis Python engine (sub-wave 6).
 // Pluggable TranscriptionBackend + AudioFetcher seams; NullBackend
 // fails loud (NO-STUBS); composes url_safety + website_policy for
 // URL inputs. Mirrors the vision_tools seam pattern.
 pub mod transcription_tools;
 // T3-3.6 (sub-wave 6): voice_mode session helper — pluggable
 // AudioRecorder / TranscriptionBackend / AudioPlayer seams. Ported
-// from the prior Wayland Python engine.
+// from the prior Genesis Python engine.
 pub mod voice_mode;
 // T3-3.7 (sub-wave 7): Spotify toolset — seven agent-facing tools
 // sharing a pluggable SpotifyBackend (NullSpotifyBackend fails loud).
-// Ported from the prior Wayland Python engine.
+// Ported from the prior Genesis Python engine.
 pub mod spotify_tool;
 // T3-3.7 (sub-wave 7): homeassistant tool — smart-home control via a
 // pluggable HomeAssistantBackend (NullHomeAssistantBackend fails loud).
-// Ported from the prior Wayland Python engine.
+// Ported from the prior Genesis Python engine.
 pub mod homeassistant_tool;
-// T3-3.8 (sub-wave 8): wayland self-introspection toolset
-// (`wayland_status` + `wayland_telemetry_query`) ported from
-// the prior Wayland Python engine.
-// Pluggable WaylandIntrospectionBackend seam; NullBackend fails loud
+// T3-3.8 (sub-wave 8): genesis self-introspection toolset
+// (`genesis_status` + `genesis_telemetry_query`) ported from
+// the prior Genesis Python engine.
+// Pluggable GenesisIntrospectionBackend seam; NullBackend fails loud
 // (NO-STUBS). Two tools share one backend so the
-// `wayland_introspection` toolset disables as a unit.
-pub mod wayland_introspection;
+// `genesis_introspection` toolset disables as a unit.
+pub mod genesis_introspection;
 pub mod write;
 // Unified workspace containment policy — filesystem + network scope for a
 // session. Two presets: `trusted_local` (local CLI) and `contained` (remote

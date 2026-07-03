@@ -4,7 +4,7 @@
 //! Wave OL (shipped — closes the W8c.3.D chain edge that was aspirational
 //! from W8a through v0.2.0). The pipeline is now end-to-end:
 //!
-//! 1. `wayland-ollama`'s `WaylandOllama::initialize` registers an
+//! 1. `genesis-ollama`'s `GenesisOllama::initialize` registers an
 //!    `Arc<OllamaProvider>` against the scoped registry, which lands here
 //!    via `host_register_provider`.
 //! 2. `HostProviderRegistrar::lookup_by_name("ollama")` returns the
@@ -16,9 +16,9 @@
 //!    `--model ollama:*` turn.
 //!
 //! The downcast itself lives in the binary crate (`wcore-cli`) because
-//! it's the only crate that links both `wayland-ollama` and
+//! it's the only crate that links both `genesis-ollama` and
 //! `wcore-providers` together — `wcore-agent` deliberately doesn't
-//! depend on `wayland-ollama`. Covered end-to-end by
+//! depend on `genesis-ollama`. Covered end-to-end by
 //! `crates/wcore-agent/tests/ollama_e2e_test.rs` (wiremock + real
 //! engine turn).
 

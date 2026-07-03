@@ -4,11 +4,11 @@
 //! The audit at `.blackboard/VERIFY-AUDIT-RUNTIME-2026-05-24.md` identified
 //! three "built but never wired" production gaps:
 //!
-//!   1. CUA — `wayland-cua` plugin loads + registrar captures the spec,
+//!   1. CUA — `genesis-cua` plugin loads + registrar captures the spec,
 //!      but `PluginRunner::with_computer_use_advertised` is never called,
 //!      so reification fails `CapabilityDisabled` and no `Cua` tool ever
 //!      reaches the registry.
-//!   2. Browser policy — `wayland-browser` registers a spec with
+//!   2. Browser policy — `genesis-browser` registers a spec with
 //!      `BrowserPolicySpec::default()` (deny-all). `Config.browser.policy`
 //!      is never read, so even after wiring the tool is reachable but
 //!      every navigate denies.
@@ -24,12 +24,12 @@ use std::sync::Arc;
 // Link the plugin shells so their `inventory::submit!` factories register
 // with `PluginLoader::discover`. Integration tests build a separate binary
 // from `main.rs`, so we must re-import each plugin crate here exactly as
-// `main.rs` does — without this, only `wayland-honcho` (pulled in via
+// `main.rs` does — without this, only `genesis-honcho` (pulled in via
 // `wcore-honcho-adapter`) shows up at boot.
-use wayland_browser as _;
-use wayland_cua as _;
-use wayland_honcho as _;
-use wayland_ollama as _;
+use genesis_browser as _;
+use genesis_cua as _;
+use genesis_honcho as _;
+use genesis_ollama as _;
 
 use serial_test::serial;
 use wcore_agent::bootstrap::AgentBootstrap;
@@ -104,7 +104,7 @@ async fn bootstrap_registers_cua_tool_after_wiring_fix() {
         names.iter().any(|n| n == "Cua"),
         "Cua tool must be registered after bootstrap. \
          Wiring contract: `PluginRunner::with_computer_use_advertised(true)` \
-         flips the registrar gate so `wayland-cua`'s captured spec reifies. \
+         flips the registrar gate so `genesis-cua`'s captured spec reifies. \
          Got tools: {names:?}"
     );
 }
@@ -165,8 +165,8 @@ async fn bootstrap_registers_all_orphan_tools_schema_only() {
     // call for one of these from the bootstrap block will fail this test.
     let expected_orphans = [
         "web",
-        "wayland_status",
-        "wayland_telemetry_query",
+        "genesis_status",
+        "genesis_telemetry_query",
         "cronjob",
     ];
     let missing: Vec<&&str> = expected_orphans

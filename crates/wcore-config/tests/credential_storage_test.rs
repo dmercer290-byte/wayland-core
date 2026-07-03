@@ -113,8 +113,8 @@ fn keyring_backend_round_trip_when_available() {
     // available, put/get/delete round-trips correctly.
     use wcore_config::credentials::KeyringCredentialsStore;
     // Unique key per run so we never clobber a real entry.
-    let key = format!("wayland-core-test-{}", uuid_like_suffix());
-    let store = KeyringCredentialsStore::new("wayland-core-test-suite");
+    let key = format!("genesis-core-test-{}", uuid_like_suffix());
+    let store = KeyringCredentialsStore::new("genesis-core-test-suite");
 
     let Ok(()) = store.put(&key, "test-secret") else {
         eprintln!("keyring put failed — host has no keyring, skipping");

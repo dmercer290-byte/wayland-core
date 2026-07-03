@@ -29,7 +29,7 @@ mod toolcard;
 mod tree;
 
 pub use approval_inline::render_approval_inline;
-pub use banner::wayland_banner;
+pub use banner::genesis_banner;
 pub use diff::{diff_lines, diff_view};
 pub use header::{SystemSample, SystemSampler, top_chrome};
 pub use panel::panel;

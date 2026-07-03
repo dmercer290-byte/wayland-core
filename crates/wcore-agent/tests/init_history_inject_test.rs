@@ -93,7 +93,7 @@ async fn inject_history_lands_in_system_prompt() {
 
     // Simulate the app's init_history frame (Constitution + persona).
     let injected =
-        "## Constitution\nYou are a Wayland assistant with specialized skills.".to_string();
+        "## Constitution\nYou are a Genesis assistant with specialized skills.".to_string();
     engine.inject_history(injected.clone());
 
     // Run a turn — the provider captures the LlmRequest.
@@ -110,7 +110,7 @@ async fn inject_history_lands_in_system_prompt() {
         "injected Constitution must appear in system prompt; got: {system}"
     );
     assert!(
-        system.contains("Wayland assistant"),
+        system.contains("Genesis assistant"),
         "injected persona text must appear in system prompt; got: {system}"
     );
     // The engine's own system prompt must still be present (inject prepends, doesn't replace).

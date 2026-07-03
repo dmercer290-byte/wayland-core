@@ -1,6 +1,6 @@
 //! T3-3.8 — `web_search` / `web_extract` / `web_crawl` tools.
 //!
-//! Ported from the prior Wayland Python engine. The
+//! Ported from the prior Genesis Python engine. The
 //! Python original is a multi-backend dispatcher across Exa / Firecrawl /
 //! Parallel / Tavily / DuckDuckGo / trafilatura, each with its own HTTP
 //! client, response normalizer, optional LLM-summarization pass, and
@@ -26,7 +26,7 @@
 //!   `CapturingVisionBackend` / `CapturingTranscriptionBackend`.
 //! * SSRF + website-policy gating happens **before** the backend is
 //!   called, for *every* URL in the inputs. This matches the post-fix
-//!   layout in the prior Wayland Python engine where the website
+//!   layout in the prior Genesis Python engine where the website
 //!   blocklist was moved out of the firecrawl branch so trafilatura and
 //!   the free fallback couldn't bypass it.
 //! * The two parameter validators ([`validate_search_query`],
@@ -95,7 +95,7 @@ pub const WEB_DEFAULT_SEARCH_LIMIT: u32 = 5;
 pub const WEB_MAX_SEARCH_LIMIT: u32 = 50;
 
 /// Inline key-prefix sniff. The full redactor lives in the prior
-/// Wayland Python engine; here we keep a conservative subset that catches
+/// Genesis Python engine; here we keep a conservative subset that catches
 /// the most common exfiltration vectors. Backends + the redact crate
 /// remain responsible for content-side scrubbing.
 fn url_contains_apparent_secret(url: &str) -> bool {
@@ -440,7 +440,7 @@ impl WebBackend for CapturingWebBackend {
     }
 }
 
-/// `web` tool — Wayland engine port of the prior engine's three web entry
+/// `web` tool — Genesis engine port of the prior engine's three web entry
 /// points.
 ///
 /// Single Tool with an `operation` discriminator (search / extract /

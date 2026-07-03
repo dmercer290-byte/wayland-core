@@ -1,6 +1,6 @@
 //! T3-3.2.3 — Cross-agent file state coordination registry.
 //!
-//! Ported from the prior Wayland Python engine. Prevents
+//! Ported from the prior Genesis Python engine. Prevents
 //! mangled edits when concurrent subagents (same process, same
 //! filesystem) touch the same file. Complements the single-agent
 //! [`crate::file_cache::FileStateCache`] — that module is a per-process
@@ -18,7 +18,7 @@
 //! * Per-path [`std::sync::Mutex`] for read→modify→write sections.
 //!
 //! Public hooks (all no-ops when the env var
-//! `WAYLAND_DISABLE_FILE_STATE_GUARD=1` is set):
+//! `GENESIS_DISABLE_FILE_STATE_GUARD=1` is set):
 //!
 //! * [`record_read`] — call after every read.
 //! * [`note_write`] — call after every successful write/patch.
@@ -556,7 +556,7 @@ pub fn registry() -> &'static FileStateRegistry {
 
 /// Read each call so tests can toggle via `std::env::set_var`.
 fn is_disabled() -> bool {
-    std::env::var("WAYLAND_DISABLE_FILE_STATE_GUARD")
+    std::env::var("GENESIS_DISABLE_FILE_STATE_GUARD")
         .map(|v| v.trim() == "1")
         .unwrap_or(false)
 }
@@ -636,7 +636,7 @@ mod tests {
             // SAFETY: We hold the test serializer lock, so no other
             // thread inside this module is touching env vars.
             unsafe {
-                std::env::remove_var("WAYLAND_DISABLE_FILE_STATE_GUARD");
+                std::env::remove_var("GENESIS_DISABLE_FILE_STATE_GUARD");
             }
             registry().clear();
             Self { _serial: guard }
@@ -776,7 +776,7 @@ mod tests {
 
         // SAFETY: serialised by TestEnv.
         unsafe {
-            std::env::set_var("WAYLAND_DISABLE_FILE_STATE_GUARD", "1");
+            std::env::set_var("GENESIS_DISABLE_FILE_STATE_GUARD", "1");
         }
         // Even with a sibling write, check_stale must return None.
         note_write("other", resolved);
@@ -785,7 +785,7 @@ mod tests {
         // Cleanup so the next test doesn't see the flag.
         // SAFETY: serialised by TestEnv.
         unsafe {
-            std::env::remove_var("WAYLAND_DISABLE_FILE_STATE_GUARD");
+            std::env::remove_var("GENESIS_DISABLE_FILE_STATE_GUARD");
         }
     }
 

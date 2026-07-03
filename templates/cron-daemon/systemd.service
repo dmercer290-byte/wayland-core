@@ -1,47 +1,47 @@
-# Wayland-Core Cron Daemon — systemd user unit (Linux)
+# Genesis-Core Cron Daemon — systemd user unit (Linux)
 #
 # Installation:
-#   1. Copy this file to ~/.config/systemd/user/wayland-cron-daemon.service
-#   2. Edit ExecStart below to point to the wayland-core binary.
-#   3. Optionally override WAYLAND_HOME if it differs from ~/.wayland.
+#   1. Copy this file to ~/.config/systemd/user/genesis-cron-daemon.service
+#   2. Edit ExecStart below to point to the genesis-core binary.
+#   3. Optionally override GENESIS_HOME if it differs from ~/.genesis.
 #   4. Enable + start:
 #        systemctl --user daemon-reload
-#        systemctl --user enable --now wayland-cron-daemon.service
+#        systemctl --user enable --now genesis-cron-daemon.service
 #   5. Verify:
-#        systemctl --user status wayland-cron-daemon.service
+#        systemctl --user status genesis-cron-daemon.service
 #
 # Uninstall:
-#   systemctl --user disable --now wayland-cron-daemon.service
-#   rm ~/.config/systemd/user/wayland-cron-daemon.service
+#   systemctl --user disable --now genesis-cron-daemon.service
+#   rm ~/.config/systemd/user/genesis-cron-daemon.service
 #   systemctl --user daemon-reload
 #
 # Logs:
-#   journalctl --user -u wayland-cron-daemon.service -f
+#   journalctl --user -u genesis-cron-daemon.service -f
 #   # or from the log file:
-#   tail -f ~/.wayland/cron-daemon.log
+#   tail -f ~/.genesis/cron-daemon.log
 
 [Unit]
-Description=Wayland-Core Cron Daemon
-Documentation=https://github.com/FerroxLabs/wayland-core
+Description=Genesis-Core Cron Daemon
+Documentation=https://github.com/dmercer290-byte/wayland-core
 After=network.target
 
 [Service]
 Type=simple
 
-# Replace with the absolute path to the wayland-core binary.
-# Example: ExecStart=/usr/local/bin/wayland-core cron daemon
-ExecStart=/usr/local/bin/wayland-core cron daemon
+# Replace with the absolute path to the genesis-core binary.
+# Example: ExecStart=/usr/local/bin/genesis-core cron daemon
+ExecStart=/usr/local/bin/genesis-core cron daemon
 
 # Run the daemon body directly (systemd is the process manager).
-Environment=WAYLAND_CRON_DAEMON_CHILD=1
+Environment=GENESIS_CRON_DAEMON_CHILD=1
 
-# Override if your Wayland home is not ~/.wayland.
-# Environment=WAYLAND_HOME=/home/youruser/.wayland
+# Override if your Genesis home is not ~/.genesis.
+# Environment=GENESIS_HOME=/home/youruser/.genesis
 
 # Redirect logs to the daemon log file. systemd also captures
 # stdout/stderr via journald by default.
-StandardOutput=append:%h/.wayland/cron-daemon.log
-StandardError=append:%h/.wayland/cron-daemon.log
+StandardOutput=append:%h/.genesis/cron-daemon.log
+StandardError=append:%h/.genesis/cron-daemon.log
 
 # Restart on unexpected exit. Do not restart on SIGTERM (clean shutdown).
 Restart=on-failure

@@ -28,7 +28,7 @@ fn tool_manifest() -> PluginManifest {
     PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-toolful"
+name = "genesis-toolful"
 version = "1.0.0"
 description = "delivers a real tool"
 entry = "builtin:t"
@@ -142,7 +142,7 @@ async fn plugin_tool_is_captured_then_reified_into_a_working_tool() {
     // --- Stage 1: register through ScopedToolRegistry → HostToolRegistrar.
     let mut host = HostToolRegistrar::default();
     {
-        let mut capture = host.capture_for_plugin("wayland-toolful");
+        let mut capture = host.capture_for_plugin("genesis-toolful");
         let mut scoped =
             ScopedToolRegistry::new(&manifest, &mut capture).expect("scoped registry builds");
         scoped
@@ -153,7 +153,7 @@ async fn plugin_tool_is_captured_then_reified_into_a_working_tool() {
     // The host captured the (plugin, fq_name, PluginTool) triple.
     assert_eq!(host.registered.len(), 1, "exactly one tool captured");
     let (plugin, fq_name, _tool) = &host.registered[0];
-    assert_eq!(plugin, "wayland-toolful", "provenance plugin name stamped");
+    assert_eq!(plugin, "genesis-toolful", "provenance plugin name stamped");
     assert_eq!(
         fq_name, "ijfw::shout",
         "ScopedToolRegistry computes the FQ name from tool.name"
@@ -171,7 +171,7 @@ async fn plugin_tool_is_captured_then_reified_into_a_working_tool() {
         .collect();
     assert_eq!(captured.len(), 1);
     let captured = captured.into_iter().next().unwrap();
-    assert_eq!(captured.plugin, "wayland-toolful");
+    assert_eq!(captured.plugin, "genesis-toolful");
     assert_eq!(captured.fq_name, "ijfw::shout");
     // The bare name on the PluginTool is the pre-namespace name.
     assert_eq!(captured.tool.name, "shout");
@@ -200,12 +200,12 @@ async fn plugin_tool_is_captured_then_reified_into_a_working_tool() {
 
     // --- Stage 4: the ReifiedTool helper produces a Box<dyn Tool> too.
     let reified = ReifiedTool::from_captured(captured);
-    assert_eq!(reified.plugin, "wayland-toolful");
+    assert_eq!(reified.plugin, "genesis-toolful");
     assert_eq!(reified.fq_name, "ijfw::shout");
     let boxed: Box<dyn Tool> = reified.tool;
     assert_eq!(boxed.name(), "shout");
     let result = boxed
-        .execute(serde_json::json!({ "text": "wayland" }))
+        .execute(serde_json::json!({ "text": "genesis" }))
         .await;
-    assert_eq!(result.content, "WAYLAND");
+    assert_eq!(result.content, "GENESIS");
 }

@@ -1,6 +1,6 @@
 //! D6 — MCP round-trip scenarios.
 //!
-//! Exercises a full MCP stdio round-trip through the REAL `wayland-core`
+//! Exercises a full MCP stdio round-trip through the REAL `genesis-core`
 //! binary: the engine connects to a mock stdio MCP server, performs the
 //! `initialize` / `tools/list` handshake, the model calls the advertised
 //! `mcp_echo` tool, and we assert the call fired AND a sentinel string
@@ -16,10 +16,10 @@
 //!
 //! ## How the engine discovers the server (config wiring)
 //!
-//! wayland-core reads MCP servers ONLY from `[mcp.servers.*]` in
+//! genesis-core reads MCP servers ONLY from `[mcp.servers.*]` in
 //! `config.toml` (`wcore-config/src/config.rs` `McpConfig` /
 //! `McpServerConfig`; there is NO project-level `.mcp.json` reader — grep
-//! confirmed). `tempenv::build` seeds `<cwd>/.wayland-core/config.toml`
+//! confirmed). `tempenv::build` seeds `<cwd>/.genesis-core/config.toml`
 //! BEFORE the setup hook runs and the runner spawns the binary with
 //! `cwd = tempdir`, so the setup hook simply **APPENDS** an
 //! `[mcp.servers.mock_echo]` block to that already-seeded file. This needs
@@ -84,14 +84,14 @@ const SERVER_SCRIPT_NAME: &str = "mock_mcp_server.py";
 
 /// Sentinel the prompt asks the agent to echo. Distinctive enough that a
 /// `Contains` on the final text / tool output can't pass by coincidence.
-const SENTINEL: &str = "WAYLAND-MCP-RTRIP-7F3A";
+const SENTINEL: &str = "GENESIS-MCP-RTRIP-7F3A";
 
 /// Scaffold the mock MCP server + wire it into the seeded config.
 ///
 /// Runs in the scenario tempdir (`cwd`). Three steps:
 /// 1. Write the python server script and (unix) `chmod +x` it.
 /// 2. Append an `[mcp.servers.mock_echo]` stdio block to the config.toml
-///    that `tempenv::build` already wrote at `.wayland-core/config.toml`.
+///    that `tempenv::build` already wrote at `.genesis-core/config.toml`.
 fn setup_mock_mcp(cwd: &std::path::Path) -> anyhow::Result<()> {
     use std::io::Write as _;
 
@@ -113,7 +113,7 @@ fn setup_mock_mcp(cwd: &std::path::Path) -> anyhow::Result<()> {
     // 3. Append the MCP server block to the seeded config.toml. tempenv
     //    has already created this file; we open it for append so we keep
     //    its [session] / [provider] blocks intact.
-    let config_path = cwd.join(".wayland-core").join("config.toml");
+    let config_path = cwd.join(".genesis-core").join("config.toml");
     let script_abs = script_path.to_string_lossy().to_string();
     // Reuse tempenv's TOML basic-string escaper for the path arg so a
     // tempdir containing a backslash/quote (Windows, odd CI roots) stays

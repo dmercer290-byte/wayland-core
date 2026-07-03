@@ -250,7 +250,7 @@ impl McpManager {
                 tools: Some(json!({})),
             },
             client_info: ClientInfo {
-                name: "wayland-core".to_string(),
+                name: "genesis-core".to_string(),
                 version: "0.3.0".to_string(),
             },
         };
@@ -1035,7 +1035,7 @@ mod tests {
         // A command that cannot spawn → clean transport error, not a timeout.
         let broken = McpServerConfig {
             transport: TransportType::Stdio,
-            command: Some("/nonexistent/wayland-mcp-binary-xyz".into()),
+            command: Some("/nonexistent/genesis-mcp-binary-xyz".into()),
             args: None,
             env: None,
             url: None,

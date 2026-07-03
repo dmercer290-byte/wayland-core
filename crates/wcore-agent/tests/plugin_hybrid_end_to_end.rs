@@ -72,8 +72,8 @@ impl EnvGuard {
     fn set(dir: &Path) -> Self {
         let lock = env_mutex().lock().unwrap_or_else(|p| p.into_inner());
         unsafe {
-            std::env::set_var("WAYLAND_PLUGINS_DIR", dir);
-            std::env::set_var("WAYLAND_PLUGIN_TRUST_UNSIGNED", "1");
+            std::env::set_var("GENESIS_PLUGINS_DIR", dir);
+            std::env::set_var("GENESIS_PLUGIN_TRUST_UNSIGNED", "1");
         }
         Self { _lock: lock }
     }
@@ -81,8 +81,8 @@ impl EnvGuard {
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         unsafe {
-            std::env::remove_var("WAYLAND_PLUGINS_DIR");
-            std::env::remove_var("WAYLAND_PLUGIN_TRUST_UNSIGNED");
+            std::env::remove_var("GENESIS_PLUGINS_DIR");
+            std::env::remove_var("GENESIS_PLUGIN_TRUST_UNSIGNED");
         }
     }
 }

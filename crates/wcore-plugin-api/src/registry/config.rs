@@ -188,14 +188,14 @@ mod tests {
     #[test]
     fn project_root_returns_host_advertised_path() {
         let host = FakeHost {
-            project_root: Some(PathBuf::from("/var/projects/wayland")),
+            project_root: Some(PathBuf::from("/var/projects/genesis")),
             ..FakeHost::default()
         };
         let reader = ScopedConfigReader::new(&host);
 
         assert_eq!(
             reader.project_root(),
-            Some(PathBuf::from("/var/projects/wayland"))
+            Some(PathBuf::from("/var/projects/genesis"))
         );
     }
 
@@ -213,10 +213,10 @@ mod tests {
     fn plugin_config_returns_namespaced_bucket_when_plugin_name_set() {
         let mut host = FakeHost::default();
         host.plugin_configs.insert(
-            "wayland-ijfw".to_string(),
+            "genesis-ijfw".to_string(),
             serde_json::json!({"enabled": true, "max_items": 7}),
         );
-        let reader = ScopedConfigReader::with_plugin_name(&host, "wayland-ijfw");
+        let reader = ScopedConfigReader::with_plugin_name(&host, "genesis-ijfw");
 
         let cfg = reader.plugin_config();
         assert_eq!(cfg["enabled"], serde_json::json!(true));

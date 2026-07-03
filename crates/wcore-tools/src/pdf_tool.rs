@@ -1,6 +1,6 @@
 //! T15: read-only PDF text-extraction tool.
 //!
-//! Ported in spirit from the prior Wayland Python engine. Extracts
+//! Ported in spirit from the prior Genesis Python engine. Extracts
 //! plain text from a PDF file on the local filesystem — either the whole
 //! document or a contiguous page range.
 //!
@@ -482,7 +482,7 @@ mod tests {
     async fn extracts_text_from_whole_document() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("doc.pdf");
-        std::fs::write(&path, make_pdf(&["Hello Wayland", "Second page here"])).unwrap();
+        std::fs::write(&path, make_pdf(&["Hello Genesis", "Second page here"])).unwrap();
 
         let tool = PdfTool::new();
         let result = tool
@@ -491,7 +491,7 @@ mod tests {
 
         assert!(!result.is_error, "unexpected error: {}", result.content);
         assert!(
-            result.content.contains("Hello Wayland"),
+            result.content.contains("Hello Genesis"),
             "missing page 1 text in: {:?}",
             result.content
         );

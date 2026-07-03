@@ -1,4 +1,4 @@
-// Long-term memory system for wayland-core.
+// Long-term memory system for genesis-core.
 //
 // v1 surface (YAML flat-file store) is in `index`, `prompt`, `store`, `types`.
 // v2 surface (5-partition × 3-tier cognitive memory, SQLite-backed) lives in

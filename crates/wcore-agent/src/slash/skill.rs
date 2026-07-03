@@ -73,7 +73,7 @@ impl SkillHandler {
             Self::Stub => Ok(SlashOutcome::Handled {
                 output: Some(
                     "/skill list: full skill inventory needs the runtime \
-                     SkillRegistry handle; use `wayland-core --skills-audit` \
+                     SkillRegistry handle; use `genesis-core --skills-audit` \
                      from the CLI in v0.7.0."
                         .to_string(),
                 ),
@@ -88,7 +88,7 @@ impl SkillHandler {
         match self {
             Self::Stub => Ok(SlashOutcome::Handled {
                 output: Some(format!(
-                    "use `wayland-core --skills-audit` then grep for '{name}' in v0.7.0"
+                    "use `genesis-core --skills-audit` then grep for '{name}' in v0.7.0"
                 )),
             }),
             Self::Runtime { catalog } => Ok(SlashOutcome::Handled {

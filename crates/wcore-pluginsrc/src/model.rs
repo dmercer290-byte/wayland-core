@@ -1,4 +1,4 @@
-//! The Wayland-native canonical plugin model that all foreign adapters lower to.
+//! The Genesis-native canonical plugin model that all foreign adapters lower to.
 //! These types are format-blind: nothing here knows about Claude Code, Cursor,
 //! or any specific vendor. Adapters produce a [`CanonicalDraft`]; the install
 //! planner (Lane B) turns it into an `InstallPlan`.
@@ -69,8 +69,8 @@ pub struct CommandAsset {
     pub rel_file: PathBuf,
 }
 
-/// An agent lowered to the fields Wayland's `AgentManifest` can hold. Foreign
-/// agent fields with no Wayland equivalent become [`IgnoredFeature`]s.
+/// An agent lowered to the fields Genesis's `AgentManifest` can hold. Foreign
+/// agent fields with no Genesis equivalent become [`IgnoredFeature`]s.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentAsset {
     pub name: String,
@@ -136,7 +136,7 @@ pub enum SourceKind {
     },
 }
 
-/// A foreign plugin lowered to Wayland-native form, not yet written to disk.
+/// A foreign plugin lowered to Genesis-native form, not yet written to disk.
 ///
 /// Not `PartialEq`/`Eq`: holds `McpServerDraft`, whose `McpTransport` is neither.
 #[derive(Debug, Clone, Serialize, Deserialize)]

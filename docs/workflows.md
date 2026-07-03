@@ -13,7 +13,7 @@ as the `Spawn` tool. There is no separate runtime: stages are sub-agents.
 ForgeFlows are surfaced three ways:
 
 - **`Workflow` LLM tool** — the model runs an inline RON ForgeFlow mid-conversation.
-- **`wayland-core workflow` CLI** (alias `forgeflows`) — validate, list, and run
+- **`genesis-core workflow` CLI** (alias `forgeflows`) — validate, list, and run
   saved `.ron` ForgeFlows.
 - **Shadow-mode detection** — a telemetry-only signal that flags turns that *look
   like* a ForgeFlow (off by default; never prompts or routes — see
@@ -187,22 +187,22 @@ state (e.g. a `changed_files` array) is exercised today through the
 
 ---
 
-## The `wayland-core workflow` CLI
+## The `genesis-core workflow` CLI
 
-Saved ForgeFlows live in `<project-root>/.wayland/workflows/*.ron`. The project
-root is the nearest ancestor of the cwd containing a `.wayland` directory
-(falling back to `<cwd>/.wayland/workflows`). The subcommand is `workflow`, with
-the visible alias `forgeflows` — `wayland-core forgeflows list` works too.
+Saved ForgeFlows live in `<project-root>/.genesis/workflows/*.ron`. The project
+root is the nearest ancestor of the cwd containing a `.genesis` directory
+(falling back to `<cwd>/.genesis/workflows`). The subcommand is `workflow`, with
+the visible alias `forgeflows` — `genesis-core forgeflows list` works too.
 
 ```bash
 # Parse and validate a single .ron file (no execution, no provider).
-wayland-core workflow validate path/to/review.ron
+genesis-core workflow validate path/to/review.ron
 
 # List saved ForgeFlows: "name  ~N agents  — description".
-wayland-core workflow list
+genesis-core workflow list
 
-# Run a saved ForgeFlow by name (resolves .wayland/workflows/<NAME>.ron).
-wayland-core workflow run review-changes
+# Run a saved ForgeFlow by name (resolves .genesis/workflows/<NAME>.ron).
+genesis-core workflow run review-changes
 ```
 
 - **`validate <FILE>`** prints `OK: <name>` plus the node count and the
@@ -218,7 +218,7 @@ wayland-core workflow run review-changes
   explicit tier — the operator opted in by invoking `run`, so there is no
   confirm gate.
 
-> The CLI binary is `wayland-core`; the subcommand is `workflow` (alias `forgeflows`).
+> The CLI binary is `genesis-core`; the subcommand is `workflow` (alias `forgeflows`).
 
 ---
 

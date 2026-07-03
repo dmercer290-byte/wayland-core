@@ -81,7 +81,7 @@ fn template_static_scaffolds_and_builds() {
     let cargo_toml = std::fs::read_to_string(&cargo_toml_path).expect("read scaffolded Cargo.toml");
     let plugin_api_path = root.join("crates").join("wcore-plugin-api");
     // The template now uses a git+tag dep; replace it with an in-tree path dep.
-    let git_dep = "wcore-plugin-api = { git = \"https://github.com/FerroxLabs/wayland-core\", tag = \"v0.6.5-wayland-base\" }";
+    let git_dep = "wcore-plugin-api = { git = \"https://github.com/dmercer290-byte/wayland-core\", tag = \"v0.6.5-genesis-base\" }";
     let patched = cargo_toml.replace(
         git_dep,
         &format!(

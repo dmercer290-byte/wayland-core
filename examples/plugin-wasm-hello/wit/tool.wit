@@ -1,11 +1,11 @@
-package wayland:host@1.0.0;
+package genesis:host@1.0.0;
 
-// Wayland WASM Tool Export World (v0.6.5, Task 2.2)
+// Genesis WASM Tool Export World (v0.6.5, Task 2.2)
 //
-// A Wayland WASM tool plugin imports the shared host interface
-// (`wayland:host/host`) and exports the `tool` interface defined here.
+// A Genesis WASM tool plugin imports the shared host interface
+// (`genesis:host/host`) and exports the `tool` interface defined here.
 // Metadata mirrors `wcore_plugin_api::tool::PluginTool` so a host
-// adapter can wrap a `wayland-tool` component as a real `Tool`
+// adapter can wrap a `genesis-tool` component as a real `Tool`
 // without information loss.
 
 /// Tool surface implemented by a WASM Tool plugin.
@@ -82,9 +82,9 @@ interface tool {
     metadata: func() -> tool-metadata;
 }
 
-/// World implemented by a Wayland WASM Tool plugin: imports the
+/// World implemented by a Genesis WASM Tool plugin: imports the
 /// shared host interface, exports the tool interface.
-world wayland-tool {
+world genesis-tool {
     import host;
     export tool;
 }

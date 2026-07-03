@@ -3,7 +3,7 @@
 //! These tests are deliberately narrow:
 //!
 //! 1. `spawns_and_captures_help` — the runner's binary-discovery +
-//!    spawn helpers can launch `wayland-core --help`, see exit 0, and
+//!    spawn helpers can launch `genesis-core --help`, see exit 0, and
 //!    collect stdout. Proves we found the right artifact and pipe
 //!    plumbing works.
 //! 2. `hung_scenario_does_not_leak_pid` — `spawn_for_run` produces a
@@ -27,7 +27,7 @@ use wcore_eval_scenarios::tempenv;
 
 /// Locate the binary or skip the test with a clear message. The
 /// runner's discovery requires either `WCORE_EVAL_BIN` or a binary
-/// at `target/{debug,release}/wayland-core` — neither of which is
+/// at `target/{debug,release}/genesis-core` — neither of which is
 /// guaranteed in a cold checkout. The test gates run after the
 /// orchestrator pre-builds via `cargo build -p wcore-cli` (per the
 /// task brief gates), so on a normal run this returns `Some(path)`.
@@ -36,7 +36,7 @@ fn maybe_binary() -> Option<std::path::PathBuf> {
         Ok(p) => Some(p),
         Err(e) => {
             eprintln!(
-                "[smoke] skipping: could not locate wayland-core binary: {e}. \
+                "[smoke] skipping: could not locate genesis-core binary: {e}. \
                  Run `cargo build -p wcore-cli` first or set WCORE_EVAL_BIN."
             );
             None
@@ -69,16 +69,16 @@ async fn spawns_and_captures_help() {
 
     assert!(
         status.success(),
-        "wayland-core --help should exit 0, got {status}"
+        "genesis-core --help should exit 0, got {status}"
     );
     let s = String::from_utf8_lossy(&buf);
-    assert!(!s.trim().is_empty(), "wayland-core --help stdout was empty");
+    assert!(!s.trim().is_empty(), "genesis-core --help stdout was empty");
     // Don't pin the exact text — clap's output evolves. Just check
     // for a single anchor that is overwhelmingly likely to remain:
     // the binary's own name appears in the usage line.
     assert!(
-        s.contains("wayland-core") || s.to_lowercase().contains("usage"),
-        "help stdout missing both 'wayland-core' and 'usage' anchors:\n{s}"
+        s.contains("genesis-core") || s.to_lowercase().contains("usage"),
+        "help stdout missing both 'genesis-core' and 'usage' anchors:\n{s}"
     );
 }
 
@@ -155,7 +155,7 @@ async fn hung_scenario_does_not_leak_pid() {
 /// `WCORE_EVAL_BIN` a footgun.
 #[test]
 fn binary_discovery_rejects_missing_override() {
-    let guard = EnvGuard::set("WCORE_EVAL_BIN", "/nonexistent/path/to/wayland-core");
+    let guard = EnvGuard::set("WCORE_EVAL_BIN", "/nonexistent/path/to/genesis-core");
     let r = discover_binary();
     drop(guard);
     assert!(

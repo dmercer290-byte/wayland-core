@@ -102,11 +102,11 @@ JSON schema:
 }
 ```
 
-Default root: `dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("wayland/evolve/graveyard")`
+Default root: `dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("genesis/evolve/graveyard")`
 — resolves to:
-- macOS: `~/Library/Application Support/wayland/evolve/graveyard`
-- Linux: `~/.local/share/wayland/evolve/graveyard`
-- Windows: `%APPDATA%\wayland\evolve\graveyard`
+- macOS: `~/Library/Application Support/genesis/evolve/graveyard`
+- Linux: `~/.local/share/genesis/evolve/graveyard`
+- Windows: `%APPDATA%\genesis\evolve\graveyard`
 
 The path is created with `fs::create_dir_all` on first use. Retention is
 host-policy — wcore-evolve never deletes graveyard entries.
@@ -134,7 +134,7 @@ termination=generation_ceiling
 parent_score=0.612
 best_score=0.683
 losers_archived=19
-graveyard_root=/.../wayland/evolve/graveyard
+graveyard_root=/.../genesis/evolve/graveyard
 curator_decision=promote
 ```
 

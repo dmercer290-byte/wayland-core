@@ -15,7 +15,7 @@
 //! Token source. Two places hold xAI credentials, and the manager prefers
 //! whichever is FRESHER so it rarely has to refresh itself (which avoids
 //! racing the Grok CLI for the single-use, rotating refresh token):
-//! - the engine's own store `~/.wayland/oauth/xai.json` (written by the Wayland
+//! - the engine's own store `~/.genesis/oauth/xai.json` (written by the Genesis
 //!   app's "Sign in with X (Grok)" flow or by a prior refresh);
 //! - the Grok CLI's `~/.grok/auth.json` (the CLI keeps it fresh), whose `key`
 //!   field is the access token, nested under a `"https://auth.x.ai::<cid>"`
@@ -41,12 +41,12 @@ const XAI_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
 
 /// xAI OIDC authorize endpoint (browser PKCE login). Carried on the flow for
 /// completeness; engine-side we only run the refresh grant — interactive Grok
-/// login lives in the Wayland app's "Sign in with X (Grok)", not a CLI verb.
+/// login lives in the Genesis app's "Sign in with X (Grok)", not a CLI verb.
 const XAI_AUTH_URL: &str = "https://auth.x.ai/oauth2/authorize";
 
 /// Public desktop PKCE client_id (no secret). Verified live: this id refreshes
 /// the SuperGrok / Grok-CLI token against `auth.x.ai`. Override at runtime with
-/// `WAYLAND_XAI_OAUTH_CLIENT_ID` so a corrected value needs no rebuild.
+/// `GENESIS_XAI_OAUTH_CLIENT_ID` so a corrected value needs no rebuild.
 const XAI_CLIENT_ID_DEFAULT: &str = "b1a00492-073a-47ea-816f-4c329264a828";
 
 /// Scopes requested. `grok-cli:access` + `api:access` are the SuperGrok
@@ -67,7 +67,7 @@ const RATE_LIMIT_SENTINEL: &str = "__xai_refresh_rate_limited__";
 
 /// Resolve the client_id: env override wins over the pinned default.
 fn xai_client_id() -> String {
-    std::env::var("WAYLAND_XAI_OAUTH_CLIENT_ID")
+    std::env::var("GENESIS_XAI_OAUTH_CLIENT_ID")
         .ok()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| XAI_CLIENT_ID_DEFAULT.to_string())
@@ -236,7 +236,7 @@ impl XaiTokenManager {
     /// Return the access token, refreshing if near expiry.
     pub async fn get(&self) -> Result<String, String> {
         let tokens = self.load_active().await?.ok_or_else(|| {
-            "not signed in to Grok — use \"Sign in with X (Grok)\" in the Wayland app, \
+            "not signed in to Grok — use \"Sign in with X (Grok)\" in the Genesis app, \
              sign in with the Grok CLI (creates ~/.grok/auth.json), or set XAI_API_KEY"
                 .to_string()
         })?;
@@ -254,7 +254,7 @@ impl XaiTokenManager {
     /// rotated the refresh token but failed to persist is a HARD error.
     async fn refresh(&self, current: OAuthTokens) -> Result<OAuthTokens, String> {
         let refresh_token = current.refresh_token.clone().ok_or(
-            "no refresh_token for Grok — sign in with X (Grok) again in the Wayland app or via the Grok CLI",
+            "no refresh_token for Grok — sign in with X (Grok) again in the Genesis app or via the Grok CLI",
         )?;
         let client = self.client.clone();
         let token_url = self.flow.token_url.clone();

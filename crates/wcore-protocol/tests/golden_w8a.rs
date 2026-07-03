@@ -50,7 +50,7 @@ fn golden_budget_exceeded_max_cost_usd_w8a() {
 #[test]
 fn golden_plugin_event_w8a() {
     let event = ProtocolEvent::PluginEvent {
-        plugin_name: "wayland-ijfw".into(),
+        plugin_name: "genesis-ijfw".into(),
         event_type: "memory_capture".into(),
         payload: json!({ "key": "abc", "tier": "P2" }),
     };
@@ -59,7 +59,7 @@ fn golden_plugin_event_w8a() {
         got,
         json!({
             "type": "plugin_event",
-            "plugin_name": "wayland-ijfw",
+            "plugin_name": "genesis-ijfw",
             "event_type": "memory_capture",
             "payload": { "key": "abc", "tier": "P2" },
         })

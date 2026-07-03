@@ -1,6 +1,6 @@
 //! T3-3.6 — `voice_mode` session helper.
 //!
-//! Ported from the prior Wayland Python engine (1017 LOC).
+//! Ported from the prior Genesis Python engine (1017 LOC).
 //!
 //! ## Classification: **Helper, NOT a Tool**
 //!
@@ -624,7 +624,7 @@ pub struct VoiceMode {
 
 impl VoiceMode {
     /// Construct a `VoiceMode` with all four seams wired and a
-    /// default temp dir under `std::env::temp_dir()/wayland_voice`.
+    /// default temp dir under `std::env::temp_dir()/genesis_voice`.
     pub fn new(
         recorder: Arc<dyn AudioRecorder>,
         transcriber: Arc<dyn TranscriptionBackend>,
@@ -636,7 +636,7 @@ impl VoiceMode {
             transcriber,
             player,
             env_probe,
-            temp_dir: std::env::temp_dir().join("wayland_voice"),
+            temp_dir: std::env::temp_dir().join("genesis_voice"),
         }
     }
 
@@ -1230,7 +1230,7 @@ mod tests {
         vm.start_capture().await.unwrap();
         assert!(vm.is_recording());
 
-        let wav = PathBuf::from("/tmp/wayland_voice_test.wav");
+        let wav = PathBuf::from("/tmp/genesis_voice_test.wav");
         rec.set_next_outcome(RecordingOutcome::Captured {
             wav_path: wav.clone(),
         });
@@ -1383,7 +1383,7 @@ mod tests {
 
     #[test]
     fn cleanup_on_missing_dir_returns_zero() {
-        let nonexistent = std::env::temp_dir().join("wayland_voice_does_not_exist_xyzzy");
+        let nonexistent = std::env::temp_dir().join("genesis_voice_does_not_exist_xyzzy");
         // Make sure it really doesn't exist.
         let _ = std::fs::remove_dir_all(&nonexistent);
         assert_eq!(
@@ -1450,14 +1450,14 @@ mod tests {
         let t = VoiceModeTool::new(vm);
 
         rec.set_next_outcome(RecordingOutcome::Captured {
-            wav_path: PathBuf::from("/tmp/wayland_voice_test_b10.wav"),
+            wav_path: PathBuf::from("/tmp/genesis_voice_test_b10.wav"),
         });
         // start → stop should return the wav path.
         let _ = t.execute(json!({"action": "start"})).await;
         let r = t.execute(json!({"action": "stop"})).await;
         assert!(!r.is_error);
         assert!(
-            r.content.contains("wayland_voice_test_b10.wav"),
+            r.content.contains("genesis_voice_test_b10.wav"),
             "expected wav path in stop result, got: {}",
             r.content
         );

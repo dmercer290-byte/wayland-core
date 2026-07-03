@@ -69,8 +69,8 @@ async fn script_bash_step_returns_stdout_in_transcript() {
     // mode so the step actually runs and emits stdout.
     // SAFETY: test-only env mutation; `#[serial]` prevents env races.
     unsafe {
-        std::env::set_var("WAYLAND_SANDBOX", "none");
-        std::env::set_var("WAYLAND_ALLOW_NO_SANDBOX", "1");
+        std::env::set_var("GENESIS_SANDBOX", "none");
+        std::env::set_var("GENESIS_ALLOW_NO_SANDBOX", "1");
     }
     let disp = dispatcher_with_builtins();
     let tool = ScriptTool::new(Arc::clone(&disp));

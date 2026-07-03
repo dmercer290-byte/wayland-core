@@ -1,6 +1,6 @@
 [package]
 name = "wcore-budget"
-description = "Budget caps, tracker, and telemetry events for wayland-core (extracted M5.3 from wcore-agent + wcore-config)"
+description = "Budget caps, tracker, and telemetry events for genesis-core (extracted M5.3 from wcore-agent + wcore-config)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

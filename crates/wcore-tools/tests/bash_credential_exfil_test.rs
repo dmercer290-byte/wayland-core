@@ -212,8 +212,8 @@ async fn bash_execute_allows_normal_command() {
     // isolation, so opt into the documented no-sandbox degraded mode.
     // SAFETY: test-only env mutation; `#[serial]` prevents env races.
     unsafe {
-        std::env::set_var("WAYLAND_SANDBOX", "none");
-        std::env::set_var("WAYLAND_ALLOW_NO_SANDBOX", "1");
+        std::env::set_var("GENESIS_SANDBOX", "none");
+        std::env::set_var("GENESIS_ALLOW_NO_SANDBOX", "1");
     }
     let tool = BashTool;
     let result = tool.execute(json!({"command": "echo wave_sa_smoke"})).await;
@@ -258,10 +258,10 @@ fn v0_6_1_blocks_kube_gcloud_azure_configs() {
 }
 
 #[test]
-fn v0_6_1_blocks_wayland_own_auth_file() {
-    assert_refused("cat ~/.config/wayland/auth.json");
-    assert_refused("cat /home/user/wayland/auth.json");
-    assert_refused("cat /home/user/wayland-core/credentials.json");
+fn v0_6_1_blocks_genesis_own_auth_file() {
+    assert_refused("cat ~/.config/genesis/auth.json");
+    assert_refused("cat /home/user/genesis/auth.json");
+    assert_refused("cat /home/user/genesis-core/credentials.json");
 }
 
 #[test]

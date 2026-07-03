@@ -83,7 +83,7 @@ async fn run_materializes_transitive_edge_after_crystallize() {
 
 #[tokio::test]
 async fn infer_kg_is_noop_when_kg_disabled() {
-    // The `WAYLAND_KG=off` rollback flag must bypass inference cleanly so a
+    // The `GENESIS_KG=off` rollback flag must bypass inference cleanly so a
     // dream cycle still reports `kg_edges_inferred = 0` under rollback. We
     // assert the negative path through `infer_kg` directly (rather than
     // mutating the global env mid-test, which would race other suites).

@@ -3,10 +3,10 @@
 //! (v0.8.1 U1) hydrates it as a seed pair.
 //!
 //! F-038 fix: drafts are now written in the directory format the loader expects:
-//!   `<config_dir>/wayland-core/skills/auto-<sig>/SKILL.md`  — loader-visible
-//!   `<config_dir>/wayland-core/skills/auto-<sig>/manifest.json` — metadata
+//!   `<config_dir>/genesis-core/skills/auto-<sig>/SKILL.md`  — loader-visible
+//!   `<config_dir>/genesis-core/skills/auto-<sig>/manifest.json` — metadata
 //!
-//! A secondary write to `self.skill_dir` (WAYLAND_HOME-based) is attempted as
+//! A secondary write to `self.skill_dir` (GENESIS_HOME-based) is attempted as
 //! a best-effort fallback and logged on failure.
 //!
 //! Additionally, the draft is registered in-process via `register_bundled_skill`
@@ -60,10 +60,10 @@ impl SkillDrafter {
     /// F-038: writes in directory format (`<skill_name>/SKILL.md`) to two
     /// locations so the loader can discover the draft on next boot:
     ///
-    /// 1. **Loader-visible path** — `<config_dir>/wayland-core/skills/auto-<sig>/SKILL.md`
+    /// 1. **Loader-visible path** — `<config_dir>/genesis-core/skills/auto-<sig>/SKILL.md`
     ///    (matches `user_skills_dir()` in `wcore-skills::paths`).
     /// 2. **Legacy path** — `<self.skill_dir>/auto-<sig>/SKILL.md` (the path
-    ///    bootstrap wires from `$WAYLAND_HOME/skills/auto/`). Written as a
+    ///    bootstrap wires from `$GENESIS_HOME/skills/auto/`). Written as a
     ///    best-effort fallback; failure is logged but does NOT abort the draft.
     ///
     /// The manifest JSON is written alongside the `SKILL.md` in the skill
@@ -76,7 +76,7 @@ impl SkillDrafter {
         let body = compose_body(&name, trigger);
 
         // Primary write: loader-visible directory format under the config dir.
-        // This matches `user_skills_dir()` = `<config_dir>/wayland-core/skills/`.
+        // This matches `user_skills_dir()` = `<config_dir>/genesis-core/skills/`.
         let loader_dir = wcore_config::config::app_config_dir()
             .map(|d| d.join("skills").join(&name))
             .unwrap_or_else(|| self.skill_dir.join(&name));
@@ -97,7 +97,7 @@ impl SkillDrafter {
         });
         std::fs::write(&json_path, serde_json::to_string_pretty(&manifest)?)?;
 
-        // Secondary write: legacy path under self.skill_dir (WAYLAND_HOME/skills/auto/).
+        // Secondary write: legacy path under self.skill_dir (GENESIS_HOME/skills/auto/).
         // Best-effort — a failure here does not abort the draft.
         let legacy_dir = self.skill_dir.join(&name);
         if let Err(e) = std::fs::create_dir_all(&legacy_dir)

@@ -3,7 +3,7 @@
 //! # Design
 //!
 //! Each subdirectory under `fixtures/` is a "archetype" — a sanitized snapshot
-//! of a real user's `$WAYLAND_HOME` that captures a specific environmental
+//! of a real user's `$GENESIS_HOME` that captures a specific environmental
 //! shape.  The engine binary is spawned against the fixture directory; the test
 //! asserts on json-stream events, stderr cleanliness, and post-run state diff.
 //!

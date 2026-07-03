@@ -14,7 +14,7 @@ The **engine is built** — the deterministic Assembler, cross-provider council 
 
 This spec covers the **application layer**: how a user *invokes* a Crucible on demand, how *model selection* is presented, how *cost is made surprise-proof*, and — critically — the **runtime cost-governance wiring that does not yet exist** and is the entire differentiator vs OpenRouter Fusion. The council review established that "hard cost governance" is currently aspirational: `council/run.rs` enforces only a single council's per-run pin and never charges the per-session/day envelope, and the cap gate uses a judge-*excluding* estimator. Closing that is **Stage 1** and gates everything else.
 
-**Goal:** A user spins up a cross-provider council from Wayland — by slash command, natural language, or a suggestion — expresses as much or as little as they want, and always approves a single honest cost **ceiling** before anything spends; aggregate spend across a session/day is bounded.
+**Goal:** A user spins up a cross-provider council from Genesis — by slash command, natural language, or a suggestion — expresses as much or as little as they want, and always approves a single honest cost **ceiling** before anything spends; aggregate spend across a session/day is bounded.
 
 ---
 
@@ -23,7 +23,7 @@ This spec covers the **application layer**: how a user *invokes* a Crucible on d
 Crucible is **Mixture-of-Providers (MoP)** — distinct from the Mixture-of-Agents *within one family* that Claude Code and Codex already do (five Claudes with different roles).
 
 - **Error decorrelation is the mechanism.** A council beats a single frontier model only because its members have *uncorrelated* blind spots, so cross-checking cancels errors instead of reinforcing them. Errors decorrelate across **vendor families**, not within one. Cross-family diversity is therefore load-bearing for "cheap models reach frontier quality" ("Fable-level without the price" — Fugu's positioning) and is the one thing same-family MoA structurally cannot deliver.
-- **Inference runs on Flux.** Wayland owns Flux Router; Crucible is a demand engine for our own gateway. One Flux key exposes ~50 models / ~12 vendor families, so the **default** user gets cross-vendor diversity with no multi-key management and we earn the inference margin. BYO direct keys (incl. OpenRouter) is the power-user/sovereignty **opt-out**.
+- **Inference runs on Flux.** Genesis owns Flux Router; Crucible is a demand engine for our own gateway. One Flux key exposes ~50 models / ~12 vendor families, so the **default** user gets cross-vendor diversity with no multi-key management and we earn the inference margin. BYO direct keys (incl. OpenRouter) is the power-user/sovereignty **opt-out**.
 - **Agent-level + local compute beats router-level.** Orchestration, judge, and fusion run locally — transparent, deterministic, no router orchestration-margin — while inference points at Flux. OpenRouter Fusion and Sakana Fugu run this on their compute, their margin, their black box, with no access to local context.
 
 **Competitors:** OpenRouter Fusion (2026-06-13: parallel panel + temp-0 judge, structured JSON, ~4–5× single-call cost, **no budget cap**, their rail) and Sakana Fugu (owns a fixed roster). Crucible's edge: MoP **at the agent level, on Flux, with hard cost governance, in the user's own environment.**

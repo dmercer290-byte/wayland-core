@@ -2,7 +2,7 @@
 //!
 //! The companion test `plugin_discovery_e2e.rs` already exercises the
 //! plugin-inventory wiring against the **debug** binary that Cargo
-//! exposes through `env!("CARGO_BIN_EXE_wayland-core")`. That is
+//! exposes through `env!("CARGO_BIN_EXE_genesis-core")`. That is
 //! necessary but not sufficient: the workspace builds `[profile.release]`
 //! with `lto = "thin"` + `codegen-units = 1` (see root Cargo.toml). Both
 //! settings rewire dead-code elimination — historically the exact knobs
@@ -15,15 +15,15 @@
 //! test does, asserting on the exact capability flags that signal
 //! plugin discovery survived linking + LTO:
 //!
-//! - `capabilities.browser_suite == true` (wayland-browser linked)
-//! - `capabilities.computer_use  == true` (wayland-cua linked — flag is
+//! - `capabilities.browser_suite == true` (genesis-browser linked)
+//! - `capabilities.computer_use  == true` (genesis-cua linked — flag is
 //!   derived from plugin presence via `PluginCapabilitySet::from_verified`,
 //!   NOT from runtime `HostCuaRegistrar.computer_use_advertised`; that
 //!   inner registrar gate is what the per-plugin tests in
 //!   `wcore-agent/tests/capability_advertising_test.rs` cover.)
 //! - `capabilities.plugins`      == `true` (umbrella flag, has_plugins).
 //!
-//! Any future regression that drops a `use wayland_<plugin> as _;` from
+//! Any future regression that drops a `use genesis_<plugin> as _;` from
 //! `wcore-cli/src/main.rs`, or any release-profile change that re-enables
 //! `inventory` dead-code-strip, fails this test before the artifact ships.
 
@@ -53,9 +53,9 @@ fn workspace_root() -> PathBuf {
 fn release_binary_path() -> PathBuf {
     let root = workspace_root();
     let bin_name = if cfg!(windows) {
-        "wayland-core.exe"
+        "genesis-core.exe"
     } else {
-        "wayland-core"
+        "genesis-core"
     };
     root.join("target").join("release").join(bin_name)
 }
@@ -150,12 +150,12 @@ fn release_binary_help_and_version_succeed() {
 /// the v0.2.0 release-time dead-code-strip regression hid.
 ///
 /// Mirrors `plugin_discovery_e2e.rs::first_ready_event` but targets the
-/// release artifact at `target/release/wayland-core` instead of the
-/// debug binary Cargo wires through `CARGO_BIN_EXE_wayland-core`.
+/// release artifact at `target/release/genesis-core` instead of the
+/// debug binary Cargo wires through `CARGO_BIN_EXE_genesis-core`.
 fn first_ready_event_release() -> serde_json::Value {
     let bin = ensure_release_binary();
 
-    // Clean cwd + HOME so no `.wayland-core.toml` from the dev environment
+    // Clean cwd + HOME so no `.genesis-core.toml` from the dev environment
     // perturbs config resolution.
     let tmp = TempDir::new().expect("create tmp workspace");
 
@@ -173,7 +173,7 @@ fn first_ready_event_release() -> serde_json::Value {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("spawn release wayland-core --json-stream");
+        .expect("spawn release genesis-core --json-stream");
 
     let mut stdout = child.stdout.take().expect("capture stdout");
     let (tx, rx) = std::sync::mpsc::channel();
@@ -231,19 +231,19 @@ fn release_binary_ready_event_advertises_plugin_capabilities() {
         "Ready event missing capabilities object: {event}"
     );
 
-    // wayland-browser plugin inventory items survived release LTO.
+    // genesis-browser plugin inventory items survived release LTO.
     assert_eq!(
         caps["browser_suite"], true,
-        "release binary: expected capabilities.browser_suite=true (wayland-browser stripped \
+        "release binary: expected capabilities.browser_suite=true (genesis-browser stripped \
          by release LTO?); caps: {caps}"
     );
 
-    // wayland-cua plugin presence flips this — independent of the
+    // genesis-cua plugin presence flips this — independent of the
     // separate `HostCuaRegistrar.computer_use_advertised` runtime gate
     // (which defaults false and controls per-tool registration).
     assert_eq!(
         caps["computer_use"], true,
-        "release binary: expected capabilities.computer_use=true (wayland-cua stripped by \
+        "release binary: expected capabilities.computer_use=true (genesis-cua stripped by \
          release LTO?); caps: {caps}"
     );
 

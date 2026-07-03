@@ -9,7 +9,7 @@
 //!
 //! * [`channel_factory_for`] maps a `"slack"` / `"telegram"` / … string
 //!   from the on-disk `ChannelConfig` to a constructor function pointer.
-//! * [`auto_register_from_user_config`] scans `~/.wayland/channels/*.toml`
+//! * [`auto_register_from_user_config`] scans `~/.genesis/channels/*.toml`
 //!   and registers every channel whose `platform` field maps to a known
 //!   factory. Parse failures / missing factories log + skip so one bad
 //!   config can't take the agent down.
@@ -200,7 +200,7 @@ fn make_imessage(
     )))
 }
 
-/// Production entry point — scan `~/.wayland/channels/*.toml` and
+/// Production entry point — scan `~/.genesis/channels/*.toml` and
 /// register every channel whose `platform` field maps to a known
 /// factory. Returns the count successfully registered.
 ///
@@ -215,13 +215,13 @@ pub async fn auto_register_from_user_config(
     auto_register_from_dir(mgr, &channels_dir(), credentials).await
 }
 
-/// The canonical channels directory: `$WAYLAND_HOME/channels` (or
-/// `~/.wayland/channels` when unset).
+/// The canonical channels directory: `$GENESIS_HOME/channels` (or
+/// `~/.genesis/channels` when unset).
 ///
 /// F-019 fix: this resolves through [`wcore_config::config::profile_home`],
-/// which honors `WAYLAND_HOME`. The previous loader joined
-/// `dirs::home_dir()/.wayland/channels` directly, so a sandboxed/test process
-/// under `WAYLAND_HOME` read the host user's real channel configs (the same
+/// which honors `GENESIS_HOME`. The previous loader joined
+/// `dirs::home_dir()/.genesis/channels` directly, so a sandboxed/test process
+/// under `GENESIS_HOME` read the host user's real channel configs (the same
 /// class of leak as the OAuth-token path). Both the engine loader and the TUI
 /// Integrations view resolve the directory through here, so they never diverge.
 pub fn channels_dir() -> PathBuf {
@@ -586,7 +586,7 @@ mod tests {
         let mut mgr = ChannelManager::new();
         let count = auto_register_from_dir(
             &mut mgr,
-            Path::new("/nonexistent/wayland/channels/x"),
+            Path::new("/nonexistent/genesis/channels/x"),
             creds(),
         )
         .await

@@ -1,9 +1,9 @@
 //! Install-time acquisition and lowering of foreign plugin formats into the
-//! Wayland-native plugin model. Foreign-format knowledge lives ONLY here; the
+//! Genesis-native plugin model. Foreign-format knowledge lives ONLY here; the
 //! runtime loader (wcore-agent) stays format-blind.
 //!
 //! Pipeline: `ForeignSource → (adapter) parse+lower → CanonicalDraft →
-//! InstallPlan → (consent) → commit into the Wayland plugin store`.
+//! InstallPlan → (consent) → commit into the Genesis plugin store`.
 
 pub mod adapter;
 pub mod claude_code;

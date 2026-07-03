@@ -11,25 +11,25 @@
 //!
 //! ## Pool provenance (SPEC §4 sourcing recipe)
 //!
-//! The pool is Wayland's own voice — gerund-verbs (Claude Code's *grammar*)
+//! The pool is Genesis's own voice — gerund-verbs (Claude Code's *grammar*)
 //! with Forge's *playfulness* and Hearth/forge brand flavor. It is built from
 //! three sources, none copied verbatim:
 //!
 //! 1. **Forge-tone rewrites** — Forge's 130 witty phrases
 //!    (`wittyPhrases.ts`, Apache-2.0 / Google-LLC, *tone reference only*) are
 //!    mostly meme/pop-culture lines, not gerunds. Their *playfulness* is mined
-//!    and re-expressed as Wayland gerunds (e.g. Forge's "Brewing fresh bytes"
+//!    and re-expressed as Genesis gerunds (e.g. Forge's "Brewing fresh bytes"
 //!    → our "Brewing fresh bytes" is paraphrased to "Steeping the bytes").
 //! 2. **CC rewrites** — Claude Code's ~190 gerund-verbs are fully reworded so
 //!    NONE are direct copies. A blocklist test (`pool_has_zero_cc_verbs`)
 //!    asserts the ~20 most distinctive CC verbs never ship.
-//! 3. **Wayland/Hearth/forge originals** — brand-flavored gerunds like
+//! 3. **Genesis/Hearth/forge originals** — brand-flavored gerunds like
 //!    "Stoking the forge", "Tempering the steel", "Banking the coals".
 //!
 //! The pool is `&'static [&'static str]` — zero allocation, embedded in the
 //! binary. Acceptance: ≥150 entries, zero duplicates, zero CC-verbatim copies.
 
-/// The streaming verb pool. Each entry is a gerund phrase in Wayland's voice:
+/// The streaming verb pool. Each entry is a gerund phrase in Genesis's voice:
 /// forge/hearth craft imagery, light playfulness, and earnest "working on it"
 /// phrasing. ≥150 entries, all unique, none copied verbatim from Claude Code
 /// or Forge (see module docs for provenance).
@@ -37,7 +37,7 @@
 /// Display appends an ellipsis ("…") at the render site, so entries here carry
 /// NO trailing punctuation.
 pub static SPINNER_VERBS: &[&str] = &[
-    // ── Forge / hearth / smithing originals (Wayland brand voice) ──
+    // ── Forge / hearth / smithing originals (Genesis brand voice) ──
     "Stoking the forge",
     "Tending the hearth",
     "Tempering the steel",

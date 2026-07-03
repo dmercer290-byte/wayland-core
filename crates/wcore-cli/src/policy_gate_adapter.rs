@@ -21,7 +21,7 @@
 //! ## Backwards compatibility
 //!
 //! [`wcore_mcp::AllowAll`] stays in place for tests and standalone
-//! scenarios. The `wayland-core mcp-serve` subcommand swaps it for a
+//! scenarios. The `genesis-core mcp-serve` subcommand swaps it for a
 //! `PolicyGateAdapter` so the over-the-wire surface respects the same ACL
 //! as the in-process engine.
 

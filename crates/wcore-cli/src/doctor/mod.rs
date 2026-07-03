@@ -1,4 +1,4 @@
-//! `wayland-core --doctor` — system dependency probe.
+//! `genesis-core --doctor` — system dependency probe.
 //!
 //! Closes debt-register A.5: Linux Wayland CUA needs `wlrctl` + `grim` on
 //! `PATH`; missing binaries surface as typed `CuaError::Backend` at runtime
@@ -31,7 +31,7 @@ use wcore_config::shell::shell_command_argv;
 /// [`collect`] then prints, so the two surfaces never drift.
 #[derive(Debug)]
 pub struct DoctorReport {
-    /// The binary version, used in the `wayland-core doctor v…` banner.
+    /// The binary version, used in the `genesis-core doctor v…` banner.
     pub version: String,
     /// The check rows, in display order.
     pub checks: Vec<CheckResult>,
@@ -89,7 +89,7 @@ pub async fn collect() -> DoctorReport {
 pub async fn run(probe_mcp: bool) -> ExitCode {
     let report = collect().await;
     let version = &report.version;
-    println!("wayland-core doctor v{version}\n");
+    println!("genesis-core doctor v{version}\n");
 
     let checks = &report.checks;
 
@@ -171,7 +171,7 @@ async fn collect_checks(version: &str) -> Vec<CheckResult> {
     if cfg!(target_os = "linux") {
         out.push(check_which("wlrctl", &wlrctl_hints()).await);
         out.push(check_which("grim", &grim_hints()).await);
-        out.push(check_wayland_display());
+        out.push(check_genesis_display());
         out.push(check_x_display());
     } else {
         out.push(skip("wlrctl", "Linux-only"));
@@ -270,7 +270,7 @@ async fn check_which(prog: &'static str, hints: &[String]) -> CheckResult {
     }
 }
 
-fn check_wayland_display() -> CheckResult {
+fn check_genesis_display() -> CheckResult {
     match std::env::var("WAYLAND_DISPLAY") {
         Ok(v) if !v.is_empty() => CheckResult {
             label: "WAYLAND_DISPLAY",
@@ -313,7 +313,7 @@ fn check_macos_accessibility_manual() -> CheckResult {
         label: "macOS Accessibility",
         outcome: Outcome::Manual {
             hint: "verify in System Settings -> Privacy & Security -> Accessibility \
-                   (wayland-core / Terminal / iTerm must be enabled to use CUA)"
+                   (genesis-core / Terminal / iTerm must be enabled to use CUA)"
                 .into(),
         },
     }
@@ -415,10 +415,10 @@ async fn print_mcp_section(probe: bool) {
     }
 
     // --- plugin-declared servers (scan on-disk manifests, NO spawn) ---
-    // Plugin install root = dirs::data_dir()/wayland-core/plugins (matches
+    // Plugin install root = dirs::data_dir()/genesis-core/plugins (matches
     // `plugin::run`'s default install root in plugin/mod.rs).
     if let Some(base) = dirs::data_dir() {
-        let plugins_root = base.join("wayland-core").join("plugins");
+        let plugins_root = base.join("genesis-core").join("plugins");
         let mut found_any = false;
         if let Ok(entries) = std::fs::read_dir(&plugins_root) {
             let mut manifests: Vec<std::path::PathBuf> = entries
@@ -579,15 +579,15 @@ mod tests {
     }
 
     #[test]
-    fn wayland_display_reads_env_var() {
+    fn genesis_display_reads_env_var() {
         // Use a value that's unlikely to be set already.
         // SAFETY: tests in the same module may race; we only assert
         // on the variant produced, not the inner string, so a
         // concurrent unset is observationally equivalent to "not set".
         unsafe {
-            std::env::set_var("WAYLAND_DISPLAY", "wayland-test");
+            std::env::set_var("WAYLAND_DISPLAY", "genesis-test");
         }
-        let r = check_wayland_display();
+        let r = check_genesis_display();
         assert!(matches!(r.outcome, Outcome::Pass { .. }));
         unsafe {
             std::env::remove_var("WAYLAND_DISPLAY");

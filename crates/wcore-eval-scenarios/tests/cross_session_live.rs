@@ -1,7 +1,7 @@
 //! D4 — cross-session keystone: live memory-recall probe.
 //!
-//! The masterplan headline. Two SEPARATE `wayland-core` processes share one
-//! persistent `WAYLAND_HOME`: session 1 is told a fact; session 2 cold-boots
+//! The masterplan headline. Two SEPARATE `genesis-core` processes share one
+//! persistent `GENESIS_HOME`: session 1 is told a fact; session 2 cold-boots
 //! and is asked to recall it. If recall works, memory genuinely survives across
 //! sessions. If it doesn't, that FAIL is the valuable proof of the v2
 //! memory-recall gap (stored but never re-injected into the prompt).
@@ -12,9 +12,9 @@
 //! job is to surface the engine's real behavior, not to pretend recall works.
 //!
 //! ```text
-//! WAYLAND_ALLOW_NO_SANDBOX=1 \
+//! GENESIS_ALLOW_NO_SANDBOX=1 \
 //!   DEEPSEEK_API_KEY="$(security find-generic-password -a deepseek_api_key -w)" \
-//!   WCORE_EVAL_BIN="$PWD/target/release/wayland-core" \
+//!   WCORE_EVAL_BIN="$PWD/target/release/genesis-core" \
 //!   vx cargo test -p wcore-eval-scenarios --test cross_session_live \
 //!     -- --ignored --exact memory_recall_across_sessions --nocapture
 //! ```
@@ -27,7 +27,7 @@ use wcore_eval_scenarios::scenario::{Category, Scenario, Turn};
 use wcore_eval_scenarios::{Assertion, run_cross_session};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "live: two real wayland-core sessions vs real DeepSeek (costs money, needs DEEPSEEK_API_KEY + a pre-built binary)"]
+#[ignore = "live: two real genesis-core sessions vs real DeepSeek (costs money, needs DEEPSEEK_API_KEY + a pre-built binary)"]
 async fn memory_recall_across_sessions() {
     if std::env::var("DEEPSEEK_API_KEY").is_err() {
         eprintln!(
@@ -42,7 +42,7 @@ async fn memory_recall_across_sessions() {
             p.display()
         ),
         Err(e) => panic!(
-            "wayland-core binary not found ({e}). \
+            "genesis-core binary not found ({e}). \
              Pre-build it with `cargo build -p wcore-cli` (or set WCORE_EVAL_BIN)."
         ),
     }

@@ -142,7 +142,7 @@ Both need `run_council` to **emit progress**, not print once at the end. Mirror
    per-proposer lifecycle rides the existing `SubAgentEvent`.
 2. **JSON-stream.** With the bus attached and `sub_agent_traces` on, `SubAgentEvent`
    emits automatically; add `CouncilEvent` emission in `run_council`. Desktop
-   (`../wayland`) renders: *"Crucible convening 4 → opus done ($.01, 1.2s) → … → fused
+   (`../genesis`) renders: *"Crucible convening 4 → opus done ($.01, 1.2s) → … → fused
    ($.06)."*
 3. **TUI.** Move `crucible` from the one-shot early-return into the engine loop as a
    **`/crucible` slash command** (or later, a council *tool* the main agent can call), so
@@ -156,7 +156,7 @@ Both need `run_council` to **emit progress**, not print once at the end. Mirror
 **Decisions needed:**
 1. Dedicated `CouncilEvent` vs reuse `SubAgentEvent` payloads? (recommend dedicated.)
 2. TUI surface = `/crucible` slash command first? (recommend yes; council-as-tool later.)
-3. Desktop (`../wayland`) rendering — my scope, or hand to the desktop lane once the
+3. Desktop (`../genesis`) rendering — my scope, or hand to the desktop lane once the
    wcore-side events exist?
 
 ---
@@ -219,7 +219,7 @@ Full control; the floor everything else builds on.
   vs OpenAI vs Google vs DeepSeek catch different errors). Selection maximizes distinct
   families rather than 3-of-one. Derivable **today** from the provider/model spec.
 - **Task-fit (capability)** — code task → code-strong models, reasoning/math → reasoning
-  models, etc. **This needs per-model capability metadata, which wayland-core does NOT
+  models, etc. **This needs per-model capability metadata, which genesis-core does NOT
   have yet** (it has cost + context-window, no capability tags). Requires a models.dev
   source (per the "source live, don't hand-type" rule) — a dependency/follow-up.
 - **Aggregator pick** — a strong, cost-matched synthesizer (reasoning-capable).

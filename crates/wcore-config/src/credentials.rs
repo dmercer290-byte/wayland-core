@@ -6,7 +6,7 @@
 //! Two backends ship:
 //!
 //! * `PlaintextCredentialsStore` — backs onto the existing
-//!   `~/.config/wayland-core/config.toml` path; every save enforces
+//!   `~/.config/genesis-core/config.toml` path; every save enforces
 //!   `0o600` perms on Unix and tries a deny-all ACL on Windows. The
 //!   fallback half of the default `Auto` backend (and the explicit
 //!   `backend = "plaintext"` opt-out).
@@ -27,7 +27,7 @@ use thiserror::Error;
 /// Configurable backend for credential storage. Selected via the
 /// `[storage.credentials]` section in `config.toml`.
 ///
-/// Rollback: set `WAYLAND_VAULT=plaintext` (env var) before startup to
+/// Rollback: set `GENESIS_VAULT=plaintext` (env var) before startup to
 /// skip the auto-migration prompt and keep using the legacy `Plaintext`
 /// backend. The migration entrypoint itself is wired in a later wave;
 /// this variant only defines the on-disk shape and crypto primitives.
@@ -53,7 +53,7 @@ pub enum CredentialsBackend {
     /// `cipher_path` holds the ciphertext blob (`nonce(24) || ct`) and
     /// `key_params_path` holds the non-secret KDF params as JSON.
     EncryptedFile {
-        /// Path to the cipher-text file (e.g. ~/.wayland/credentials.enc).
+        /// Path to the cipher-text file (e.g. ~/.genesis/credentials.enc).
         cipher_path: PathBuf,
         /// Path to the KDF params file (salt, m_cost, t_cost, p_cost — non-secret).
         key_params_path: PathBuf,
@@ -66,7 +66,7 @@ pub struct CredentialsStorageConfig {
     #[serde(default)]
     pub backend: CredentialsBackend,
     /// Optional service identifier used by the keyring backend. Defaults
-    /// to `"wayland-core"` when omitted; surfaces so different installs
+    /// to `"genesis-core"` when omitted; surfaces so different installs
     /// (e.g. development vs. shipped) can keep their secrets separate.
     #[serde(default)]
     pub service_name: Option<String>,
@@ -192,7 +192,7 @@ impl CredentialsStore for PlaintextCredentialsStore {
 /// Backed by the `keyring` crate (macOS Keychain on Apple, Windows
 /// Credential Manager on Windows, Secret Service on Linux). Each
 /// `key` is mapped to a `(service, user)` pair; we use the
-/// configured service name (default `"wayland-core"`) and the key
+/// configured service name (default `"genesis-core"`) and the key
 /// itself as the user — this keeps lookup O(1) and matches the
 /// `keyring` crate's expected shape.
 pub struct KeyringCredentialsStore {
@@ -246,7 +246,7 @@ impl CredentialsStore for KeyringCredentialsStore {
 /// than error. A `NoEntry` result means the keyring works (the probe key simply
 /// does not exist); any other error means the keyring is unavailable.
 fn keyring_available(service: &str) -> bool {
-    match keyring::Entry::new(service, "__wayland_core_keyring_probe__") {
+    match keyring::Entry::new(service, "__genesis_core_keyring_probe__") {
         Ok(entry) => matches!(entry.get_password(), Ok(_) | Err(keyring::Error::NoEntry)),
         Err(_) => false,
     }
@@ -316,7 +316,7 @@ impl CredentialsStore for FallbackCredentialsStore {
 /// stays portable across backends.
 ///
 /// Passphrase resolution (first match wins):
-/// 1. `WAYLAND_VAULT_PASSPHRASE` env var (logged at WARN — visible via
+/// 1. `GENESIS_VAULT_PASSPHRASE` env var (logged at WARN — visible via
 ///    `/proc/<pid>/environ` on Linux; document a future
 ///    `CredentialsBackend::Pipe` for production).
 /// 2. Interactive `rpassword` prompt on a TTY.
@@ -369,7 +369,7 @@ fn validate_readable_fd(fd: std::os::unix::io::RawFd) -> Result<(), CredentialsE
 
     let reject = |reason: &str| {
         Err(CredentialsError::BackendUnavailable(format!(
-            "WAYLAND_VAULT_PASSPHRASE_FD={fd} {reason}"
+            "GENESIS_VAULT_PASSPHRASE_FD={fd} {reason}"
         )))
     };
 
@@ -408,10 +408,10 @@ impl EncryptedFileCredentialsStore {
     /// Resolve a passphrase from a file descriptor, env var, or interactive prompt.
     ///
     /// F-055 — resolution order:
-    ///   1. `WAYLAND_VAULT_PASSPHRASE_FD` env var: read passphrase from the
+    ///   1. `GENESIS_VAULT_PASSPHRASE_FD` env var: read passphrase from the
     ///      given file descriptor number (e.g. `--passphrase-fd 3`).  This is
     ///      invisible in `/proc/<pid>/environ` and avoids the env-var leak.
-    ///   2. `WAYLAND_VAULT_PASSPHRASE` env var (legacy, kept for backwards
+    ///   2. `GENESIS_VAULT_PASSPHRASE` env var (legacy, kept for backwards
     ///      compatibility). Emits a warning about the `/proc` visibility risk.
     ///   3. Interactive `rpassword` prompt.
     fn read_passphrase() -> Result<zeroize::Zeroizing<String>, CredentialsError> {
@@ -420,10 +420,10 @@ impl EncryptedFileCredentialsStore {
         // which the keyring backend doesn't expose. On Windows + targets
         // without unix-style fds, the code falls through to path 2/3.
         #[cfg(unix)]
-        if let Ok(fd_str) = std::env::var("WAYLAND_VAULT_PASSPHRASE_FD") {
+        if let Ok(fd_str) = std::env::var("GENESIS_VAULT_PASSPHRASE_FD") {
             let fd: std::os::unix::io::RawFd = fd_str.parse().map_err(|_| {
                 CredentialsError::BackendUnavailable(format!(
-                    "WAYLAND_VAULT_PASSPHRASE_FD is not a valid integer: {fd_str}"
+                    "GENESIS_VAULT_PASSPHRASE_FD is not a valid integer: {fd_str}"
                 ))
             })?;
             // supply-unsafe-63: the fd number is fully attacker-influenced
@@ -451,11 +451,11 @@ impl EncryptedFileCredentialsStore {
         }
 
         // F-055 path 2: env var (legacy, warned).
-        if let Ok(pp) = std::env::var("WAYLAND_VAULT_PASSPHRASE") {
+        if let Ok(pp) = std::env::var("GENESIS_VAULT_PASSPHRASE") {
             tracing::warn!(
                 target: "wcore_credentials",
-                "WAYLAND_VAULT_PASSPHRASE provided via env var — visible via \
-                 /proc/<pid>/environ on Linux. Set WAYLAND_VAULT_PASSPHRASE_FD \
+                "GENESIS_VAULT_PASSPHRASE provided via env var — visible via \
+                 /proc/<pid>/environ on Linux. Set GENESIS_VAULT_PASSPHRASE_FD \
                  to a file descriptor number to avoid this leak."
             );
             return Ok(zeroize::Zeroizing::new(pp));
@@ -607,25 +607,25 @@ impl CredentialsStore for EncryptedFileCredentialsStore {
 /// [`EncryptedFileCredentialsStore::read_passphrase`]: a passphrase FD (Unix
 /// only — file descriptors are not a portable Windows concept, and
 /// `read_passphrase` likewise `#[cfg(unix)]`-gates the FD path) or the legacy
-/// `WAYLAND_VAULT_PASSPHRASE` env var. The interactive `rpassword` prompt is
+/// `GENESIS_VAULT_PASSPHRASE` env var. The interactive `rpassword` prompt is
 /// deliberately NOT treated as "present": selecting the vault must never block
 /// a non-interactive launch on a TTY.
 ///
 /// The Windows branch intentionally omits the FD check: a Windows caller that
-/// set only `WAYLAND_VAULT_PASSPHRASE_FD` correctly falls back to plaintext
+/// set only `GENESIS_VAULT_PASSPHRASE_FD` correctly falls back to plaintext
 /// rather than being routed to the vault and then hitting `read_passphrase`'s
 /// interactive prompt (whose FD path is also unix-only). Do NOT "fix" this by
 /// adding an unconditional FD check — that reintroduces the Windows TTY block.
 fn vault_unlock_material_present() -> bool {
     #[cfg(unix)]
-    if std::env::var_os("WAYLAND_VAULT_PASSPHRASE_FD").is_some() {
+    if std::env::var_os("GENESIS_VAULT_PASSPHRASE_FD").is_some() {
         return true;
     }
-    std::env::var_os("WAYLAND_VAULT_PASSPHRASE").is_some()
+    std::env::var_os("GENESIS_VAULT_PASSPHRASE").is_some()
 }
 
 /// Derive the encrypted-vault file pair that sits beside the plaintext
-/// credentials path (i.e. inside the active `WAYLAND_HOME`). Co-locating them
+/// credentials path (i.e. inside the active `GENESIS_HOME`). Co-locating them
 /// means the existing parent-dir hardening already covers them. The `"."`
 /// fallback is unreachable in practice — every caller passes
 /// `credentials_storage_path()`, which always has a real parent dir.
@@ -646,10 +646,10 @@ fn warn_isolated_plaintext_fallback(path: &Path) {
     static WARNED: std::sync::Once = std::sync::Once::new();
     WARNED.call_once(|| {
         eprintln!(
-            "warning: WAYLAND_HOME is set (isolated profile) but no vault \
+            "warning: GENESIS_HOME is set (isolated profile) but no vault \
              passphrase was supplied; storing credentials as plaintext-0600 at \
-             {}. To encrypt at rest, set WAYLAND_VAULT_PASSPHRASE_FD (a \
-             passphrase file descriptor — preferred) or WAYLAND_VAULT_PASSPHRASE \
+             {}. To encrypt at rest, set GENESIS_VAULT_PASSPHRASE_FD (a \
+             passphrase file descriptor — preferred) or GENESIS_VAULT_PASSPHRASE \
              (env var, visible via /proc/<pid>/environ). Secrets in a legacy OS \
              keyring are not auto-imported into isolated profiles — re-enter \
              them for this profile.",
@@ -667,14 +667,14 @@ pub fn open_store(
         // Default: keyring primary + plaintext fallback when a keyring exists;
         // a bare plaintext store on headless/CI hosts where it does not. (F16)
         CredentialsBackend::Auto => {
-            // Isolated-profile homes (WAYLAND_HOME set) must NOT use the OS
+            // Isolated-profile homes (GENESIS_HOME set) must NOT use the OS
             // keyring: the keyring service is a process-global constant
-            // ("wayland-core") that bleeds secrets across every profile on the
+            // ("genesis-core") that bleeds secrets across every profile on the
             // host (C4 / D1). For an isolated home, prefer the in-home encrypted
             // vault when unlock material is supplied out-of-band; otherwise fall
             // back to a stderr-warned plaintext-0600 file in-home — never the
             // keyring. The legacy single (non-profile) home is unchanged below.
-            if std::env::var_os("WAYLAND_HOME").is_some() {
+            if std::env::var_os("GENESIS_HOME").is_some() {
                 if vault_unlock_material_present() {
                     let (cipher_path, key_params_path) = default_vault_paths(plaintext_path);
                     return Ok(Box::new(EncryptedFileCredentialsStore::new(
@@ -690,7 +690,7 @@ pub fn open_store(
             let service = cfg
                 .service_name
                 .clone()
-                .unwrap_or_else(|| "wayland-core".to_string());
+                .unwrap_or_else(|| "genesis-core".to_string());
             if keyring_available(&service) {
                 Ok(Box::new(FallbackCredentialsStore::new(
                     service,
@@ -709,7 +709,7 @@ pub fn open_store(
             let service = cfg
                 .service_name
                 .clone()
-                .unwrap_or_else(|| "wayland-core".to_string());
+                .unwrap_or_else(|| "genesis-core".to_string());
             Ok(Box::new(KeyringCredentialsStore::new(service)))
         }
         // S11 (v0.6.3): EncryptedFile backend is wired here. Crypto primitives
@@ -1172,9 +1172,9 @@ mod tests {
 
     impl EnvPassphraseGuard {
         fn set(value: &str) -> Self {
-            let prior = std::env::var("WAYLAND_VAULT_PASSPHRASE").ok();
+            let prior = std::env::var("GENESIS_VAULT_PASSPHRASE").ok();
             unsafe {
-                std::env::set_var("WAYLAND_VAULT_PASSPHRASE", value);
+                std::env::set_var("GENESIS_VAULT_PASSPHRASE", value);
             }
             Self { prior }
         }
@@ -1184,8 +1184,8 @@ mod tests {
         fn drop(&mut self) {
             unsafe {
                 match &self.prior {
-                    Some(v) => std::env::set_var("WAYLAND_VAULT_PASSPHRASE", v),
-                    None => std::env::remove_var("WAYLAND_VAULT_PASSPHRASE"),
+                    Some(v) => std::env::set_var("GENESIS_VAULT_PASSPHRASE", v),
+                    None => std::env::remove_var("GENESIS_VAULT_PASSPHRASE"),
                 }
             }
         }

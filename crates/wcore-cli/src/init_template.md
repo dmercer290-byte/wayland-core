@@ -1,13 +1,13 @@
 # {{PROJECT_NAME}}
 
-> Operating instructions for coding agents — auto-loaded by Wayland Core, which walks the working
-> directory up to the filesystem root and picks up the closest `WAYLAND.md` / `AGENTS.md` /
-> `.wayland/context.md` / `CLAUDE.md` it finds. This file follows the [AGENTS.md](https://agents.md)
+> Operating instructions for coding agents — auto-loaded by Genesis Core, which walks the working
+> directory up to the filesystem root and picks up the closest `GENESIS.md` / `AGENTS.md` /
+> `.genesis/context.md` / `CLAUDE.md` it finds. This file follows the [AGENTS.md](https://agents.md)
 > open standard, so Codex, Cursor, Windsurf, Copilot, Aider, and Devin read it natively too.
 
 **Working code only. Finish the job. Plausibility is not correctness.**
 
-Sections 0–9 are the portable discipline — keep them. Fill in §10 for this project (Wayland Core
+Sections 0–9 are the portable discipline — keep them. Fill in §10 for this project (Genesis Core
 seeds it from a repo scan on `init`). §11 accretes one line at a time as you correct the agent.
 
 ---

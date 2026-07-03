@@ -33,6 +33,6 @@ async fn otlp_sink_emits_against_local_collector() {
         "cost_usd": 0.0,
         "tool_calls": [],
         "hook_actions": [],
-        "source_product": "wayland-core"
+        "source_product": "genesis-core"
     }));
 }

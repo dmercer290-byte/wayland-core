@@ -1,4 +1,4 @@
-//! OAuth token storage at `~/.wayland/oauth/{provider}.json`.
+//! OAuth token storage at `~/.genesis/oauth/{provider}.json`.
 //!
 //! v0.9.0 B0 chose a file-backed default (not the keyring) because
 //! `wcore-config::credentials::CredentialsBackend` is configured at
@@ -22,22 +22,22 @@ pub enum OAuthStorageError {
 }
 
 /// File-backed storage for OAuth tokens. Each provider gets its own
-/// file under `~/.wayland/oauth/`.
+/// file under `~/.genesis/oauth/`.
 pub struct OAuthStorage {
     root: PathBuf,
 }
 
 impl OAuthStorage {
-    /// Construct under the canonical Wayland profile home. Creates
-    /// `~/.wayland/oauth/` (or `$WAYLAND_HOME/oauth/`) with mode 0700 on Unix on
+    /// Construct under the canonical Genesis profile home. Creates
+    /// `~/.genesis/oauth/` (or `$GENESIS_HOME/oauth/`) with mode 0700 on Unix on
     /// first use.
     ///
     /// Resolves via [`wcore_config::config::profile_home`] so the OAuth token
-    /// store honours `WAYLAND_HOME` like the rest of Wayland's state: a hermetic
-    /// sandbox (e.g. an auditor subprocess that sets `WAYLAND_HOME`) keeps its
+    /// store honours `GENESIS_HOME` like the rest of Genesis's state: a hermetic
+    /// sandbox (e.g. an auditor subprocess that sets `GENESIS_HOME`) keeps its
     /// tokens inside the sandbox instead of reading/writing the real
-    /// `~/.wayland` — the F-019 leak class. Identical to the previous
-    /// `dirs::home_dir()/.wayland` path when `WAYLAND_HOME` is unset, so normal
+    /// `~/.genesis` — the F-019 leak class. Identical to the previous
+    /// `dirs::home_dir()/.genesis` path when `GENESIS_HOME` is unset, so normal
     /// runs are unaffected.
     pub fn from_home() -> Result<Self, OAuthStorageError> {
         Self::at_root(wcore_config::config::profile_home().join("oauth"))

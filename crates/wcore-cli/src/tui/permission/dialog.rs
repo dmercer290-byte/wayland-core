@@ -2,7 +2,7 @@
 //!
 //! Reimplements CC's top-edge-only border in ratatui: a single leading
 //! horizontal rule in `theme.orange` (brand discipline — CC uses
-//! permission-blue, Wayland uses the brand accent orange), `paddingX=1`
+//! permission-blue, Genesis uses the brand accent orange), `paddingX=1`
 //! (one-space indent), `marginTop=1` (one blank line above). Composes the
 //! routed component's `icon` + `title` + `body` + a blank + `keys` into a
 //! `Vec<Line<'static>>`. REPLACES the body of

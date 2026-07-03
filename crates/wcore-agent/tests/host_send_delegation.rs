@@ -1,5 +1,5 @@
 //! #537/#141 — HARD SECURITY GATE tests for host-delegated `send_message`
-//! (wayland#543 audit finding 4).
+//! (genesis#543 audit finding 4).
 //!
 //! The desktop performs the actual delivery for `host_send_message_request`
 //! WITHOUT re-gating — it trusts that the engine's tool-approval flow
@@ -190,7 +190,7 @@ async fn run_turn(h: &Harness, call: ContentBlock) -> ContentBlock {
 // ---------------------------------------------------------------------------
 
 /// `send_message` must be `Exec`, never the auto-approvable `Info` — the
-/// exact miscategorization wayland#543's audit finding 4 warns about.
+/// exact miscategorization genesis#543's audit finding 4 warns about.
 #[test]
 fn send_message_category_is_exec_not_info() {
     use wcore_tools::Tool;

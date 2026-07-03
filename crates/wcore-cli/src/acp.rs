@@ -1,4 +1,4 @@
-//! `wayland-core acp` — production caller for the ACP crate. Two
+//! `genesis-core acp` — production caller for the ACP crate. Two
 //! modes: `serve` binds the HTTP/SSE transport to a TCP port; `request`
 //! is a one-shot client that exercises the same endpoints from the
 //! command line (handy for smoke-testing a running server).
@@ -19,7 +19,7 @@ use wcore_acp::protocol::{MessageEvent, MessageSendRequest, SessionCreateRequest
 use wcore_acp::server::AcpServer;
 use wcore_acp::transport::HttpSseTransport;
 
-/// Top-level args for `wayland-core acp ...`.
+/// Top-level args for `genesis-core acp ...`.
 #[derive(Args, Debug)]
 pub struct AcpArgs {
     #[command(subcommand)]
@@ -142,7 +142,7 @@ async fn serve(args: AcpServeArgs) -> anyhow::Result<()> {
             store_api_key(ACP_SERVER_KEY_ACCOUNT, &key)
                 .map_err(|e| anyhow::anyhow!("keychain store failed: {e}"))?;
             eprintln!(
-                "wayland-core acp: generated API key (first run) — \
+                "genesis-core acp: generated API key (first run) — \
                  pass as X-API-Key header:\n  {key}"
             );
             key
@@ -188,7 +188,7 @@ async fn serve(args: AcpServeArgs) -> anyhow::Result<()> {
     // (handshake / message/send / capabilities) routes through the SAME
     // engine bridge via `EngineA2aHandler` (replacing the echo stub). Both
     // share one resolved Config so they bind the same provider/model.
-    let agent_id = hostname_or("wayland-core");
+    let agent_id = hostname_or("genesis-core");
     if args.allow_all_tools {
         eprintln!(
             "WARNING: --allow-all-tools is set. The API key is now root-equivalent: \
@@ -238,7 +238,7 @@ async fn serve(args: AcpServeArgs) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local = listener.local_addr()?;
     eprintln!(
-        "wayland-core acp: serving on http://{local} \
+        "genesis-core acp: serving on http://{local} \
          (ACP on /sessions, REST on /v1, docs at /doc)"
     );
     axum::serve(listener, app).await?;

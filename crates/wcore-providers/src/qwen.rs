@@ -94,7 +94,7 @@ pub fn register_qwen_in<R: ProviderRegistry>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::WaylandProviderRegistry;
+    use crate::registry::GenesisProviderRegistry;
 
     fn compat_with_max_tokens_field(field: &str) -> ProviderCompat {
         ProviderCompat {
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn register_uses_lowercase_id() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         register_qwen_in(
             &mut r,
             "sk-test".into(),
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn register_rejects_duplicate() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         register_qwen_in(
             &mut r,
             "sk-test".into(),
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn compat_config_passes_through() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         register_qwen_in(
             &mut r,
             "sk-test".into(),

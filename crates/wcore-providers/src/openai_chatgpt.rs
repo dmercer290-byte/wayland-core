@@ -112,8 +112,8 @@ impl OpenAIChatGptProvider {
     ///
     /// Beyond the standard `Authorization`/`Content-Type`, Codex requires
     /// `chatgpt-account-id` (from the access-token JWT), `OpenAI-Beta:
-    /// responses=experimental`, our honest `originator: wayland` attribution,
-    /// a wayland `User-Agent`, and (D3) `Accept: text/event-stream` so the edge
+    /// responses=experimental`, our honest `originator: genesis` attribution,
+    /// a genesis `User-Agent`, and (D3) `Accept: text/event-stream` so the edge
     /// content-negotiates the SSE stream.
     pub(crate) fn build_headers(
         &self,
@@ -140,7 +140,7 @@ impl OpenAIChatGptProvider {
         h.insert("originator", HeaderValue::from_static("wayland"));
         h.insert(
             USER_AGENT,
-            HeaderValue::from_static(concat!("wayland-core/", env!("CARGO_PKG_VERSION"))),
+            HeaderValue::from_static(concat!("genesis-core/", env!("CARGO_PKG_VERSION"))),
         );
         h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         h.insert(ACCEPT, HeaderValue::from_static("text/event-stream"));
@@ -316,7 +316,7 @@ impl LlmProvider for OpenAIChatGptProvider {
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
             // 401 → the OAuth token is bad/expired beyond refresh; map to
-            // MissingApiKey so the CLI nudges `wayland auth login chatgpt`.
+            // MissingApiKey so the CLI nudges `genesis auth login chatgpt`.
             if status.as_u16() == 401 {
                 return Err(ProviderError::MissingApiKey);
             }

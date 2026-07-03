@@ -2,51 +2,51 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Wayland-Core Cron Daemon — launchd user agent (macOS)
+  Genesis-Core Cron Daemon — launchd user agent (macOS)
 
   Installation:
-    1. Copy this file to ~/Library/LaunchAgents/com.wayland.cron-daemon.plist
+    1. Copy this file to ~/Library/LaunchAgents/com.genesis.cron-daemon.plist
     2. Edit the paths below to match your installation:
-         - ProgramArguments: path to the wayland-core binary
-         - WAYLAND_HOME: your Wayland home directory (default ~/.wayland)
+         - ProgramArguments: path to the genesis-core binary
+         - GENESIS_HOME: your Genesis home directory (default ~/.genesis)
     3. Load the agent:
          launchctl bootstrap gui/$(id -u) \
-           ~/Library/LaunchAgents/com.wayland.cron-daemon.plist
+           ~/Library/LaunchAgents/com.genesis.cron-daemon.plist
     4. Verify it is running:
-         launchctl list com.wayland.cron-daemon
+         launchctl list com.genesis.cron-daemon
 
   Uninstall:
     launchctl bootout gui/$(id -u) \
-      ~/Library/LaunchAgents/com.wayland.cron-daemon.plist
+      ~/Library/LaunchAgents/com.genesis.cron-daemon.plist
 
   Notes:
-    - The daemon writes its PID to $WAYLAND_HOME/cron-daemon.pid
-    - Logs go to $WAYLAND_HOME/cron-daemon.log (stdout + stderr)
+    - The daemon writes its PID to $GENESIS_HOME/cron-daemon.pid
+    - Logs go to $GENESIS_HOME/cron-daemon.log (stdout + stderr)
     - launchd restarts the daemon automatically if it crashes
-    - To stop temporarily: launchctl kill TERM gui/$(id -u)/com.wayland.cron-daemon
+    - To stop temporarily: launchctl kill TERM gui/$(id -u)/com.genesis.cron-daemon
 -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.wayland.cron-daemon</string>
+  <string>com.genesis.cron-daemon</string>
 
   <key>ProgramArguments</key>
   <array>
-    <!-- Replace with the absolute path to the wayland-core binary. -->
-    <!-- Example: /usr/local/bin/wayland-core                        -->
-    <string>/usr/local/bin/wayland-core</string>
+    <!-- Replace with the absolute path to the genesis-core binary. -->
+    <!-- Example: /usr/local/bin/genesis-core                        -->
+    <string>/usr/local/bin/genesis-core</string>
     <string>cron</string>
     <string>daemon</string>
   </array>
 
   <key>EnvironmentVariables</key>
   <dict>
-    <!-- Override if your Wayland home is not ~/.wayland -->
-    <key>WAYLAND_HOME</key>
-    <string>~/.wayland</string>
+    <!-- Override if your Genesis home is not ~/.genesis -->
+    <key>GENESIS_HOME</key>
+    <string>~/.genesis</string>
     <!-- Prevents the child-process re-exec dance; launchd is already
          the process manager, so we run the daemon body directly. -->
-    <key>WAYLAND_CRON_DAEMON_CHILD</key>
+    <key>GENESIS_CRON_DAEMON_CHILD</key>
     <string>1</string>
   </dict>
 
@@ -63,9 +63,9 @@
 
   <!-- Route stdout + stderr to the daemon log file. -->
   <key>StandardOutPath</key>
-  <string>~/.wayland/cron-daemon.log</string>
+  <string>~/.genesis/cron-daemon.log</string>
   <key>StandardErrorPath</key>
-  <string>~/.wayland/cron-daemon.log</string>
+  <string>~/.genesis/cron-daemon.log</string>
 
   <!-- Launch at login. -->
   <key>RunAtLoad</key>

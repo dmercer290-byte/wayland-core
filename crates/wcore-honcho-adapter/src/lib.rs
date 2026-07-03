@@ -1,5 +1,5 @@
 //! `wcore-honcho-adapter` — bridges `wcore-user-model::UserModelBackend`
-//! to `wayland-honcho::HonchoClient`.
+//! to `genesis-honcho::HonchoClient`.
 //!
 //! The engine talks to the user model through the
 //! `UserModelBackend` trait. `LocalBackend` (in-process, JSON-on-disk)
@@ -10,8 +10,8 @@
 //! Selection happens at bootstrap via [`select_backend_from_env`]:
 //!
 //! ```text
-//! WAYLAND_USER_MODEL_BACKEND=local   → LocalBackend (default)
-//! WAYLAND_USER_MODEL_BACKEND=honcho  → HonchoUserModelBackend
+//! GENESIS_USER_MODEL_BACKEND=local   → LocalBackend (default)
+//! GENESIS_USER_MODEL_BACKEND=honcho  → HonchoUserModelBackend
 //! ```
 //!
 //! The `honcho` flavour reads `HONCHO_API_URL` + `HONCHO_API_KEY`. No
@@ -24,7 +24,7 @@ pub mod map;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use wayland_honcho::HonchoClient;
+use genesis_honcho::HonchoClient;
 use wcore_user_model::{
     LocalBackend, Observation, Preferences, UserBrief, UserModelBackend, UserModelError,
 };
@@ -116,17 +116,17 @@ impl UserModelBackend for HonchoUserModelBackend {
 
 /// Construct the configured backend based on environment.
 ///
-/// `WAYLAND_USER_MODEL_BACKEND=local` (default) returns an in-memory
+/// `GENESIS_USER_MODEL_BACKEND=local` (default) returns an in-memory
 /// `LocalBackend`. Persistent path-on-disk wiring stays in `wcore-agent`
 /// bootstrap — this helper picks the SHAPE, not the storage location.
 ///
-/// `WAYLAND_USER_MODEL_BACKEND=honcho` returns a `HonchoUserModelBackend`
+/// `GENESIS_USER_MODEL_BACKEND=honcho` returns a `HonchoUserModelBackend`
 /// constructed from `HONCHO_API_URL` (or the public default if absent)
 /// and `HONCHO_API_KEY` (required — surfaces as `UserModelError::Config`
 /// if missing).
 pub fn select_backend_from_env() -> Result<Arc<dyn UserModelBackend>, UserModelError> {
     let choice =
-        std::env::var("WAYLAND_USER_MODEL_BACKEND").unwrap_or_else(|_| "local".to_string());
+        std::env::var("GENESIS_USER_MODEL_BACKEND").unwrap_or_else(|_| "local".to_string());
     match choice.as_str() {
         "local" => Ok(Arc::new(LocalBackend::in_memory())),
         "honcho" => {
@@ -137,7 +137,7 @@ pub fn select_backend_from_env() -> Result<Arc<dyn UserModelBackend>, UserModelE
             // network problem.
             if std::env::var("HONCHO_API_KEY").is_err() {
                 return Err(UserModelError::Config(
-                    "HONCHO_API_KEY not set (required for WAYLAND_USER_MODEL_BACKEND=honcho)"
+                    "HONCHO_API_KEY not set (required for GENESIS_USER_MODEL_BACKEND=honcho)"
                         .to_string(),
                 ));
             }
@@ -145,7 +145,7 @@ pub fn select_backend_from_env() -> Result<Arc<dyn UserModelBackend>, UserModelE
             Ok(Arc::new(HonchoUserModelBackend::new(Arc::new(client))))
         }
         other => Err(UserModelError::Config(format!(
-            "unknown WAYLAND_USER_MODEL_BACKEND: {other}"
+            "unknown GENESIS_USER_MODEL_BACKEND: {other}"
         ))),
     }
 }
@@ -246,18 +246,18 @@ mod tests {
         // surface on the same brief.
         let client = Arc::new(HonchoClient::mock());
         client
-            .learn_preference("alice", "wayland.name", "Alice")
+            .learn_preference("alice", "genesis.name", "Alice")
             .await
             .expect("learn_preference must succeed");
         let seeded = vec![
-            wayland_honcho::DialecticInference {
+            genesis_honcho::DialecticInference {
                 kind: "preference".into(),
                 subject: "code_style".into(),
                 value: "terse".into(),
                 confidence: 0.82,
                 evidence_count: 4,
             },
-            wayland_honcho::DialecticInference {
+            genesis_honcho::DialecticInference {
                 kind: "expertise".into(),
                 subject: "rust".into(),
                 value: "expert".into(),
@@ -285,7 +285,7 @@ mod tests {
         // must come back empty (not error, not a panic).
         let client = Arc::new(HonchoClient::mock());
         client
-            .learn_preference("bob", "wayland.summary", "noted")
+            .learn_preference("bob", "genesis.summary", "noted")
             .await
             .unwrap();
         let backend = HonchoUserModelBackend::new(client);
@@ -303,17 +303,17 @@ mod tests {
         // `#[test]`, so concurrent tests in the same binary would race.
         // Risk accepted because this binary has only the adapter tests
         // and the only mutation here is `remove_var`.
-        let prior = std::env::var("WAYLAND_USER_MODEL_BACKEND").ok();
+        let prior = std::env::var("GENESIS_USER_MODEL_BACKEND").ok();
         // SAFETY: see comment above.
         unsafe {
-            std::env::remove_var("WAYLAND_USER_MODEL_BACKEND");
+            std::env::remove_var("GENESIS_USER_MODEL_BACKEND");
         }
         let backend = select_backend_from_env().expect("default selector must succeed");
         assert_eq!(backend.backend_tag(), "local");
         // SAFETY: see comment above.
         unsafe {
             if let Some(v) = prior {
-                std::env::set_var("WAYLAND_USER_MODEL_BACKEND", v);
+                std::env::set_var("GENESIS_USER_MODEL_BACKEND", v);
             }
         }
     }
@@ -321,9 +321,9 @@ mod tests {
     #[test]
     fn selector_unknown_backend_errors() {
         // SAFETY: see selector_defaults_to_local for env-mutation caveat.
-        let prior = std::env::var("WAYLAND_USER_MODEL_BACKEND").ok();
+        let prior = std::env::var("GENESIS_USER_MODEL_BACKEND").ok();
         unsafe {
-            std::env::set_var("WAYLAND_USER_MODEL_BACKEND", "fictional");
+            std::env::set_var("GENESIS_USER_MODEL_BACKEND", "fictional");
         }
         let result = select_backend_from_env();
         let is_config_err = matches!(&result, Err(UserModelError::Config(_)));
@@ -335,8 +335,8 @@ mod tests {
         drop(result);
         unsafe {
             match prior {
-                Some(v) => std::env::set_var("WAYLAND_USER_MODEL_BACKEND", v),
-                None => std::env::remove_var("WAYLAND_USER_MODEL_BACKEND"),
+                Some(v) => std::env::set_var("GENESIS_USER_MODEL_BACKEND", v),
+                None => std::env::remove_var("GENESIS_USER_MODEL_BACKEND"),
             }
         }
     }
@@ -346,7 +346,7 @@ mod tests {
     fn selector_picks_honcho_when_configured() {
         // SAFETY: see selector_defaults_to_local for env-mutation caveat.
         unsafe {
-            std::env::set_var("WAYLAND_USER_MODEL_BACKEND", "honcho");
+            std::env::set_var("GENESIS_USER_MODEL_BACKEND", "honcho");
         }
         let backend = select_backend_from_env().expect("honcho selector must succeed");
         assert_eq!(backend.backend_tag(), "honcho");

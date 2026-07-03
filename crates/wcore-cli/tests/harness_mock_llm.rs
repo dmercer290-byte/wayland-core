@@ -6,7 +6,7 @@
 //!    `127.0.0.1:0`, point the *real* `wcore_providers::anthropic` provider at
 //!    its `base_url`, drive one request, and assert the provider yields the
 //!    expected `LlmEvent`s ending in a clean `Done { stop_reason }`. This
-//!    proves the same mock can later drive the real `wayland-core` binary
+//!    proves the same mock can later drive the real `genesis-core` binary
 //!    (which POSTs to `{base_url}/v1/messages`, anthropic.rs:176).
 //!
 //! 2. **Parser-conformance gate.** Feed the canonical text-turn and

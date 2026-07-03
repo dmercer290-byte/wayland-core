@@ -2,5 +2,5 @@
 cargo_generate_version = ">=0.18"
 
 [placeholders]
-description = { type = "string", prompt = "Plugin description", default = "A Wayland plugin" }
+description = { type = "string", prompt = "Plugin description", default = "A Genesis plugin" }
 authors     = { type = "string", prompt = "Author(s)",          default = "you <you@example.com>" }

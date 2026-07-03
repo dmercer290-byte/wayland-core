@@ -1,6 +1,6 @@
 # wcore-eval-scenarios
 
-Scenario-level eval harness for `wayland-core`. Drives the real shipped binary against a real LLM API through a real tool chain and asserts the OUTCOME — not just that the tools ran.
+Scenario-level eval harness for `genesis-core`. Drives the real shipped binary against a real LLM API through a real tool chain and asserts the OUTCOME — not just that the tools ran.
 
 Plan: [`.blackboard/EVAL-HARNESS-PLAN-2026-05-23.md`](../../.blackboard/EVAL-HARNESS-PLAN-2026-05-23.md) (v2, post-audit).
 
@@ -10,9 +10,9 @@ This is the **T1 + T2 scaffold**. The crate compiles, ships the runner core, and
 
 What ships in T1 + T2:
 
-- **Crate scaffold** — public API types (`Scenario`, `Turn`, `Assertion`, `TraceAssertion`, `ScenarioResult`, `Failure`, `ProviderChoice`, `Category`), workspace wiring, `[profile.eval]` nextest profile, `wayland-eval` bin stub.
-- **Runner core** — spawn `wayland-core --json-stream`, drive per-turn via `message` / `stream_end` events, capture stderr to a 50-line ring buffer, parse `session_cost` for USD totals, enforce wall-time with `kill_on_drop(true)` + explicit `start_kill()` on `Elapsed` (per cross-audit M-1).
-- **`tempenv`** — hermetic per-scenario `TempDir` + seeded `<tempdir>/.wayland-core/config.toml` with an **absolute** `[session].directory` (per C-3 — relative defaults leak into cwd) and the per-provider API key.
+- **Crate scaffold** — public API types (`Scenario`, `Turn`, `Assertion`, `TraceAssertion`, `ScenarioResult`, `Failure`, `ProviderChoice`, `Category`), workspace wiring, `[profile.eval]` nextest profile, `genesis-eval` bin stub.
+- **Runner core** — spawn `genesis-core --json-stream`, drive per-turn via `message` / `stream_end` events, capture stderr to a 50-line ring buffer, parse `session_cost` for USD totals, enforce wall-time with `kill_on_drop(true)` + explicit `start_kill()` on `Elapsed` (per cross-audit M-1).
+- **`tempenv`** — hermetic per-scenario `TempDir` + seeded `<tempdir>/.genesis-core/config.toml` with an **absolute** `[session].directory` (per C-3 — relative defaults leak into cwd) and the per-provider API key.
 - **`stderr_capture`** — ring-buffered stderr drain for failure dumps (per M-9 — D1 panic regressions need stderr or root cause is lost).
 - **Smoke tests** — `tests/smoke.rs` exercises spawn plumbing + `kill_on_drop` hygiene without any API calls.
 
@@ -22,7 +22,7 @@ gate in `lib.rs` stays green and rules out silent-pass regressions):
 
 - **T3** — `assertions.rs` + `trace.rs` (`Assertion::check` / `TraceAssertion::check` / `ToolTrace::parse_session`).
 - **T4** — `providers::resolve(ProviderChoice)` matrix + strict-mode SKIP/FAIL.
-- **T5** — `report::render_console / render_markdown / render_json` + the real `wayland-eval` CLI.
+- **T5** — `report::render_console / render_markdown / render_json` + the real `genesis-eval` CLI.
 - **T6-T8** — the 35 scenarios + fixtures + PTY harness reuse.
 
 ## Quickstart (T2-era — runner is callable; assertions don't fire yet)

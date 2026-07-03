@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// Generate the npm publish tree for wayland-core: a platform-resolving launcher
-// package (`@ferroxlabs/wayland-core`) plus one binary package per target
-// (`@ferroxlabs/wayland-core-<os>-<cpu>`), using the `os`/`cpu` +
+// Generate the npm publish tree for genesis-core: a platform-resolving launcher
+// package (`@ferroxlabs/genesis-core`) plus one binary package per target
+// (`@ferroxlabs/genesis-core-<os>-<cpu>`), using the `os`/`cpu` +
 // optionalDependencies pattern (esbuild/Biome/swc). A consumer installs the
 // launcher; npm pulls ONLY the one platform package matching their machine.
 //
 // Pure Node, zero dependencies. It consumes the per-target binaries that
 // `.github/workflows/release.yml` already builds — extract each release archive
-// to `<binaries>/<rust-triple>/wayland-core[.exe]` first (the CI job does this).
+// to `<binaries>/<rust-triple>/genesis-core[.exe]` first (the CI job does this).
 //
 // Usage:
 //   node npm/generate.mjs --version 0.9.5 --binaries ./binaries --out ./npm-dist
@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, copyFileSync, writeFileSync, chmodSync } from "n
 import { join, dirname } from "node:path";
 
 const SCOPE = "@ferroxlabs";
-const LAUNCHER = `${SCOPE}/wayland-core`;
+const LAUNCHER = `${SCOPE}/genesis-core`;
 const LICENSE = "Apache-2.0";
 // Canonical object form so npm doesn't auto-correct (string → object) at publish.
 // The owner casing MUST exactly match the GitHub repo slug (`FerroxLabs`): npm
@@ -29,12 +29,12 @@ const LICENSE = "Apache-2.0";
 // on any case mismatch (npm/cli#8036). The OIDC claim reports the real casing.
 const REPOSITORY = {
   type: "git",
-  url: "git+https://github.com/FerroxLabs/wayland-core.git",
+  url: "git+https://github.com/dmercer290-byte/wayland-core.git",
 };
 
 // rust triple → npm os/cpu (node's process.platform/process.arch vocabulary,
 // which is ALSO the Wayland desktop's `${process.platform}-${process.arch}`
-// bundled-wayland-core runtimeKey — they match 1:1 on purpose).
+// bundled-genesis-core runtimeKey — they match 1:1 on purpose).
 const TARGETS = [
   { triple: "aarch64-apple-darwin", os: "darwin", cpu: "arm64", exe: false },
   { triple: "x86_64-apple-darwin", os: "darwin", cpu: "x64", exe: false },
@@ -63,8 +63,8 @@ function parseArgs(argv) {
   return args;
 }
 
-const pkgName = (t) => `${SCOPE}/wayland-core-${t.os}-${t.cpu}`;
-const binName = (t) => (t.exe ? "wayland-core.exe" : "wayland-core");
+const pkgName = (t) => `${SCOPE}/genesis-core-${t.os}-${t.cpu}`;
+const binName = (t) => (t.exe ? "genesis-core.exe" : "genesis-core");
 
 function writeJson(path, obj) {
   mkdirSync(dirname(path), { recursive: true });
@@ -81,7 +81,7 @@ function emitPlatformPackage(out, version, target, binaries, allowMissing) {
     }
     throw new Error(`binary missing for ${target.triple} at ${src}`);
   }
-  const dir = join(out, `wayland-core-${target.os}-${target.cpu}`);
+  const dir = join(out, `genesis-core-${target.os}-${target.cpu}`);
   const dest = join(dir, "bin", binName(target));
   mkdirSync(dirname(dest), { recursive: true });
   copyFileSync(src, dest);
@@ -90,7 +90,7 @@ function emitPlatformPackage(out, version, target, binaries, allowMissing) {
   writeJson(join(dir, "package.json"), {
     name: pkgName(target),
     version,
-    description: `wayland-core binary for ${target.os}-${target.cpu}`,
+    description: `genesis-core binary for ${target.os}-${target.cpu}`,
     license: LICENSE,
     repository: REPOSITORY,
     // npm installs this package ONLY on a matching machine; on any other
@@ -105,27 +105,27 @@ function emitPlatformPackage(out, version, target, binaries, allowMissing) {
 
 // --- launcher package: resolver + bin shim + optionalDependencies -----------
 const INDEX_JS = `"use strict";
-// Resolve the platform-correct wayland-core binary that npm installed as an
+// Resolve the platform-correct genesis-core binary that npm installed as an
 // optional dependency. Programmatic entry point: a host (e.g. AionCLI) calls
-// require("@ferroxlabs/wayland-core").binaryPath() and spawns it directly.
+// require("@ferroxlabs/genesis-core").binaryPath() and spawns it directly.
 const fs = require("node:fs");
 const path = require("node:path");
 
 const PLATFORM_PACKAGES = {
-  "darwin-arm64": "${SCOPE}/wayland-core-darwin-arm64",
-  "darwin-x64": "${SCOPE}/wayland-core-darwin-x64",
-  "linux-arm64": "${SCOPE}/wayland-core-linux-arm64",
-  "linux-x64": "${SCOPE}/wayland-core-linux-x64",
-  "win32-arm64": "${SCOPE}/wayland-core-win32-arm64",
-  "win32-x64": "${SCOPE}/wayland-core-win32-x64",
+  "darwin-arm64": "${SCOPE}/genesis-core-darwin-arm64",
+  "darwin-x64": "${SCOPE}/genesis-core-darwin-x64",
+  "linux-arm64": "${SCOPE}/genesis-core-linux-arm64",
+  "linux-x64": "${SCOPE}/genesis-core-linux-x64",
+  "win32-arm64": "${SCOPE}/genesis-core-win32-arm64",
+  "win32-x64": "${SCOPE}/genesis-core-win32-x64",
 };
 
 function binaryName() {
-  return process.platform === "win32" ? "wayland-core.exe" : "wayland-core";
+  return process.platform === "win32" ? "genesis-core.exe" : "genesis-core";
 }
 
 /**
- * Absolute path to the platform-correct wayland-core binary.
+ * Absolute path to the platform-correct genesis-core binary.
  * Throws an actionable error if the platform is unsupported or its package was
  * not installed (e.g. install ran with --no-optional / --ignore-optional).
  */
@@ -133,21 +133,21 @@ function binaryPath() {
   const key = process.platform + "-" + process.arch;
   const pkg = PLATFORM_PACKAGES[key];
   if (!pkg) {
-    throw new Error("wayland-core: unsupported platform " + key);
+    throw new Error("genesis-core: unsupported platform " + key);
   }
   let pkgJson;
   try {
     pkgJson = require.resolve(pkg + "/package.json");
   } catch (e) {
     throw new Error(
-      "wayland-core: platform package " + pkg + " is not installed. It should " +
+      "genesis-core: platform package " + pkg + " is not installed. It should " +
         "have been pulled in automatically as an optional dependency — reinstall " +
         "without --no-optional / --ignore-optional."
     );
   }
   const p = path.join(path.dirname(pkgJson), "bin", binaryName());
   if (!fs.existsSync(p)) {
-    throw new Error("wayland-core: binary missing at " + p);
+    throw new Error("genesis-core: binary missing at " + p);
   }
   return p;
 }
@@ -157,7 +157,7 @@ module.exports = { binaryPath };
 
 const BIN_JS = `#!/usr/bin/env node
 "use strict";
-// Thin launcher for \`npx @ferroxlabs/wayland-core\` / global installs. Resolves
+// Thin launcher for \`npx @ferroxlabs/genesis-core\` / global installs. Resolves
 // the platform binary and execs it transparently (stdio inherited, exit code
 // relayed). Hosts that embed the engine should call binaryPath() and spawn the
 // binary directly instead of going through this shim.
@@ -193,7 +193,7 @@ try {
 
 const result = spawnSync(bin, process.argv.slice(2), { stdio: "inherit" });
 if (result.error) {
-  console.error("wayland-core: failed to launch: " + result.error.message);
+  console.error("genesis-core: failed to launch: " + result.error.message);
   process.exit(1);
 }
 process.exit(result.status === null ? 1 : result.status);
@@ -215,7 +215,7 @@ const STALE_CHECK_JS = `"use strict";
 //     broken launch
 //   - throttled: registry queried at most once per CHECK_INTERVAL_MS, warning
 //     printed at most once per WARN_INTERVAL_MS
-//   - opt-out: WAYLAND_CORE_SKIP_UPDATE_CHECK=1; also skipped when CI is set
+//   - opt-out: GENESIS_CORE_SKIP_UPDATE_CHECK=1; also skipped when CI is set
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -226,9 +226,9 @@ const WARN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 5000;
 
 // Launcher-private state; co-located with the engine's home dir convention
-// (WAYLAND_HOME override honored, matching wcore-config resolution order).
+// (GENESIS_HOME override honored, matching wcore-config resolution order).
 function stateFile() {
-  const home = process.env.WAYLAND_HOME || path.join(os.homedir(), ".wayland");
+  const home = process.env.GENESIS_HOME || path.join(os.homedir(), ".genesis");
   return path.join(home, "npx-update-check.json");
 }
 
@@ -280,7 +280,7 @@ function isBehind(current, latest) {
 }
 
 function skipped() {
-  return Boolean(process.env.WAYLAND_CORE_SKIP_UPDATE_CHECK || process.env.CI);
+  return Boolean(process.env.GENESIS_CORE_SKIP_UPDATE_CHECK || process.env.CI);
 }
 
 /** Foreground half: warn from cached state, kick off a background refresh. */
@@ -301,11 +301,11 @@ function warnIfStale() {
   const latest = validStableVersion(state.latest);
   if (latest && isBehind(current, latest) && !warnThrottled) {
     console.error(
-      "wayland-core: v" + current + " is stale — latest is v" + latest + ".\\n" +
+      "genesis-core: v" + current + " is stale — latest is v" + latest + ".\\n" +
         "  npx caches this package by spec string and never refreshes it; run the\\n" +
         "  exact version to bust the cache:  npx " + PKG + "@" + latest + "\\n" +
         "  (or: npm i -g " + PKG + "@latest — suppress this check with\\n" +
-        "  WAYLAND_CORE_SKIP_UPDATE_CHECK=1)"
+        "  GENESIS_CORE_SKIP_UPDATE_CHECK=1)"
     );
     state.warnedAt = now;
     writeState(state);
@@ -368,7 +368,7 @@ if (require.main === module && process.argv[2] === "--refresh") {
 `;
 
 function emitLauncher(out, version, present) {
-  const dir = join(out, "wayland-core");
+  const dir = join(out, "genesis-core");
   // Every platform package is an OPTIONAL dependency: npm installs only the one
   // matching the host's os/cpu and silently skips the rest.
   const optionalDependencies = {};
@@ -378,17 +378,17 @@ function emitLauncher(out, version, present) {
     name: LAUNCHER,
     version,
     description:
-      "wayland-core — multi-provider AI agent engine. Platform-resolving launcher; " +
+      "genesis-core — multi-provider AI agent engine. Platform-resolving launcher; " +
       "the matching native binary installs automatically per os/cpu.",
     license: LICENSE,
     repository: REPOSITORY,
-    bin: { "wayland-core": "bin/wayland-core.js" },
+    bin: { "genesis-core": "bin/genesis-core.js" },
     main: "index.js",
     files: ["bin/", "index.js"],
     optionalDependencies,
     publishConfig: { access: "public" },
   });
-  const binPath = join(dir, "bin", "wayland-core.js");
+  const binPath = join(dir, "bin", "genesis-core.js");
   mkdirSync(dirname(binPath), { recursive: true });
   writeFileSync(binPath, BIN_JS);
   chmodSync(binPath, 0o755);

@@ -88,7 +88,7 @@ pub fn register_sakana_in<R: ProviderRegistry>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::WaylandProviderRegistry;
+    use crate::registry::GenesisProviderRegistry;
 
     #[test]
     fn constructs_with_default_url() {
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn register_uses_lowercase_id() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         register_sakana_in(
             &mut r,
             "fish_test".into(),
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn register_rejects_duplicate() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         register_sakana_in(
             &mut r,
             "fish_test".into(),

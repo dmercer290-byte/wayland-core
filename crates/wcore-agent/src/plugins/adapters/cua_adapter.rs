@@ -1,5 +1,5 @@
 //! Host-side CUA adapter — wires a `wcore-plugin-api`-mirrored
-//! `CuaToolSpec` (registered by a plugin shell such as `wayland-cua`)
+//! `CuaToolSpec` (registered by a plugin shell such as `genesis-cua`)
 //! into a concrete `wcore_cua::CuaTool` and stages it for the engine's
 //! tool dispatcher.
 //!
@@ -159,7 +159,7 @@ mod tests {
     fn capability_disabled_propagates_through_adapter() {
         let mut reg = HostCuaRegistrar::new(/*advertised=*/ false);
         {
-            let mut cap = reg.capture_for_plugin("wayland-cua");
+            let mut cap = reg.capture_for_plugin("genesis-cua");
             cap.host_register(fixture_spec("Cua")).unwrap();
         }
         let (ok, errs) = reg.reify_all();
@@ -177,7 +177,7 @@ mod tests {
         clear_wayland_env();
         let mut reg = HostCuaRegistrar::new(true);
         {
-            let mut cap = reg.capture_for_plugin("wayland-cua");
+            let mut cap = reg.capture_for_plugin("genesis-cua");
             cap.host_register(fixture_spec("Cua")).unwrap();
         }
         let (ok, errs) = reg.reify_all();
@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(ok.len(), 1);
         use wcore_tools::Tool;
         assert_eq!(ok[0].tool.name(), "Cua");
-        assert_eq!(ok[0].plugin, "wayland-cua");
+        assert_eq!(ok[0].plugin, "genesis-cua");
     }
 
     /// Audit F7 on Linux Wayland: restricted compositor refuses
@@ -204,7 +204,7 @@ mod tests {
         }
         let mut reg = HostCuaRegistrar::new(true);
         {
-            let mut cap = reg.capture_for_plugin("wayland-cua");
+            let mut cap = reg.capture_for_plugin("genesis-cua");
             cap.host_register(fixture_spec("Cua")).unwrap();
         }
         let (ok, errs) = reg.reify_all();

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct A2aHandshake {
     pub agent_id: String,
-    /// "wayland-core" | "forge" | "hermes" | "openclaw" | "other"
+    /// "genesis-core" | "forge" | "hermes" | "openclaw" | "other"
     pub agent_kind: String,
     /// semver
     pub version: String,

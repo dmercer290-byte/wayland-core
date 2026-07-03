@@ -28,7 +28,7 @@ fn old_episode(age_days: i64) -> Episode {
         summary: format!("episode aged {age_days}d"),
         atomic_facts: vec![],
         source: "test".into(),
-        source_product: "wayland-core".into(),
+        source_product: "genesis-core".into(),
         session_id: None,
         project_root: None,
         decay_score: 1.0,

@@ -104,7 +104,7 @@ impl HttpFetchBackend {
             // pretending to be a browser.
             .header(
                 reqwest::header::USER_AGENT,
-                "wayland-core/WebFetch (https://github.com/FerroxLabs/wayland-core)",
+                "genesis-core/WebFetch (https://github.com/dmercer290-byte/wayland-core)",
             )
             .header(
                 reqwest::header::ACCEPT,

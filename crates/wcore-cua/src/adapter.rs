@@ -2,7 +2,7 @@
 //! into a concrete `CuaTool`.
 //!
 //! Mirrors the audit F2 pattern from `wcore_browser::adapter`. The
-//! plugin shell (`wayland-cua`) registers a `CuaToolSpec` through the
+//! plugin shell (`genesis-cua`) registers a `CuaToolSpec` through the
 //! `wcore-plugin-api` mirror; the host (which DOES depend on
 //! `wcore-cua`) calls into this module to reify the spec into a real
 //! `CuaTool`.
@@ -14,7 +14,7 @@
 //!
 //! **Capability gating.** `from_spec` consults `computer_use_advertised`
 //! and refuses the registration with `CuaError::CapabilityDisabled`
-//! when the host hasn't advertised the flag. The wayland-cua plugin
+//! when the host hasn't advertised the flag. The genesis-cua plugin
 //! propagates this from `Capabilities.computer_use`.
 
 use std::sync::Arc;

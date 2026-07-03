@@ -183,7 +183,7 @@ async fn end_to_end_fresh_token_streams_codex_turn() {
 
     // Seed a fresh (non-expired) token whose access_token JWT carries the
     // account id. Storage is rooted at a tempdir, exactly like bootstrap's
-    // OAuthStorage but isolated from the real ~/.wayland. No token endpoint is
+    // OAuthStorage but isolated from the real ~/.genesis. No token endpoint is
     // mounted — a fresh token must be served from disk without a refresh.
     let tmp = TempDir::new().unwrap();
     let storage = OAuthStorage::at_root(tmp.path().join("oauth")).unwrap();

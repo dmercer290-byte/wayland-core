@@ -179,9 +179,9 @@ After every session where the agent did something wrong:
 
 ---
 
-## 10. Project context — wayland-core
+## 10. Project context — genesis-core
 
-wayland-core is a **multi-provider AI agent CLI** written in Rust. It connects to
+genesis-core is a **multi-provider AI agent CLI** written in Rust. It connects to
 LLM providers (Anthropic, OpenAI, AWS Bedrock, Google Vertex AI), orchestrates
 built-in tools (Read, Write, Edit, Bash, Grep, Glob, Spawn), supports MCP
 servers, skills, hooks, and long-term memory. It also exposes a JSON stream
@@ -214,10 +214,10 @@ Dependencies flow **downward** — never introduce circular or upward references
 | Mid | `wcore-sandbox` | Platform-specific shell sandbox: bwrap (Linux), sandbox-exec (macOS), AppContainer + Job Object (Windows). Probes real spawn — never trust shallow API checks. |
 | Top | `wcore-agent` | Agent engine, session management, orchestration. Hosts `HostBrowserRegistrar` + `HostCuaRegistrar` so plugin-side `BrowserToolSpec`/`CuaToolSpec` mirrors are bound to real `wcore-browser`/`wcore-cua` backends without violating audit F2 (plugins still have NO `wcore-browser`/`wcore-cua` dep). `src/orchestration/workflow/` hosts the **ForgeFlows (Dynamic Workflows)** engine: declarative RON lowers to the existing `GraphConfig` IR and executes via `WorkflowRunner` over the `AgentSpawner`/FleetDispatcher spawner path (NOT the per-turn `ExecutionGraph` walker) — see `docs/workflows.md` |
 | Top | `wcore-cli` | CLI binary entry point |
-| Plugin | `wayland-ollama` | Ollama local-inference provider (registers via `register_providers` only) |
-| Plugin | `wayland-browser` | Plugin packaging of `wcore-browser` — `BrowserToolSpec` mirror through `wcore-plugin-api` (no `wcore-browser` dep, per audit F2) |
-| Plugin | `wayland-cua` | Plugin packaging of `wcore-cua` — `CuaToolSpec` mirror through `wcore-plugin-api` (no `wcore-cua` dep, per audit F2) |
-| Plugin | `wayland-ijfw` | IJFW anchor plugin — exercises every `register_*` surface (tools + hooks + agents + skills + rules + MCP server) through `wcore-plugin-api` mirror types |
+| Plugin | `genesis-ollama` | Ollama local-inference provider (registers via `register_providers` only) |
+| Plugin | `genesis-browser` | Plugin packaging of `wcore-browser` — `BrowserToolSpec` mirror through `wcore-plugin-api` (no `wcore-browser` dep, per audit F2) |
+| Plugin | `genesis-cua` | Plugin packaging of `wcore-cua` — `CuaToolSpec` mirror through `wcore-plugin-api` (no `wcore-cua` dep, per audit F2) |
+| Plugin | `genesis-ijfw` | IJFW anchor plugin — exercises every `register_*` surface (tools + hooks + agents + skills + rules + MCP server) through `wcore-plugin-api` mirror types |
 
 When adding new functionality, place it in the **lowest crate where it
 semantically belongs**. Don't create a new crate just for one shared function.
@@ -374,7 +374,7 @@ When the user corrects your approach, append a one-line rule here before ending 
 <!-- IJFW-MEMORY-START -->
 Project memory at .ijfw/memory/. Call `ijfw_memory_prelude` for full context.
 
-Last handoff: # HANDOFF — Wayland Core Defect-Remediation Campaign (LIVE, overnight run)
+Last handoff: # HANDOFF — Genesis Core Defect-Remediation Campaign (LIVE, overnight run)
 > **Updated continuously at context thresholds (60/70/80%).** This is the
 <!-- IJFW-MEMORY-END -->
 

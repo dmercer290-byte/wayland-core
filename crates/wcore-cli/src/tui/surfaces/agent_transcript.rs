@@ -676,7 +676,7 @@ mod tests {
 
     #[test]
     fn no_composer_rendered_while_running() {
-        // The composer's signature placeholder is `Ask Wayland …` (the
+        // The composer's signature placeholder is `Ask Genesis …` (the
         // workspace's input prompt). The transcript surface must never
         // emit anything that looks like a composer hint or input row.
         let feed: Vec<String> = (0..10).map(|i| format!("line {i}")).collect();
@@ -685,7 +685,7 @@ mod tests {
         let mut s = AgentTranscriptSurface::default();
         let out = render_str(&mut s, &app, 100, 20);
         assert!(
-            !out.contains("Ask Wayland"),
+            !out.contains("Ask Genesis"),
             "composer prompt leaked into transcript:\n{out}"
         );
         assert!(

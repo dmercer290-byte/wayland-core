@@ -122,7 +122,7 @@ pub enum StopReason {
 /// Protocol-level finish reason emitted in `stream_end` events.
 ///
 /// Distinct from `StopReason` (internal): `FinishReason` is the contract
-/// the JSON stream protocol exposes to host integrations (e.g. the Wayland
+/// the JSON stream protocol exposes to host integrations (e.g. the Genesis
 /// app). It coalesces every provider's native stop signal into three
 /// values so the host can render UX consistently (e.g. show "Response was
 /// truncated" on `Length`).

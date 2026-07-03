@@ -1,4 +1,4 @@
-//! The wayland-core ratatui terminal UI.
+//! The genesis-core ratatui terminal UI.
 //!
 //! `run()` is the single entry point: it sets up the terminal (raw mode +
 //! alternate screen), installs a panic hook that restores the terminal
@@ -201,7 +201,7 @@ pub struct TuiSession {
     /// Workspace surface when a config is already present.
     pub first_run: bool,
     /// Force the TUI to start on the Onboarding surface even when a
-    /// config already exists — the `wayland-core setup` re-entry point.
+    /// config already exists — the `genesis-core setup` re-entry point.
     /// When `false` the `first_run` gate decides the initial surface.
     pub force_onboarding: bool,
     /// On a `--resume` / `--continue` boot, the prior conversation rebuilt
@@ -411,7 +411,7 @@ fn draw_splash(f: &mut ratatui::Frame, theme: &theme::Theme, mcp_count: usize, f
     };
     let lines = vec![
         Line::from(Span::styled(
-            "WAYLAND CORE",
+            "GENESIS CORE",
             bg.fg(theme.orange).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
@@ -455,7 +455,7 @@ async fn run_loop(
     // First-run gate: start on Onboarding only when no config exists yet
     // (or the engine failed to attach at all). A returning user lands
     // straight on the Workspace — unless `force_onboarding` is set
-    // (`wayland-core setup`), which always opens Onboarding.
+    // (`genesis-core setup`), which always opens Onboarding.
     let initial_surface = match session.as_ref() {
         Some(s) if s.force_onboarding => SurfaceId::Onboarding,
         Some(s) if !s.first_run => SurfaceId::Workspace,

@@ -227,8 +227,8 @@ fn should_ignore(event: &Event) -> bool {
 
     // Filter hidden files (editor swap/temp files, .DS_Store, etc.).
     // Only check the final path component (file name), not intermediate
-    // directory components — otherwise paths like `.wayland-core/skills/SKILL.md`
-    // would be incorrectly filtered because `.wayland-core` starts with `.`.
+    // directory components — otherwise paths like `.genesis-core/skills/SKILL.md`
+    // would be incorrectly filtered because `.genesis-core` starts with `.`.
     event.paths.iter().all(|p| {
         p.file_name()
             .map(|n| n.to_string_lossy().starts_with('.'))

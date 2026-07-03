@@ -1,4 +1,4 @@
-//! CLI surface: `wayland-core image` — FluxRouter image generation.
+//! CLI surface: `genesis-core image` — FluxRouter image generation.
 //!
 //! A thin command wrapper over [`wcore_providers::flux_image::FluxImageClient`]
 //! (the dedicated, non-chat image client). It resolves the Flux Bearer key and
@@ -27,7 +27,7 @@ use wcore_providers::ProviderError;
 use wcore_providers::flux_image::{FluxImageClient, ImageRequest};
 use wcore_providers::flux_router::FLUX_ROUTER_DEFAULT_BASE_URL;
 
-/// `wayland-core image` arguments.
+/// `genesis-core image` arguments.
 #[derive(Args, Debug)]
 pub struct ImageArgs {
     /// The image prompt (required, non-empty).

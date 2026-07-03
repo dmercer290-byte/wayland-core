@@ -36,7 +36,7 @@ const WELL_KNOWN_DOMAINS: &[&str] = &[
     "moonshot.ai",
     "nvidia.com",  // NVIDIA NIM: integrate.api.nvidia.com
     "cerebras.ai", // Cerebras: api.cerebras.ai
-    // First-party Wayland router + shipped providers whose default base URL is
+    // First-party Genesis router + shipped providers whose default base URL is
     // internal to the provider crate, so `config.base_url` is empty and the host
     // is NOT auto-derived below. Without these, configuring the provider blocks
     // its very first request under the default egress policy.

@@ -689,10 +689,10 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::NONE)
     }
 
-    /// Point `WAYLAND_HOME` at a fresh, empty tempdir for the duration of the
+    /// Point `GENESIS_HOME` at a fresh, empty tempdir for the duration of the
     /// returned guard, so `build_rows`'s `load_cached` sees NO cache and falls
     /// back to the static alias catalog — independent of the dev/CI machine's
-    /// real `~/.wayland/cache/models`. Restores the prior value on drop.
+    /// real `~/.genesis/cache/models`. Restores the prior value on drop.
     ///
     /// Must be used under `#[serial_test::serial]` (it mutates a process-global
     /// env var shared with the catalog cache tests).
@@ -704,10 +704,10 @@ mod tests {
     impl ModelHomeGuard {
         fn new() -> Self {
             let tmp = tempfile::tempdir().expect("tempdir");
-            let prior = std::env::var_os("WAYLAND_HOME");
+            let prior = std::env::var_os("GENESIS_HOME");
             // SAFETY: callers are #[serial]; no other thread reads the env
             // concurrently.
-            unsafe { std::env::set_var("WAYLAND_HOME", tmp.path()) };
+            unsafe { std::env::set_var("GENESIS_HOME", tmp.path()) };
             Self { _tmp: tmp, prior }
         }
 
@@ -723,8 +723,8 @@ mod tests {
             // SAFETY: serialized; restore the prior value (or clear it).
             unsafe {
                 match &self.prior {
-                    Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                    None => std::env::remove_var("WAYLAND_HOME"),
+                    Some(v) => std::env::set_var("GENESIS_HOME", v),
+                    None => std::env::remove_var("GENESIS_HOME"),
                 }
             }
         }
@@ -788,7 +788,7 @@ mod tests {
         // anthropic:opus is present (anthropic is keyed above). A
         // cross-provider row (openai-chatgpt:5.5) is only listed when that
         // provider is connected — its OAuth status depends on the machine's
-        // `~/.wayland/oauth/chatgpt.json` (read from $HOME, NOT WAYLAND_HOME, so
+        // `~/.genesis/oauth/chatgpt.json` (read from $HOME, NOT GENESIS_HOME, so
         // ModelHomeGuard can't sandbox it). Assert it exactly when connected.
         let pairs = model_rows(&p);
         assert!(pairs.iter().any(|(p, r)| *p == "anthropic" && r == "opus"));
@@ -1053,7 +1053,7 @@ mod tests {
     /// Run `body` with every built-in provider's API-key env var cleared and a
     /// fresh tempdir `$HOME` (so no stored OAuth login leaks in). Serialised
     /// against the other env-mutating tests; restores everything before return.
-    /// `seed_chatgpt_token` writes `$HOME/.wayland/oauth/chatgpt.json` so the
+    /// `seed_chatgpt_token` writes `$HOME/.genesis/oauth/chatgpt.json` so the
     /// OAuth provider reads as signed in.
     #[cfg(unix)]
     fn with_clean_provider_env<T>(seed_chatgpt_token: bool, body: impl FnOnce() -> T) -> T {
@@ -1078,7 +1078,7 @@ mod tests {
         ];
         let tmp = tempfile::tempdir().expect("tempdir");
         if seed_chatgpt_token {
-            let oauth_dir = tmp.path().join(".wayland").join("oauth");
+            let oauth_dir = tmp.path().join(".genesis").join("oauth");
             std::fs::create_dir_all(&oauth_dir).expect("mkdir");
             // A token file present == signed in; a JWT-less access_token is fine
             // (the plan decode just yields None). Mirrors config.rs's seeder.

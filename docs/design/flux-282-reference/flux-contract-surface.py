@@ -12,7 +12,7 @@ standalone — reference only.
 # ============================================================================
 # 1) HELPER FUNCTIONS (module-level)
 # ============================================================================
-# ── Wayland #282 context-routing contract helpers (V1) ─────────────────────────
+# ── Genesis #282 context-routing contract helpers (V1) ─────────────────────────
 # Pure functions so the contract's load-bearing math/parse is directly testable
 # without standing up the full pre/post-call hook. All gated by the caller behind
 # _FLUX_CONTEXT_CONTRACT_ENABLED — these helpers themselves never read the flag.
@@ -228,7 +228,7 @@ def _context_overflow_detail(required: int, pre_fit: list[str], context_windows:
 # 3) POST-SELECT BACKSTOP — managed client never served onto a too-small arm
 # ============================================================================
     def _assert_served_context_fits(self, data: dict, metadata: dict) -> None:
-        """Wayland #282 (FIX 3): managed-client post-select fit backstop.
+        """Genesis #282 (FIX 3): managed-client post-select fit backstop.
 
         The pre-call context-fit filter runs BEFORE the bandit; the grounding
         short-circuit and any post-filter re-pick can still land a managed client
@@ -259,7 +259,7 @@ def _context_overflow_detail(required: int, pre_fit: list[str], context_windows:
 # ============================================================================
 # 4) SIGNAL-BACK HEADERS (post-call success hook): window / pressure / counted
 # ============================================================================
-            # ── C6: Wayland #282 context-routing signal-back (gated) ──────
+            # ── C6: Genesis #282 context-routing signal-back (gated) ──────
             # When the contract is on, surface the served model's real window,
             # the context pressure (REQUIRED / window), and Flux's authoritative
             # input token count so Core reconciles its #280 gauge against the

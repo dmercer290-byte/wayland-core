@@ -25,7 +25,7 @@ async fn live_voyage_round_trip() -> anyhow::Result<()> {
     assert_eq!(embedder.dim(), 1024);
     assert_eq!(embedder.name(), "voyage/voyage-2/1024");
 
-    let probe = "wayland-core voyage embedding live wire test";
+    let probe = "genesis-core voyage embedding live wire test";
     let v1 = embedder.embed(probe).await?;
     let v2 = embedder.embed(probe).await?;
 

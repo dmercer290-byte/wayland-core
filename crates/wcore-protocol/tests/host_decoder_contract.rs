@@ -1,6 +1,6 @@
 //! Host Decoder Contract Test
 //!
-//! Models the decoder that the Wayland Desktop Electron host MUST
+//! Models the decoder that the Genesis Desktop Electron host MUST
 //! implement to remain compatible with future wcore versions. The
 //! contract distinguishes THREE outcomes — known event, unknown event
 //! type (forward-compat, silent), and malformed JSON (corruption,
@@ -205,7 +205,7 @@ fn host_drops_budget_exceeded_silently_per_w8a_a7() {
 #[test]
 fn host_drops_plugin_event_silently_per_w8a_h1() {
     let event = ProtocolEvent::PluginEvent {
-        plugin_name: "wayland-ijfw".into(),
+        plugin_name: "genesis-ijfw".into(),
         event_type: "memory_capture".into(),
         payload: json!({ "key": "abc" }),
     };
@@ -514,7 +514,7 @@ fn host_drops_trace_event_silently_under_v0_1_21_decoder() {
     // the W1 turn-summary shape and the W9.1 `skill_drafted` payload
     // shape ride inside the same `trace_event` envelope.
     let lines = [
-        r#"{"type": "trace_event", "msg_id": "m-1", "trace": {"turn": 0, "model": "x", "provider": "anthropic", "input_tokens": 1, "output_tokens": 1, "cache_read": 0, "cache_write": 0, "cache_hit_rate": 0.0, "cost_usd": 0.0, "tool_calls": [], "hook_actions": [], "source_product": "wayland-core"}}"#,
+        r#"{"type": "trace_event", "msg_id": "m-1", "trace": {"turn": 0, "model": "x", "provider": "anthropic", "input_tokens": 1, "output_tokens": 1, "cache_read": 0, "cache_write": 0, "cache_hit_rate": 0.0, "cost_usd": 0.0, "tool_calls": [], "hook_actions": [], "source_product": "genesis-core"}}"#,
         r#"{"type": "trace_event", "msg_id": "m-2", "trace": {"kind": "skill_drafted", "name": "auto-grep-read-edit-bash-bash", "description": "x", "tool_sequence": ["Grep","Read","Edit","Bash","Bash"], "repeat_count": 3}}"#,
     ];
     for line in lines {
@@ -532,7 +532,7 @@ fn host_decodes_trace_event_under_structured_traces_opt_in() {
     // both the W1 turn-summary shape and the W9.1 `skill_drafted`
     // payload as Known.
     let lines = [
-        r#"{"type": "trace_event", "msg_id": "m-1", "trace": {"turn": 0, "model": "x", "provider": "anthropic", "input_tokens": 1, "output_tokens": 1, "cache_read": 0, "cache_write": 0, "cache_hit_rate": 0.0, "cost_usd": 0.0, "tool_calls": [], "hook_actions": [], "source_product": "wayland-core"}}"#,
+        r#"{"type": "trace_event", "msg_id": "m-1", "trace": {"turn": 0, "model": "x", "provider": "anthropic", "input_tokens": 1, "output_tokens": 1, "cache_read": 0, "cache_write": 0, "cache_hit_rate": 0.0, "cost_usd": 0.0, "tool_calls": [], "hook_actions": [], "source_product": "genesis-core"}}"#,
         r#"{"type": "trace_event", "msg_id": "m-2", "trace": {"kind": "skill_drafted", "name": "auto-grep-read-edit-bash-bash", "description": "x", "tool_sequence": ["Grep","Read","Edit","Bash","Bash"], "repeat_count": 3}}"#,
     ];
     for line in lines {

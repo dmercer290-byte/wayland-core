@@ -1,6 +1,6 @@
-//! `wayland-core self-update` subcommand.
+//! `genesis-core self-update` subcommand.
 //!
-//! Pulls the latest release from GitHub (`FerroxLabs/wayland-core`),
+//! Pulls the latest release from GitHub (`dmercer290-byte/wayland-core`),
 //! verifies its **keyless Sigstore build-provenance attestation** via the
 //! GitHub CLI (`gh attestation verify`), extracts the binary from the
 //! release archive, and atomically replaces the running binary via
@@ -19,7 +19,7 @@
 //!   into a host. The archive URL comes straight from the GitHub API response
 //!   (`browser_download_url`).
 //! - Provenance is verified against the pinned source repo
-//!   (`FerroxLabs/wayland-core`): a binary not built by that repo's release
+//!   (`dmercer290-byte/wayland-core`): a binary not built by that repo's release
 //!   workflow fails verification, so a swapped/tampered archive is rejected
 //!   before extraction.
 //! - The download is size-checked against the `Content-Length` header when
@@ -33,9 +33,9 @@ use futures_util::StreamExt;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
-/// GitHub repo that hosts wayland-core releases. Pinned to the production
+/// GitHub repo that hosts genesis-core releases. Pinned to the production
 /// org so a misconfigured workspace cannot redirect updates elsewhere.
-pub const RELEASES_REPO: &str = "FerroxLabs/wayland-core";
+pub const RELEASES_REPO: &str = "dmercer290-byte/wayland-core";
 
 /// Entry point. `check_only=true` prints the version diff and returns
 /// without touching disk.
@@ -47,7 +47,7 @@ pub async fn run(check_only: bool) -> Result<()> {
         Some(r) => r,
         None => {
             println!("current: v{current_version}");
-            println!("latest:  no releases published yet on FerroxLabs/wayland-core");
+            println!("latest:  no releases published yet on dmercer290-byte/wayland-core");
             return Ok(());
         }
     };
@@ -65,7 +65,7 @@ pub async fn run(check_only: bool) -> Result<()> {
     }
 
     // The release packages one archive per target (see release.yml):
-    // `wayland-core-vX.Y.Z-<triple>.{tar.gz,zip}`. Match that exactly.
+    // `genesis-core-vX.Y.Z-<triple>.{tar.gz,zip}`. Match that exactly.
     let archive_name = archive_name_for_host(latest_version);
 
     let asset = release
@@ -106,13 +106,13 @@ pub struct Release {
 }
 
 impl Release {
-    /// Strip the leading `v` and the trailing `-wayland-base` from the
+    /// Strip the leading `v` and the trailing `-genesis-base` from the
     /// release tag so consumers see a SemVer string that matches
     /// `CARGO_PKG_VERSION`.
     pub fn version(&self) -> &str {
         self.tag
             .trim_start_matches('v')
-            .trim_end_matches("-wayland-base")
+            .trim_end_matches("-genesis-base")
     }
 }
 
@@ -131,7 +131,7 @@ pub struct Asset {
 /// - Any other non-2xx status: returns `Err` (unexpected / broken repo).
 pub async fn fetch_latest_release_from_url(url: &str) -> Result<Option<Release>> {
     let client = wcore_egress::EgressClient::builder()
-        .user_agent(concat!("wayland-core/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("genesis-core/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .context("build reqwest client")?;
@@ -179,7 +179,7 @@ pub fn target_triple_for(os: &str, arch: &str) -> String {
 }
 
 /// Release archive filename for the host, e.g.
-/// `wayland-core-v0.11.0-aarch64-apple-darwin.tar.gz`. Windows targets ship a
+/// `genesis-core-v0.11.0-aarch64-apple-darwin.tar.gz`. Windows targets ship a
 /// `.zip`; every other target ships `.tar.gz` (see release.yml packaging).
 pub fn archive_name_for_host(version: &str) -> String {
     archive_name_for(version, std::env::consts::OS, std::env::consts::ARCH)
@@ -189,7 +189,7 @@ pub fn archive_name_for_host(version: &str) -> String {
 pub fn archive_name_for(version: &str, os: &str, arch: &str) -> String {
     let triple = target_triple_for(os, arch);
     let ext = if os == "windows" { "zip" } else { "tar.gz" };
-    format!("wayland-core-v{version}-{triple}.{ext}")
+    format!("genesis-core-v{version}-{triple}.{ext}")
 }
 
 // ---------------------------------------------------------------------
@@ -200,7 +200,7 @@ pub fn archive_name_for(version: &str, os: &str, arch: &str) -> String {
 /// `Content-Length` header when present.
 pub async fn download_to(url: &str, path: &Path) -> Result<()> {
     let client = wcore_egress::EgressClient::builder()
-        .user_agent(concat!("wayland-core/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("genesis-core/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(300))
         .build()
         .context("build reqwest client for download")?;
@@ -266,7 +266,7 @@ async fn verify_provenance_with(program: &str, archive_path: &Path, repo: &str) 
             anyhow::anyhow!(
                 "GitHub CLI (`gh`) not found — it is required to verify release \
                  provenance. Install it from https://cli.github.com, or update via \
-                 npm instead: npm install -g @ferroxlabs/wayland-core@latest"
+                 npm instead: npm install -g @ferroxlabs/genesis-core@latest"
             )
         } else {
             anyhow::Error::new(e).context("spawn `gh attestation verify`")
@@ -288,7 +288,7 @@ async fn verify_provenance_with(program: &str, archive_path: &Path, repo: &str) 
 // Archive extraction
 // ---------------------------------------------------------------------
 
-/// Extract the wayland-core binary from a verified release archive into
+/// Extract the genesis-core binary from a verified release archive into
 /// `dest_dir`, returning the path to the extracted executable. Supports
 /// `.tar.gz` (macOS/Linux) and `.zip` (Windows). Call only AFTER provenance
 /// verification has succeeded.
@@ -341,8 +341,8 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
     find_extracted_binary(dest_dir)
 }
 
-/// Locate the extracted wayland-core executable in `dir`. The release archive
-/// holds exactly the binary (`wayland-core` or `wayland-core.exe`).
+/// Locate the extracted genesis-core executable in `dir`. The release archive
+/// holds exactly the binary (`genesis-core` or `genesis-core.exe`).
 fn find_extracted_binary(dir: &Path) -> Result<PathBuf> {
     for entry in std::fs::read_dir(dir).with_context(|| format!("read_dir {}", dir.display()))? {
         let path = entry?.path();
@@ -350,13 +350,13 @@ fn find_extracted_binary(dir: &Path) -> Result<PathBuf> {
             continue;
         }
         if let Some(stem) = path.file_name().and_then(|n| n.to_str())
-            && (stem == "wayland-core" || stem == "wayland-core.exe")
+            && (stem == "genesis-core" || stem == "genesis-core.exe")
         {
             return Ok(path);
         }
     }
     bail!(
-        "no wayland-core binary found in extracted archive at {}",
+        "no genesis-core binary found in extracted archive at {}",
         dir.display()
     );
 }
@@ -422,9 +422,9 @@ mod tests {
     }
 
     #[test]
-    fn release_version_strips_wayland_base_suffix() {
+    fn release_version_strips_genesis_base_suffix() {
         let r = Release {
-            tag: "v0.7.0-wayland-base".into(),
+            tag: "v0.7.0-genesis-base".into(),
             assets: vec![],
         };
         assert_eq!(r.version(), "0.7.0");
@@ -460,11 +460,11 @@ mod tests {
     fn archive_name_unix_is_tar_gz() {
         assert_eq!(
             archive_name_for("0.11.0", "linux", "x86_64"),
-            "wayland-core-v0.11.0-x86_64-unknown-linux-gnu.tar.gz"
+            "genesis-core-v0.11.0-x86_64-unknown-linux-gnu.tar.gz"
         );
         assert_eq!(
             archive_name_for("0.11.0", "macos", "aarch64"),
-            "wayland-core-v0.11.0-aarch64-apple-darwin.tar.gz"
+            "genesis-core-v0.11.0-aarch64-apple-darwin.tar.gz"
         );
     }
 
@@ -472,14 +472,14 @@ mod tests {
     fn archive_name_windows_is_zip() {
         assert_eq!(
             archive_name_for("0.11.0", "windows", "x86_64"),
-            "wayland-core-v0.11.0-x86_64-pc-windows-msvc.zip"
+            "genesis-core-v0.11.0-x86_64-pc-windows-msvc.zip"
         );
     }
 
     #[test]
     fn archive_name_for_host_matches_known_shape() {
         let n = archive_name_for_host("9.9.9");
-        assert!(n.starts_with("wayland-core-v9.9.9-"), "got {n}");
+        assert!(n.starts_with("genesis-core-v9.9.9-"), "got {n}");
         assert!(n.ends_with(".tar.gz") || n.ends_with(".zip"), "got {n}");
     }
 
@@ -489,8 +489,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let archive = tmp
             .path()
-            .join("wayland-core-v9.9.9-x86_64-unknown-linux-gnu.tar.gz");
-        let body = b"#!/bin/sh\necho wayland\n";
+            .join("genesis-core-v9.9.9-x86_64-unknown-linux-gnu.tar.gz");
+        let body = b"#!/bin/sh\necho genesis\n";
         {
             let f = std::fs::File::create(&archive).unwrap();
             let enc = flate2::write::GzEncoder::new(f, flate2::Compression::default());
@@ -500,14 +500,14 @@ mod tests {
             header.set_mode(0o755);
             header.set_cksum();
             builder
-                .append_data(&mut header, "wayland-core", &body[..])
+                .append_data(&mut header, "genesis-core", &body[..])
                 .unwrap();
             builder.into_inner().unwrap().finish().unwrap();
         }
         let dest = tmp.path().join("unpack");
         std::fs::create_dir(&dest).unwrap();
         let bin = extract_binary(&archive, &dest).unwrap();
-        assert_eq!(bin.file_name().unwrap(), "wayland-core");
+        assert_eq!(bin.file_name().unwrap(), "genesis-core");
         assert_eq!(std::fs::read(&bin).unwrap(), body);
     }
 
@@ -517,12 +517,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let archive = tmp
             .path()
-            .join("wayland-core-v9.9.9-x86_64-pc-windows-msvc.zip");
+            .join("genesis-core-v9.9.9-x86_64-pc-windows-msvc.zip");
         let body = b"MZ\x90\x00fake-windows-binary";
         {
             let f = std::fs::File::create(&archive).unwrap();
             let mut zw = zip::ZipWriter::new(f);
-            zw.start_file("wayland-core.exe", zip::write::SimpleFileOptions::default())
+            zw.start_file("genesis-core.exe", zip::write::SimpleFileOptions::default())
                 .unwrap();
             zw.write_all(body).unwrap();
             zw.finish().unwrap();
@@ -530,14 +530,14 @@ mod tests {
         let dest = tmp.path().join("unpack");
         std::fs::create_dir(&dest).unwrap();
         let bin = extract_binary(&archive, &dest).unwrap();
-        assert_eq!(bin.file_name().unwrap(), "wayland-core.exe");
+        assert_eq!(bin.file_name().unwrap(), "genesis-core.exe");
         assert_eq!(std::fs::read(&bin).unwrap(), body);
     }
 
     #[test]
     fn extract_binary_rejects_unknown_extension() {
         let tmp = TempDir::new().unwrap();
-        let archive = tmp.path().join("wayland-core-v9.9.9-weird.rar");
+        let archive = tmp.path().join("genesis-core-v9.9.9-weird.rar");
         std::fs::write(&archive, b"junk").unwrap();
         assert!(extract_binary(&archive, tmp.path()).is_err());
     }
@@ -550,9 +550,9 @@ mod tests {
         let archive = tmp.path().join("artifact.tar.gz");
         std::fs::write(&archive, b"bytes").unwrap();
         let err = verify_provenance_with(
-            "wayland-core-no-such-gh-binary-xyz",
+            "genesis-core-no-such-gh-binary-xyz",
             &archive,
-            "FerroxLabs/wayland-core",
+            "dmercer290-byte/wayland-core",
         )
         .await
         .expect_err("missing gh must error, not pass");
@@ -566,21 +566,21 @@ mod tests {
     async fn fetch_latest_release_parses_mock_response() {
         let mut server = mockito::Server::new_async().await;
         let body = serde_json::json!({
-            "tag_name": "v0.9.0-wayland-base",
+            "tag_name": "v0.9.0-genesis-base",
             "assets": [
-                {"name": "wayland-core-v0.9.0-x86_64-unknown-linux-gnu.tar.gz",
+                {"name": "genesis-core-v0.9.0-x86_64-unknown-linux-gnu.tar.gz",
                  "browser_download_url": "https://example.test/archive"}
             ]
         });
         let mock = server
-            .mock("GET", "/repos/FerroxLabs/wayland-core/releases/latest")
+            .mock("GET", "/repos/dmercer290-byte/wayland-core/releases/latest")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(body.to_string())
             .create_async()
             .await;
         let url = format!(
-            "{}/repos/FerroxLabs/wayland-core/releases/latest",
+            "{}/repos/dmercer290-byte/wayland-core/releases/latest",
             server.url()
         );
         let release = fetch_latest_release_from_url(&url).await.unwrap().unwrap();
@@ -589,7 +589,7 @@ mod tests {
         assert_eq!(release.assets.len(), 1);
         assert_eq!(
             release.assets[0].name,
-            "wayland-core-v0.9.0-x86_64-unknown-linux-gnu.tar.gz"
+            "genesis-core-v0.9.0-x86_64-unknown-linux-gnu.tar.gz"
         );
     }
 
@@ -598,12 +598,12 @@ mod tests {
     async fn fetch_latest_release_returns_none_on_404() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("GET", "/repos/FerroxLabs/wayland-core/releases/latest")
+            .mock("GET", "/repos/dmercer290-byte/wayland-core/releases/latest")
             .with_status(404)
             .create_async()
             .await;
         let url = format!(
-            "{}/repos/FerroxLabs/wayland-core/releases/latest",
+            "{}/repos/dmercer290-byte/wayland-core/releases/latest",
             server.url()
         );
         let result = fetch_latest_release_from_url(&url).await.unwrap();
@@ -616,12 +616,12 @@ mod tests {
     async fn fetch_latest_release_errors_on_500() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("GET", "/repos/FerroxLabs/wayland-core/releases/latest")
+            .mock("GET", "/repos/dmercer290-byte/wayland-core/releases/latest")
             .with_status(500)
             .create_async()
             .await;
         let url = format!(
-            "{}/repos/FerroxLabs/wayland-core/releases/latest",
+            "{}/repos/dmercer290-byte/wayland-core/releases/latest",
             server.url()
         );
         let result = fetch_latest_release_from_url(&url).await;

@@ -68,7 +68,7 @@ pub struct CapturedPluginTool {
 
 /// v0.6.4 Task 2.1 — a captured user-model spec stamped with the
 /// originating plugin name. Carries plain data; reification into a live
-/// backend client (e.g. `wayland_honcho::HonchoClient`) lands in Task 2.2.
+/// backend client (e.g. `genesis_honcho::HonchoClient`) lands in Task 2.2.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapturedUserModel {
     /// Originating plugin name — diagnostics + collision messages.
@@ -113,11 +113,11 @@ pub struct InitializeOutcome {
     /// v0.6.4 Task 2.1 — captured `UserModelSpec`s with plugin provenance.
     /// Reification into a live backend client happens in `apply.rs` (Task 2.2).
     pub user_models: Vec<CapturedUserModel>,
-    /// Wave BR — count of `BrowserToolSpec`s captured from `wayland-browser`
+    /// Wave BR — count of `BrowserToolSpec`s captured from `genesis-browser`
     /// plugin loads. The reified `BrowserTool` set is built via
     /// `PluginRunner::browser.reify_all()` after `initialize_all` returns.
     pub browser_tools_registered: usize,
-    /// Wave CU — count of `CuaToolSpec`s captured from `wayland-cua`
+    /// Wave CU — count of `CuaToolSpec`s captured from `genesis-cua`
     /// plugin loads. The reified `CuaTool` set is built via
     /// `PluginRunner::cua.reify_all()` after `initialize_all` returns.
     pub cua_tools_registered: usize,
@@ -150,12 +150,12 @@ pub struct PluginRunner {
     pub rules: HostRuleRegistrar,
     pub mcp_servers: HostMcpRegistrar,
     pub providers: HostProviderRegistrar,
-    /// Wave BR — captures `BrowserToolSpec`s from wayland-browser plugins.
+    /// Wave BR — captures `BrowserToolSpec`s from genesis-browser plugins.
     pub browser: HostBrowserRegistrar,
-    /// Wave CU — captures `CuaToolSpec`s from wayland-cua plugins.
+    /// Wave CU — captures `CuaToolSpec`s from genesis-cua plugins.
     pub cua: HostCuaRegistrar,
     /// v0.6.4 Task 2.1 — captures `UserModelSpec`s from plugins that
-    /// supply a user-model backend (e.g. wayland-honcho).
+    /// supply a user-model backend (e.g. genesis-honcho).
     pub user_models: HostUserModelRegistrar,
     pub config: NullConfigReader,
     pub memory: NullMemoryHost,

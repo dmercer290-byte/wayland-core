@@ -16,7 +16,7 @@
 //!
 //! `ToolCallTrace::with_result_snippet` captures the first
 //! [`RESULT_SNIPPET_MAX`] bytes of a tool call's result. This is gated by
-//! the `WAYLAND_TRACE_RESULT_SNIPPETS` env var: capture is ON by default;
+//! the `GENESIS_TRACE_RESULT_SNIPPETS` env var: capture is ON by default;
 //! setting the var to (case-insensitive) `off`, `0`, or `false` disables
 //! it, leaving `result_snippet` as `None`. Mirrors the
 //! `kg_enabled()` / `staleness_enabled()` opt-out convention.
@@ -34,12 +34,12 @@ pub const RESULT_SNIPPET_MAX: usize = 512;
 /// Env var gating result-snippet capture. Set to (case-insensitive)
 /// `off`, `0`, or `false` to suppress capture; anything else (including
 /// unset) keeps it enabled.
-pub const ENV_RESULT_SNIPPETS: &str = "WAYLAND_TRACE_RESULT_SNIPPETS";
+pub const ENV_RESULT_SNIPPETS: &str = "GENESIS_TRACE_RESULT_SNIPPETS";
 
-/// Returns `true` unless `WAYLAND_TRACE_RESULT_SNIPPETS` is set to a
+/// Returns `true` unless `GENESIS_TRACE_RESULT_SNIPPETS` is set to a
 /// recognized disable token (`off`/`0`/`false`/`no`, case-insensitive).
 /// D.2 (v0.6.3): routes through [`crate::env_gate::enabled_unless_disabled`]
-/// — the canonical `WAYLAND_*` disable vocabulary — so this gate and the
+/// — the canonical `GENESIS_*` disable vocabulary — so this gate and the
 /// other "mirror" gates accept the same opt-out values.
 pub fn result_snippets_enabled() -> bool {
     crate::env_gate::enabled_unless_disabled(ENV_RESULT_SNIPPETS)
@@ -169,7 +169,7 @@ impl ToolCallTrace {
     /// at a UTF-8 char boundary. Never splits a multi-byte char.
     ///
     /// Capture is gated by [`result_snippets_enabled`]: when
-    /// `WAYLAND_TRACE_RESULT_SNIPPETS` is set to `off`/`0`/`false`, this is
+    /// `GENESIS_TRACE_RESULT_SNIPPETS` is set to `off`/`0`/`false`, this is
     /// a no-op and `result_snippet` stays `None`.
     pub fn with_result_snippet(mut self, raw: &str) -> Self {
         if !result_snippets_enabled() {
@@ -791,7 +791,7 @@ mod tests {
         );
     }
 
-    // ---- W9: WAYLAND_TRACE_RESULT_SNIPPETS env gate ----
+    // ---- W9: GENESIS_TRACE_RESULT_SNIPPETS env gate ----
 
     /// Restore the env var to its prior state. SAFETY: only called inside a
     /// `#[serial(env)]` test, so no other thread reads/writes env concurrently.

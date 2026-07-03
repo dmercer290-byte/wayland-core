@@ -1,6 +1,6 @@
 //! Wave SC SECURITY MAJOR fix — `PluginIdentity` enforces verified
-//! origin so a malicious crate cannot impersonate `wayland-browser` /
-//! `wayland-cua` by setting matching `name` in its `PluginManifest`.
+//! origin so a malicious crate cannot impersonate `genesis-browser` /
+//! `genesis-cua` by setting matching `name` in its `PluginManifest`.
 //!
 //! Closes the audit finding: identity is now anchored to either the
 //! engine's compile-time inventory registry (Static) or a path-prefix
@@ -17,9 +17,9 @@ use wcore_plugin_api::PluginIdentity;
 
 #[test]
 fn static_identity_is_anchored_to_symbol() {
-    let id = PluginIdentity::from_static("wayland-browser");
+    let id = PluginIdentity::from_static("genesis-browser");
     match &id {
-        PluginIdentity::Static { symbol } => assert_eq!(symbol, "wayland-browser"),
+        PluginIdentity::Static { symbol } => assert_eq!(symbol, "genesis-browser"),
         other => panic!("expected Static, got {other:?}"),
     }
     assert!(
@@ -31,10 +31,10 @@ fn static_identity_is_anchored_to_symbol() {
 #[test]
 fn path_prefix_accepts_manifest_under_allowed_root() {
     let tmp = TempDir::new().unwrap();
-    let plugin_dir = tmp.path().join("wayland-browser");
+    let plugin_dir = tmp.path().join("genesis-browser");
     fs::create_dir_all(&plugin_dir).unwrap();
     let manifest_path = plugin_dir.join("manifest.toml");
-    fs::write(&manifest_path, b"[plugin]\nname = \"wayland-browser\"\n").unwrap();
+    fs::write(&manifest_path, b"[plugin]\nname = \"genesis-browser\"\n").unwrap();
 
     let allowed_roots = vec![tmp.path().to_path_buf()];
     let id = PluginIdentity::from_path_prefix(&manifest_path, &allowed_roots)
@@ -52,7 +52,7 @@ fn path_prefix_refuses_manifest_outside_allowed_root() {
     let allowed_tmp = TempDir::new().unwrap();
     let evil_tmp = TempDir::new().unwrap();
     let evil_path = evil_tmp.path().join("manifest.toml");
-    fs::write(&evil_path, b"[plugin]\nname = \"wayland-browser\"\n").unwrap();
+    fs::write(&evil_path, b"[plugin]\nname = \"genesis-browser\"\n").unwrap();
 
     let allowed_roots = vec![allowed_tmp.path().to_path_buf()];
     let r = PluginIdentity::from_path_prefix(&evil_path, &allowed_roots);
@@ -82,12 +82,12 @@ fn path_prefix_refuses_nonexistent_path() {
 
 #[test]
 fn default_plugin_root_is_under_profile_home() {
-    // Post-isolation-sweep the default root is `<WAYLAND_HOME or ~/.wayland>/plugins`.
+    // Post-isolation-sweep the default root is `<GENESIS_HOME or ~/.genesis>/plugins`.
     let root = PluginIdentity::default_plugin_root();
     let s = root.to_string_lossy();
     assert!(
-        s.contains("wayland"),
-        "default root should contain 'wayland': {s}"
+        s.contains("genesis"),
+        "default root should contain 'genesis': {s}"
     );
     assert!(
         s.contains("plugins"),
@@ -133,7 +133,7 @@ fn path_prefix_canonicalizes_symlinks() {
 
     // Real manifest lives in evil_tmp.
     let real_manifest = evil_tmp.path().join("manifest.toml");
-    fs::write(&real_manifest, b"[plugin]\nname = \"wayland-browser\"\n").unwrap();
+    fs::write(&real_manifest, b"[plugin]\nname = \"genesis-browser\"\n").unwrap();
 
     // Symlink in allowed_tmp pointing at the evil manifest.
     let symlink_path: PathBuf = allowed_tmp.path().join("manifest.toml");

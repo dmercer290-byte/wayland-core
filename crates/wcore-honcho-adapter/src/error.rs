@@ -4,7 +4,7 @@
 //! the engine consumes). This module owns the one conversion that crosses
 //! the crate boundary: `HonchoError → UserModelError`.
 
-use wayland_honcho::HonchoError;
+use genesis_honcho::HonchoError;
 use wcore_user_model::UserModelError;
 
 /// Map a `HonchoError` onto the trait-level `UserModelError` taxonomy.

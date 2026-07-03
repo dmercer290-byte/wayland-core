@@ -15,7 +15,7 @@
   "bug_classes_targeted": ["B-1", "B-2", "B-5"],
   "findings_covered": ["F-001", "F-012", "F-018", "F-010", "F-035"],
   "scenarios_that_replay_this": [
-    "T6: boot with empty WAYLAND_HOME, assert ready event emits and contains expected capability set",
+    "T6: boot with empty GENESIS_HOME, assert ready event emits and contains expected capability set",
     "T6: --list-sessions on empty home returns empty list without touching $HOME (hermeticity check)",
     "T6: --version / --help flags exit <500ms with no config loaded (B-2 boot-order proof)",
     "T6: boot with no api_key configured, assert engine emits error event rather than panicking"

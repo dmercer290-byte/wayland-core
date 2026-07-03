@@ -119,7 +119,7 @@ fn validate_local_path(raw: &str, downloads_root: Option<&Path>) -> Result<PathB
     // The portion of the path whose components we apply the dotfile/dotdir
     // guard to. When an operator root is configured we only scrutinise the
     // model-chosen tail BELOW the root (the operator's own root may
-    // legitimately live under a dotdir like `~/.wayland/downloads`); the
+    // legitimately live under a dotdir like `~/.genesis/downloads`); the
     // root-confinement check below is the authoritative boundary. Without a
     // root, every component is model-influenced, so check the whole path.
     let dotfile_scope: &Path = match downloads_root {
@@ -169,14 +169,14 @@ fn validate_local_path(raw: &str, downloads_root: Option<&Path>) -> Result<PathB
 /// tool fails closed (M-16 / cua-browser-49). Without this, a shipped config
 /// that never calls [`BrowserTool::with_downloads_root`] would leave
 /// `downloads_root = None`, permitting an absolute, non-dotfile,
-/// non-traversal `dest_path` like `/etc/cron.d/wayland` to slip through.
+/// non-traversal `dest_path` like `/etc/cron.d/genesis` to slip through.
 ///
-/// Uses `std::env::temp_dir()/wayland-downloads` (`dirs` is not a dependency
+/// Uses `std::env::temp_dir()/genesis-downloads` (`dirs` is not a dependency
 /// of this crate). Created best-effort; if creation fails the path is still
 /// returned so confinement runs (a non-existent root simply rejects all
 /// writes via `canonicalize_existing_prefix`).
 fn default_downloads_root() -> PathBuf {
-    let root = std::env::temp_dir().join("wayland-downloads");
+    let root = std::env::temp_dir().join("genesis-downloads");
     let _ = std::fs::create_dir_all(&root);
     root
 }
@@ -693,7 +693,7 @@ mod tests {
 
     /// M-16 regression: with the DEFAULT-constructed tool (no operator root
     /// configured), a benign-looking absolute `dest_path` — no `..`, not a
-    /// dotfile, not on the secret deny-list — like `/etc/cron.d/wayland` must
+    /// dotfile, not on the secret deny-list — like `/etc/cron.d/genesis` must
     /// still be REJECTED, because `new` now fails closed onto a safe per-user
     /// downloads root. Before the fix this passed and camoufox wrote the body
     /// there (arbitrary write outside any downloads root).
@@ -710,7 +710,7 @@ mod tests {
             "op": {
                 "kind": "download",
                 "url": "https://example.com/x",
-                "dest_path": "/etc/cron.d/wayland"
+                "dest_path": "/etc/cron.d/genesis"
             }
         });
         let r = tool.execute(bad_input).await;

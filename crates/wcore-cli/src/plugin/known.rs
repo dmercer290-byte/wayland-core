@@ -2,7 +2,7 @@
 //
 // Persisted as `known_marketplaces.json` in the plugins root. A third-party
 // `marketplace add` may not claim one of the reserved (official) names — those
-// are owned by the bundled Wayland/Anthropic catalog entries.
+// are owned by the bundled Genesis/Anthropic catalog entries.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -18,7 +18,7 @@ const RESERVED: &[&str] = &[
     "anthropics",
     "claude",
     "claude-code",
-    "wayland",
+    "genesis",
 ];
 
 /// One registered marketplace: a name plus the source spec used to acquire its

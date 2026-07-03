@@ -41,7 +41,7 @@ fn default_true() -> bool {
 }
 
 fn default_plan_directory() -> String {
-    ".wayland-core/plans".to_string()
+    ".genesis-core/plans".to_string()
 }
 
 #[cfg(test)]
@@ -52,7 +52,7 @@ mod tests {
     fn default_values_match_spec() {
         let cfg = PlanConfig::default();
         assert!(cfg.enabled);
-        assert_eq!(cfg.plan_directory, ".wayland-core/plans");
+        assert_eq!(cfg.plan_directory, ".genesis-core/plans");
     }
 
     #[test]
@@ -73,14 +73,14 @@ enabled = false
 "#;
         let cfg: PlanConfig = toml::from_str(toml_str).unwrap();
         assert!(!cfg.enabled);
-        assert_eq!(cfg.plan_directory, ".wayland-core/plans");
+        assert_eq!(cfg.plan_directory, ".genesis-core/plans");
     }
 
     #[test]
     fn toml_empty_uses_all_defaults() {
         let cfg: PlanConfig = toml::from_str("").unwrap();
         assert!(cfg.enabled);
-        assert_eq!(cfg.plan_directory, ".wayland-core/plans");
+        assert_eq!(cfg.plan_directory, ".genesis-core/plans");
     }
 
     #[test]

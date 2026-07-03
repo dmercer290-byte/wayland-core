@@ -2,7 +2,7 @@
 //!
 //! Each line on the wire is one complete JSON object: a
 //! [`JsonRpcRequest`] inbound or a [`JsonRpcResponse`]/[`MessageEvent`]
-//! outbound. Used by Wayland's `acp serve --transport stdio` mode where
+//! outbound. Used by Genesis's `acp serve --transport stdio` mode where
 //! the client invokes the engine as a subprocess.
 
 use std::sync::Arc;

@@ -81,7 +81,7 @@ fn minimal_contract_json() -> String {
         .map(|p| p.display().to_string())
         .unwrap_or_default();
     super::build_contract_json(
-        "wayland",
+        "genesis",
         "",
         "",
         &cwd,

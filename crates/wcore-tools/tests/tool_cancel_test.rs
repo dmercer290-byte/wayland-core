@@ -34,8 +34,8 @@ async fn bash_tool_kills_long_sleep_on_cancel() {
     // documented no-sandbox degraded mode.
     // SAFETY: test-only env mutation; `#[serial]` prevents env races.
     unsafe {
-        std::env::set_var("WAYLAND_SANDBOX", "none");
-        std::env::set_var("WAYLAND_ALLOW_NO_SANDBOX", "1");
+        std::env::set_var("GENESIS_SANDBOX", "none");
+        std::env::set_var("GENESIS_ALLOW_NO_SANDBOX", "1");
     }
     let cancel = CancellationToken::new();
     let cancel2 = cancel.clone();
@@ -81,8 +81,8 @@ async fn bash_tool_ctx_passthrough_runs_normally_when_no_cancel() {
     // documented no-sandbox degraded mode.
     // SAFETY: test-only env mutation; `#[serial]` prevents env races.
     unsafe {
-        std::env::set_var("WAYLAND_SANDBOX", "none");
-        std::env::set_var("WAYLAND_ALLOW_NO_SANDBOX", "1");
+        std::env::set_var("GENESIS_SANDBOX", "none");
+        std::env::set_var("GENESIS_ALLOW_NO_SANDBOX", "1");
     }
     let ctx = ToolContext::test_default();
     let result = BashTool

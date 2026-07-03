@@ -5,7 +5,7 @@
 //! `staleness_enabled()` returns the env-gated bool. `init_staleness` runs
 //! in `AgentBootstrap::build()` alongside `init_kg`, and `propagate_staleness`
 //! is invoked from `kg::nodes::upsert_node` on every node upsert. The
-//! `WAYLAND_STALENESS=off` rollback flag disables the cascade.
+//! `GENESIS_STALENESS=off` rollback flag disables the cascade.
 //!
 //! Ports the ijfw mcp-server `memory/staleness.js` semantics: a node marked
 //! stale propagates its staleness to neighbours discovered via a bounded BFS
@@ -21,7 +21,7 @@
 //!     FOREIGN KEY(node_id) REFERENCES kg_nodes(id)
 //!   )
 //!
-//! Rollback: set WAYLAND_STALENESS=off to skip propagation; mark_stale
+//! Rollback: set GENESIS_STALENESS=off to skip propagation; mark_stale
 //! becomes a no-op when this env var is "off". Callers check the env var
 //! themselves; the primitive does not.
 
@@ -32,9 +32,9 @@ use crate::kg::{BfsLimit, bfs_neighbors};
 
 /// Env var controlling staleness propagation. Set to `"off"` to disable.
 /// Anything else (including unset) keeps propagation enabled.
-pub const ENV_STALENESS: &str = "WAYLAND_STALENESS";
+pub const ENV_STALENESS: &str = "GENESIS_STALENESS";
 
-/// Returns `true` unless `WAYLAND_STALENESS` is set to (case-insensitive) `"off"`.
+/// Returns `true` unless `GENESIS_STALENESS` is set to (case-insensitive) `"off"`.
 /// Mirrors the auto_memorize::consent_granted opt-out pattern.
 pub fn staleness_enabled() -> bool {
     std::env::var(ENV_STALENESS)
@@ -381,7 +381,7 @@ mod tests {
 
     // -- staleness_enabled env-var opt-out -----------------------------------
     //
-    // `WAYLAND_STALENESS` is process-global; tests serialize via the
+    // `GENESIS_STALENESS` is process-global; tests serialize via the
     // `#[serial(env)]` group and a local mutex (mirroring the
     // `auto_memorize` pattern).
 

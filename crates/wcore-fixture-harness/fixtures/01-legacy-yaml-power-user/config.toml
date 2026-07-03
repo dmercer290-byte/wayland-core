@@ -1,5 +1,5 @@
 # SANITIZED FIXTURE — generated 2026-05-24 from legacy-yaml-power-user — secrets redacted per .blackboard/E2E-FIXTURE-SANITIZATION-2026-05-24.md
-# Source: ~/Library/Application Support/wayland-core/config.toml shape (engine-written)
+# Source: ~/Library/Application Support/genesis-core/config.toml shape (engine-written)
 # Both config.yaml (legacy) and config.toml (canonical) exist simultaneously —
 # this tests the engine's dual-config resolution order (B-11 / F-011 / F-018).
 
@@ -31,7 +31,7 @@ allow = []
 
 [session]
 enabled = true
-directory = "<<WAYLAND_HOME>>/sessions"
+directory = "<<GENESIS_HOME>>/sessions"
 max_sessions = 20
 
 [compact]
@@ -57,7 +57,7 @@ toon = false
 
 [plan]
 enabled = true
-plan_directory = ".wayland-core/plans"
+plan_directory = ".genesis-core/plans"
 
 [file_cache]
 max_entries = 100
@@ -70,21 +70,21 @@ post_tool_use = []
 stop = []
 
 # Two MCP servers — tests env-hermeticity (B-9) for the multi-server case.
-[mcp.servers.wayland-image-generation]
+[mcp.servers.genesis-image-generation]
 transport = "stdio"
 command = "node"
-args = ["<<WAYLAND_HOME>>/builtin-mcp-image-gen.js"]
+args = ["<<GENESIS_HOME>>/builtin-mcp-image-gen.js"]
 
-[mcp.servers.wayland-image-generation.env]
-WAYLAND_IMG_API_KEY = "<<REDACTED:KEY:google>>"
-WAYLAND_IMG_PLATFORM = "gemini"
-WAYLAND_IMG_MODEL = "nano-banana-pro-preview"
-WAYLAND_IMG_BASE_URL = "https://generativelanguage.googleapis.com"
+[mcp.servers.genesis-image-generation.env]
+GENESIS_IMG_API_KEY = "<<REDACTED:KEY:google>>"
+GENESIS_IMG_PLATFORM = "gemini"
+GENESIS_IMG_MODEL = "nano-banana-pro-preview"
+GENESIS_IMG_BASE_URL = "https://generativelanguage.googleapis.com"
 
 [mcp.servers.local-tools]
 transport = "stdio"
 command = "node"
-args = ["<<WAYLAND_HOME>>/local-tools-server.js"]
+args = ["<<GENESIS_HOME>>/local-tools-server.js"]
 
 [mcp.servers.local-tools.env]
 SOME_API_KEY = "<<REDACTED:ENV:SOME_API_KEY>>"

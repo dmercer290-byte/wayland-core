@@ -6,7 +6,7 @@ description = "Customer-fixture catalog and replay harness for T6 app-integratio
 
 # See .blackboard/E2E-TESTING-STRATEGY-2026-05-24.md §3.5 T6 for the full design.
 # This crate owns:
-#   - fixtures/<archetype>/  — sanitized real-user-shaped $WAYLAND_HOME snapshots
+#   - fixtures/<archetype>/  — sanitized real-user-shaped $GENESIS_HOME snapshots
 #   - src/lib.rs             — FixtureCatalog, FixturePlayback, replay() (Wave 2+)
 #   - src/sanitizer.rs       — PII/secret redaction (Wave 2+)
 #

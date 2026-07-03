@@ -3,14 +3,14 @@
 //! Forge-suite desktop apps (Agent Vault, future Foundry tools) advertise their
 //! local MCP server by writing a shared file at
 //! `<dirs::config_dir()>/forge/mcp-servers.json`. This module reads that file so
-//! Wayland Core can auto-detect those servers instead of requiring hand-config.
+//! Genesis Core can auto-detect those servers instead of requiring hand-config.
 //!
 //! The path deliberately uses the real OS config dir (`dirs::config_dir()`), NOT
-//! the WAYLAND_HOME-honoring [`wayland_config_dir`](crate::config::wayland_config_dir):
+//! the GENESIS_HOME-honoring [`genesis_config_dir`](crate::config::genesis_config_dir):
 //! it is a cross-application convention written by *other* apps about the actual
 //! machine, exactly like the Claude-Desktop MCP discovery.
 //!
-//! Per the contract (`.audit/waylandcore-mcp-fix/FORGE-MCP-DISCOVERY-SPEC.md`),
+//! Per the contract (`.audit/genesiscore-mcp-fix/FORGE-MCP-DISCOVERY-SPEC.md`),
 //! entries are **hints, not liveness** — a producer crash leaves a stale entry,
 //! so a consumer MUST liveness-probe `metadata_url` before offering to connect,
 //! and must never auto-connect silently. This module only parses; the probe +

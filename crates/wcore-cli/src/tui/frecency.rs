@@ -128,14 +128,14 @@ impl FrecencyStore {
 
 /// The on-disk path of the frecency store.
 ///
-/// Routes through `wcore_config::config::wayland_config_dir()` so
-/// `WAYLAND_HOME` hermetically sandboxes the frecency file alongside the
+/// Routes through `wcore_config::config::genesis_config_dir()` so
+/// `GENESIS_HOME` hermetically sandboxes the frecency file alongside the
 /// rest of the engine's on-disk state (F-010, #270). Returns `Some` in all
-/// cases since the canonical helper has a `PathBuf::from("wayland-core")`
+/// cases since the canonical helper has a `PathBuf::from("genesis-core")`
 /// fallback when no platform config dir exists; we keep the `Option`
 /// signature to preserve the call-site shape (`let Some(path) = ...`).
 fn store_path() -> Option<PathBuf> {
-    Some(wcore_config::config::wayland_config_dir().join("frecency.json"))
+    Some(wcore_config::config::genesis_config_dir().join("frecency.json"))
 }
 
 /// The current time as Unix seconds. A clock set before the epoch (or an
@@ -221,13 +221,13 @@ mod tests {
         // Redirect the config dir at process scope so `store_path`
         // resolves into a temp dir for this test.
         let tmp = tempfile::tempdir().expect("temp dir");
-        // SAFETY: single-threaded test; WAYLAND_HOME is the canonical
-        // hermetic override resolved by `wayland_config_dir()` (F-010,
+        // SAFETY: single-threaded test; GENESIS_HOME is the canonical
+        // hermetic override resolved by `genesis_config_dir()` (F-010,
         // #270). It works uniformly on every platform — unlike
         // XDG_CONFIG_HOME, which `dirs::config_dir()` ignores on
         // macOS/Windows.
         unsafe {
-            std::env::set_var("WAYLAND_HOME", tmp.path());
+            std::env::set_var("GENESIS_HOME", tmp.path());
         }
 
         let mut store = FrecencyStore::default();
@@ -243,7 +243,7 @@ mod tests {
         assert_eq!(reloaded.entries.get("/doctor").map(|e| e.hits), Some(1));
 
         unsafe {
-            std::env::remove_var("WAYLAND_HOME");
+            std::env::remove_var("GENESIS_HOME");
         }
     }
 

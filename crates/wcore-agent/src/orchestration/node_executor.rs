@@ -138,7 +138,7 @@ pub struct AgentExecutorConfig {
         Option<std::sync::Arc<dyn wcore_tools::file_write_notifier::FileWriteNotifier>>,
 }
 
-/// Approval-flow plumbing for JSON-protocol hosts (e.g. Wayland Desktop).
+/// Approval-flow plumbing for JSON-protocol hosts (e.g. Genesis Desktop).
 #[derive(Clone)]
 pub struct ApprovalChannel {
     pub manager: Arc<ToolApprovalManager>,

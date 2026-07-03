@@ -2,7 +2,7 @@
 //! backends. Plain in-memory collector mirroring `HostRuleRegistrar` /
 //! `HostMcpRegistrar`. The runner enriches each captured spec with the
 //! originating plugin name into `CapturedUserModel`. Task 2.2 reifies into
-//! a live backend client (e.g. `wayland_honcho::HonchoClient`).
+//! a live backend client (e.g. `genesis_honcho::HonchoClient`).
 
 use wcore_plugin_api::UserModelSpec;
 use wcore_plugin_api::registry::user_models::UserModelRegistrar;

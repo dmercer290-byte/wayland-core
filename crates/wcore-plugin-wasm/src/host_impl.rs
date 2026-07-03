@@ -1,8 +1,8 @@
 //! v0.6.5 Wave 6B.1 — `impl Host for HostState`.
 //!
-//! Wires the bindgen-generated `wayland:host/host` import trait to the
-//! engine-side adapter traits (`WaylandHostHttp`, `WaylandHostWorkspace`,
-//! `WaylandHostSecrets`, `WaylandHostTools`, `WaylandHostLog`). All
+//! Wires the bindgen-generated `genesis:host/host` import trait to the
+//! engine-side adapter traits (`GenesisHostHttp`, `GenesisHostWorkspace`,
+//! `GenesisHostSecrets`, `GenesisHostTools`, `GenesisHostLog`). All
 //! decisions about whether a capability is permitted have already been
 //! made by the composition root in [`crate::runner::LoadedWasmPlugin::build_host_state`];
 //! this trait impl is the thin translation layer between WIT records and
@@ -11,7 +11,7 @@
 //! `async: true` mode on the bindgen macro means every Host method is a
 //! native `async fn` returning `wasmtime::Result<_>`.
 
-use crate::bindings::tool::wayland::host::host::{Host, HttpReq, HttpResp};
+use crate::bindings::tool::genesis::host::host::{Host, HttpReq, HttpResp};
 use crate::runner::HostState;
 
 /// Aud-13: decode the WIT `http-req.headers-json` field (a JSON object string)
@@ -99,7 +99,7 @@ impl Host for HostState {
     async fn emit_message(&mut self, role: String, text: String) {
         // No dedicated host trait for chat-emit yet; route through the log
         // adapter at info-level. A first-class emit channel lands in a
-        // later wave once the engine surfaces a `WaylandHostChat` trait.
+        // later wave once the engine surfaces a `GenesisHostChat` trait.
         self.log
             .log("info", &format!("emit-message role={role}: {text}"));
     }

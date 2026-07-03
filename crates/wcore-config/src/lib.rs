@@ -38,7 +38,7 @@ pub mod env_file;
 pub mod file_cache;
 pub mod forge_discovery;
 pub mod hooks;
-// v0.7.0 Task 1.B.1: convenience facade over `keyring` for `wayland init` + channels.
+// v0.7.0 Task 1.B.1: convenience facade over `keyring` for `genesis init` + channels.
 pub mod keychain;
 pub mod limits;
 pub mod mcp_cred_refs;

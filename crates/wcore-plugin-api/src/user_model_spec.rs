@@ -3,7 +3,7 @@
 //!
 //! Plain data only. No `Arc<dyn Trait>`, no closures. The host adapter in
 //! `wcore-agent` (Task 2.2) reads these fields and constructs the real
-//! client (e.g. `wayland_honcho::HonchoClient`). Mirrors the pattern used by
+//! client (e.g. `genesis_honcho::HonchoClient`). Mirrors the pattern used by
 //! `McpServerSpec` and `RuleSpec`: spec-then-reify, isolation boundary
 //! preserved.
 //!

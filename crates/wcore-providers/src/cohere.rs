@@ -497,7 +497,7 @@ pub fn register_cohere_in<R: ProviderRegistry>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::WaylandProviderRegistry;
+    use crate::registry::GenesisProviderRegistry;
     use wcore_types::message::{ContentBlock, Message, Role};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -836,7 +836,7 @@ mod tests {
 
     #[test]
     fn register_uses_lowercase_id() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         register_cohere_in(
             &mut r,
             "sk-test".into(),

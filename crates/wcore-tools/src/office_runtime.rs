@@ -1,21 +1,21 @@
 //! T3-3.4: Office-side skill enable/disable runtime — ported from the
-//! prior Wayland Python engine (Stage 5 Task 7).
+//! prior Genesis Python engine (Stage 5 Task 7).
 //!
 //! HELPER module. The authoritative source of truth for which optional
-//! skills are enabled lives in the Wayland Desktop's `office.db`; the
+//! skills are enabled lives in the Genesis Desktop's `office.db`; the
 //! agent consumes the enabled list via the `/office/sync` JSON endpoint
 //! and uses this module to materialize the chosen skill bundles under
-//! the user's skills directory (typically `~/.wayland-core/skills/<slug>/`)
+//! the user's skills directory (typically `~/.genesis-core/skills/<slug>/`)
 //! so the regular skill-discovery loader picks them up.
 //!
 //! ## Divergence from the Python source
 //!
 //! The Python source imports three cross-module symbols at import time:
-//! - `wayland_constants.get_wayland_home()` — global Wayland home path.
+//! - `genesis_constants.get_genesis_home()` — global Genesis home path.
 //! - `tools.skills_hub.OptionalSkillSource` — Python class with a
 //!   `fetch(slug) -> SkillBundle | None` method that returns a
 //!   `SkillBundle` whose `files` is a `dict[str, bytes | str]`.
-//! - `wayland_cli.office_sync.{emit_skill_authored, set_enabled}` —
+//! - `genesis_cli.office_sync.{emit_skill_authored, set_enabled}` —
 //!   side-channel callbacks that fan events out to the `/office/events`
 //!   long-poll subscribers and mirror the in-memory enabled set.
 //!
@@ -31,7 +31,7 @@
 //! - [`SkillAuthoredEmitter`] — receives `skill-authored` events for
 //!   broadcast to long-poll subscribers.
 //!
-//! The skills root (equivalent to `get_wayland_home() / "skills"`) is
+//! The skills root (equivalent to `get_genesis_home() / "skills"`) is
 //! passed explicitly into [`OfficeRuntime::new`]; callers typically use
 //! `wcore_skills::paths::user_skills_dir()` (which already handles
 //! `dirs::home_dir()` cross-platform) but we don't depend on that crate
@@ -123,7 +123,7 @@ impl LoadOutcome {
 /// module-level globals; the Rust port encapsulates them so tests don't
 /// need to share state.
 pub struct OfficeRuntime {
-    /// Equivalent to the Python `get_wayland_home() / "skills"` — root
+    /// Equivalent to the Python `get_genesis_home() / "skills"` — root
     /// directory under which `<slug>/` directories get materialized.
     skills_root: PathBuf,
     source: Box<dyn SkillSource>,

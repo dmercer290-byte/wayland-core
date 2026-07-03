@@ -67,7 +67,7 @@ pub enum PluginCliError {
     #[error("reserved marketplace name: {0}")]
     ReservedName(String),
 
-    /// Lowering a foreign plugin into the Wayland-native model failed.
+    /// Lowering a foreign plugin into the Genesis-native model failed.
     #[error("plugin lowering: {0}")]
     PluginSrc(#[from] wcore_pluginsrc::PluginSrcError),
 }

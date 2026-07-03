@@ -634,7 +634,7 @@ mod tests {
             capabilities: crate::a2a::A2aCapabilities::default(),
         };
         let reply = server.a2a_handshake(incoming).await.unwrap();
-        assert_eq!(reply.agent_kind, "wayland-core");
+        assert_eq!(reply.agent_kind, "genesis-core");
         assert_eq!(reply.agent_id, "server-agent");
     }
 

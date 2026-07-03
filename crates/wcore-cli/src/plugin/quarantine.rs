@@ -86,7 +86,7 @@ pub fn quarantine_clone(source: &SourceKind, dest: &Path) -> Result<ClonedSource
         .ok_or_else(|| PluginCliError::Quarantine("non-UTF8 clone path".into()))?;
 
     let timeout = Duration::from_millis(env_u64(
-        "WAYLAND_PLUGIN_GIT_TIMEOUT_MS",
+        "GENESIS_PLUGIN_GIT_TIMEOUT_MS",
         DEFAULT_GIT_TIMEOUT_MS,
     ));
 
@@ -184,7 +184,7 @@ pub fn quarantine_clone(source: &SourceKind, dest: &Path) -> Result<ClonedSource
     if out.exists() {
         std::fs::remove_dir_all(&out)?;
     }
-    let cap = env_u64("WAYLAND_PLUGIN_MAX_BYTES", DEFAULT_MAX_BYTES);
+    let cap = env_u64("GENESIS_PLUGIN_MAX_BYTES", DEFAULT_MAX_BYTES);
     let mut copied: u64 = 0;
     normalize_copy(&src_root, &out, &mut copied, cap)?;
 

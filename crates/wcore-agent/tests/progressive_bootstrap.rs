@@ -16,7 +16,7 @@ use wcore_tools::Tool;
 fn make_fixture(count: usize) -> TempDir {
     let tmp = TempDir::new().unwrap();
     fs::create_dir(tmp.path().join(".git")).unwrap();
-    let dir = tmp.path().join(".wayland-core").join("skills");
+    let dir = tmp.path().join(".genesis-core").join("skills");
     fs::create_dir_all(&dir).unwrap();
     for i in 0..count {
         let d = dir.join(format!("s{i}"));

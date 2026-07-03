@@ -38,7 +38,7 @@ fn list() -> Result<SlashOutcome, SlashError> {
     }
     lines.push(String::new());
     lines.push(
-        "user agents: use `wayland-core agent list` from the CLI (or /agent new)".to_string(),
+        "user agents: use `genesis-core agent list` from the CLI (or /agent new)".to_string(),
     );
     Ok(SlashOutcome::Handled {
         output: Some(lines.join("\n")),
@@ -126,7 +126,7 @@ pub enum AgentNewError {
 
 /// Run the multi-step `/agent new` flow against a [`PromptIo`]
 /// implementation. Persists the resulting manifest to `base_dir/<name>.toml`
-/// (normally `~/.wayland/agents/`). Returns the persisted manifest's name on
+/// (normally `~/.genesis/agents/`). Returns the persisted manifest's name on
 /// success so the caller can immediately enable it via `--agent=<name>`.
 pub fn run_new<P: PromptIo>(io: &mut P, base_dir: &Path) -> Result<String, AgentNewError> {
     io.write_line("--- /agent new ---")?;

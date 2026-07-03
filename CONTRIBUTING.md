@@ -1,4 +1,4 @@
-# Contributing to Wayland-Core
+# Contributing to Genesis-Core
 
 ## Security-Critical Dependency Pinning
 

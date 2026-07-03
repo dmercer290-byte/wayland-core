@@ -1,6 +1,6 @@
 [package]
 name = "wcore-providers"
-description = "LLM provider implementations for wayland-core (Anthropic, OpenAI, Bedrock, Vertex)"
+description = "LLM provider implementations for genesis-core (Anthropic, OpenAI, Bedrock, Vertex)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -100,7 +100,7 @@ impl DiscordChannel {
     ) -> Self {
         let http = wcore_egress::EgressClient::builder()
             .pool_idle_timeout(std::time::Duration::from_secs(90))
-            .user_agent(concat!("wayland-core/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("genesis-core/", env!("CARGO_PKG_VERSION")))
             .build()
             .unwrap_or_else(|_| wcore_egress::EgressClient::new());
 

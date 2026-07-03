@@ -1,6 +1,6 @@
 //! Task 0.1 / D1 — per-profile credential isolation.
 //!
-//! When WAYLAND_HOME is set (isolated profile), the Auto backend defaults to
+//! When GENESIS_HOME is set (isolated profile), the Auto backend defaults to
 //! the in-home encrypted vault (not the process-global OS keyring, which bleeds
 //! across profiles). These tests prove cross-profile isolation via the file
 //! backend on every platform (matches the Hetzner empirical run).
@@ -60,8 +60,8 @@ impl Drop for EnvGuard {
 
 fn put_secret(home: &Path, value: &str) {
     let _g = EnvGuard::set(&[
-        ("WAYLAND_HOME", home.to_str().unwrap()),
-        ("WAYLAND_VAULT_PASSPHRASE", PASS),
+        ("GENESIS_HOME", home.to_str().unwrap()),
+        ("GENESIS_VAULT_PASSPHRASE", PASS),
     ]);
     let cfg = CredentialsStorageConfig::default(); // Auto
     let store = open_store(&cfg, &home.join("credentials.toml")).expect("open A");
@@ -70,8 +70,8 @@ fn put_secret(home: &Path, value: &str) {
 
 fn get_secret(home: &Path) -> Option<String> {
     let _g = EnvGuard::set(&[
-        ("WAYLAND_HOME", home.to_str().unwrap()),
-        ("WAYLAND_VAULT_PASSPHRASE", PASS),
+        ("GENESIS_HOME", home.to_str().unwrap()),
+        ("GENESIS_VAULT_PASSPHRASE", PASS),
     ]);
     let cfg = CredentialsStorageConfig::default();
     let store = open_store(&cfg, &home.join("credentials.toml")).expect("open get");
@@ -90,7 +90,7 @@ fn vault_lands_in_home_and_secret_does_not_cross_profiles() {
     // writes credentials.toml or the OS keyring), so it pins the new behavior.
     assert!(
         a.path().join("credentials.enc").exists(),
-        "encrypted vault must land inside WAYLAND_HOME A"
+        "encrypted vault must land inside GENESIS_HOME A"
     );
     // Pre-condition sanity (nothing has been written to B yet).
     assert!(
@@ -145,13 +145,13 @@ fn vault_files_are_0600() {
 #[test]
 #[serial]
 fn no_passphrase_falls_back_to_plaintext_not_keyring() {
-    // WAYLAND_HOME set but NO passphrase material → plaintext-0600 in-home,
+    // GENESIS_HOME set but NO passphrase material → plaintext-0600 in-home,
     // round-trips, and writes credentials.toml (not credentials.enc).
     let h = tempdir().unwrap();
-    let _g = EnvGuard::set(&[("WAYLAND_HOME", h.path().to_str().unwrap())]);
+    let _g = EnvGuard::set(&[("GENESIS_HOME", h.path().to_str().unwrap())]);
     // Ensure no stray passphrase from the ambient environment — routed through
     // the guard so it is restored for later tests in the same process.
-    let _g2 = EnvGuard::remove(&["WAYLAND_VAULT_PASSPHRASE", "WAYLAND_VAULT_PASSPHRASE_FD"]);
+    let _g2 = EnvGuard::remove(&["GENESIS_VAULT_PASSPHRASE", "GENESIS_VAULT_PASSPHRASE_FD"]);
 
     let cfg = CredentialsStorageConfig::default();
     let store = open_store(&cfg, &h.path().join("credentials.toml")).expect("open");

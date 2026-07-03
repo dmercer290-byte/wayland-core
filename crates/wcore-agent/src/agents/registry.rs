@@ -1,5 +1,5 @@
 //! W7 F2: AgentRegistry — loads `AgentManifest`s from filesystem
-//! (`~/.wayland-core/agents/*.yaml` and `<project>/.wayland-core/agents/*.yaml`)
+//! (`~/.genesis-core/agents/*.yaml` and `<project>/.genesis-core/agents/*.yaml`)
 //! and from the W2.5 plugin surface (`ScopedAgentRegistry` via the
 //! `AgentRegistrar` impl below). Best-effort: malformed YAML is
 //! logged-and-skipped rather than panicking.

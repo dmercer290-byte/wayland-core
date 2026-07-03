@@ -1,4 +1,4 @@
-// Pure, provider-neutral data types shared across all wayland-core crates.
+// Pure, provider-neutral data types shared across all genesis-core crates.
 // No dependencies on other wcore-* crates.
 
 pub mod cache_tier;

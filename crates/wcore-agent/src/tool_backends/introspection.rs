@@ -1,5 +1,5 @@
-//! v0.9.0 Wave-1 B7 — in-process backend for `wayland_status` +
-//! `wayland_telemetry_query`.
+//! v0.9.0 Wave-1 B7 — in-process backend for `genesis_status` +
+//! `genesis_telemetry_query`.
 //!
 //! The introspection tools are READ-ONLY observers of the engine's
 //! own runtime state. There is no network call, no API key, and no
@@ -9,7 +9,7 @@
 //!
 //! ## Telemetry-query safety (S-H6)
 //!
-//! `wayland_telemetry_query` lives in the default `tools.allow_list`
+//! `genesis_telemetry_query` lives in the default `tools.allow_list`
 //! and is auto-approved. To prevent the auto-approval gate from
 //! becoming an injection surface, query input is a **typed enum**:
 //!
@@ -33,9 +33,9 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use wcore_tools::wayland_introspection::{
+use wcore_tools::genesis_introspection::{
     IntrospectionOutcome, StatusQuery, TelemetryQuery as ToolTelemetryQuery,
-    WaylandIntrospectionBackend,
+    GenesisIntrospectionBackend,
 };
 
 use crate::session_state::{ProviderHealthStatus, SessionStateReader};
@@ -55,7 +55,7 @@ pub enum TopNMetric {
     Duration,
 }
 
-/// Typed shape for `wayland_telemetry_query.query`. JSON shape is
+/// Typed shape for `genesis_telemetry_query.query`. JSON shape is
 /// `{ "kind": "...", … }` via serde tagging — `serde` rejects any
 /// `kind` not in this list before it can reach the backend, which
 /// closes the auto-approval injection surface (S-H6).
@@ -107,7 +107,7 @@ impl LocalIntrospectionBackend {
 }
 
 #[async_trait]
-impl WaylandIntrospectionBackend for LocalIntrospectionBackend {
+impl GenesisIntrospectionBackend for LocalIntrospectionBackend {
     async fn status(&self, query: &StatusQuery) -> IntrospectionOutcome {
         let recent = self.state.recent_errors(3);
         let recent_json: Vec<Value> = recent
@@ -287,11 +287,11 @@ fn top_n_metric_label(m: TopNMetric) -> &'static str {
 
 /// Resolver. The introspection backend is always available because
 /// the underlying state is in-process — no env keys, no API tokens.
-/// Returns an `Arc<dyn WaylandIntrospectionBackend>` ready to hand to
-/// `WaylandStatusTool::new` / `WaylandTelemetryQueryTool::new`.
+/// Returns an `Arc<dyn GenesisIntrospectionBackend>` ready to hand to
+/// `GenesisStatusTool::new` / `GenesisTelemetryQueryTool::new`.
 pub fn build_introspection_backend(
     state: Arc<dyn SessionStateReader>,
-) -> Arc<dyn WaylandIntrospectionBackend> {
+) -> Arc<dyn GenesisIntrospectionBackend> {
     Arc::new(LocalIntrospectionBackend::new(state))
 }
 

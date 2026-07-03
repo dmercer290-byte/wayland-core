@@ -95,10 +95,10 @@ pub fn session_db_path(session_id: &str) -> Option<PathBuf> {
 }
 
 /// Returns the project memory DB path under the project root:
-/// `<project_root>/.wayland-core/memory/memory.db`.
+/// `<project_root>/.genesis-core/memory/memory.db`.
 pub fn project_db_path(project_root: &Path) -> PathBuf {
     project_root
-        .join(".wayland-core")
+        .join(".genesis-core")
         .join("memory")
         .join("memory.db")
 }

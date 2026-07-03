@@ -9,16 +9,16 @@
 //!
 //! Auto-memorize is ON by default (2026-06-04 smart-default decision). The
 //! user can opt OUT by writing `off` to a decision file at
-//! `wayland_config_dir()/auto-memorize.consent`, or with the
-//! `WAYLAND_AUTO_MEMORIZE=off` env kill switch. Resolved via
-//! `wcore_config::config::wayland_config_dir()` so `WAYLAND_HOME`
+//! `genesis_config_dir()/auto-memorize.consent`, or with the
+//! `GENESIS_AUTO_MEMORIZE=off` env kill switch. Resolved via
+//! `wcore_config::config::genesis_config_dir()` so `GENESIS_HOME`
 //! hermetically sandboxes the file (F-010, #270). With an opt-out recorded,
 //! `run_session_end` returns a `ConsentNotGranted` skip — no facts leave the
 //! session.
 //!
 //! # Rollback
 //!
-//! Set `WAYLAND_AUTO_MEMORIZE=off` in the environment to make
+//! Set `GENESIS_AUTO_MEMORIZE=off` in the environment to make
 //! `consent_granted()` return `false` unconditionally, even when the
 //! consent file exists. This is the one-shot kill switch for emergency
 //! disable without touching disk.
@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 /// Environment variable that, when set to `"off"` (case-insensitive),
 /// forces `consent_granted()` to return `false` regardless of the
 /// presence of the consent file.
-pub const ENV_AUTO_MEMORIZE: &str = "WAYLAND_AUTO_MEMORIZE";
+pub const ENV_AUTO_MEMORIZE: &str = "GENESIS_AUTO_MEMORIZE";
 
 /// Filename of the opt-in consent flag.
 pub const CONSENT_FILE_NAME: &str = "auto-memorize.consent";
@@ -42,15 +42,15 @@ pub const CONSENT_FILE_NAME: &str = "auto-memorize.consent";
 /// Returns the path of the opt-in consent file.
 ///
 /// Auto-memorize is OFF unless this file exists on disk (and the
-/// `WAYLAND_AUTO_MEMORIZE` env var is not set to `"off"`).
+/// `GENESIS_AUTO_MEMORIZE` env var is not set to `"off"`).
 ///
-/// Resolution: `wcore_config::config::wayland_config_dir()` so
-/// `WAYLAND_HOME` hermetically sandboxes the consent flag alongside the
+/// Resolution: `wcore_config::config::genesis_config_dir()` so
+/// `GENESIS_HOME` hermetically sandboxes the consent flag alongside the
 /// rest of the engine's on-disk state (F-010, #270). The helper has its
-/// own `PathBuf::from("wayland-core")` fallback when the platform exposes
+/// own `PathBuf::from("genesis-core")` fallback when the platform exposes
 /// no config dir, so this function never panics.
 pub fn consent_file_path() -> PathBuf {
-    wcore_config::config::wayland_config_dir().join(CONSENT_FILE_NAME)
+    wcore_config::config::genesis_config_dir().join(CONSENT_FILE_NAME)
 }
 
 /// Returns `true` when auto-memorize is enabled for this session.
@@ -60,7 +60,7 @@ pub fn consent_file_path() -> PathBuf {
 /// an opt-in flag.
 ///
 /// Decision order:
-///   1. If `WAYLAND_AUTO_MEMORIZE=off` (case-insensitive), return `false`
+///   1. If `GENESIS_AUTO_MEMORIZE=off` (case-insensitive), return `false`
 ///      regardless of the file. This is the hard kill switch / rollback.
 ///   2. If the decision file exists and its contents opt out
 ///      (`off`/`opt-out`/`false`/`no`/`disable`), return `false`.
@@ -74,7 +74,7 @@ pub fn consent_granted() -> bool {
 /// decision-file path. Used by the inline tests with a tempdir-backed
 /// path to avoid mutating the user's real config dir.
 ///
-/// Honors the `WAYLAND_AUTO_MEMORIZE=off` env override the same way as
+/// Honors the `GENESIS_AUTO_MEMORIZE=off` env override the same way as
 /// [`consent_granted`], and the same default-ON / explicit-opt-out semantics.
 pub fn consent_granted_at(path: &Path) -> bool {
     if env_forces_off() {
@@ -91,7 +91,7 @@ pub fn consent_granted_at(path: &Path) -> bool {
     }
 }
 
-/// Returns `true` when `WAYLAND_AUTO_MEMORIZE` is set to `"off"`
+/// Returns `true` when `GENESIS_AUTO_MEMORIZE` is set to `"off"`
 /// (case-insensitive). Any other value, or an unset var, returns `false`.
 fn env_forces_off() -> bool {
     match std::env::var(ENV_AUTO_MEMORIZE) {
@@ -130,7 +130,7 @@ pub struct SessionDigest {
 /// Why the SessionEnd trigger skipped persisting facts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SkipReason {
-    /// Consent file missing (or `WAYLAND_AUTO_MEMORIZE=off`).
+    /// Consent file missing (or `GENESIS_AUTO_MEMORIZE=off`).
     ConsentNotGranted,
     /// Fewer surviving candidates than `min_facts_to_persist`.
     BelowFactThreshold,
@@ -268,7 +268,7 @@ mod tests {
 
     /// Process-wide mutex so env-mutating tests serialize even across
     /// `#[serial(env)]` groups in this module — the env var we toggle
-    /// (`WAYLAND_AUTO_MEMORIZE`) is process-global.
+    /// (`GENESIS_AUTO_MEMORIZE`) is process-global.
     fn env_lock() -> &'static Mutex<()> {
         static L: OnceLock<Mutex<()>> = OnceLock::new();
         L.get_or_init(|| Mutex::new(()))
@@ -380,13 +380,13 @@ mod tests {
     fn consent_file_path_ends_in_expected_components() {
         let p = consent_file_path();
         let s = p.to_string_lossy();
-        // The path flows through `wayland_config_dir()`, which always
-        // ends in the `wayland-core` segment (or its `WAYLAND_HOME`
-        // override). Asserting on `wayland-core` locks the helper as the
+        // The path flows through `genesis_config_dir()`, which always
+        // ends in the `genesis-core` segment (or its `GENESIS_HOME`
+        // override). Asserting on `genesis-core` locks the helper as the
         // canonical resolver (F-010, #270).
         assert!(
-            s.contains("wayland-core") || std::env::var_os("WAYLAND_HOME").is_some(),
-            "consent path {s:?} should include 'wayland-core' subdir when WAYLAND_HOME is unset"
+            s.contains("genesis-core") || std::env::var_os("GENESIS_HOME").is_some(),
+            "consent path {s:?} should include 'genesis-core' subdir when GENESIS_HOME is unset"
         );
         assert!(
             s.ends_with(CONSENT_FILE_NAME),
@@ -396,22 +396,22 @@ mod tests {
 
     #[test]
     #[serial(env)]
-    fn consent_file_path_honors_wayland_home() {
-        // Hermeticity: when WAYLAND_HOME is set the consent file MUST
+    fn consent_file_path_honors_genesis_home() {
+        // Hermeticity: when GENESIS_HOME is set the consent file MUST
         // resolve inside that sandbox, not the user's real config dir
         // (F-010, #270). Same regression class as F-019.
         let _g = env_lock().lock().unwrap();
-        let prior = std::env::var("WAYLAND_HOME").ok();
+        let prior = std::env::var("GENESIS_HOME").ok();
         let tmp = tempfile::tempdir().unwrap();
         // SAFETY: env_lock + #[serial(env)] serialize all env writes.
         unsafe {
-            std::env::set_var("WAYLAND_HOME", tmp.path());
+            std::env::set_var("GENESIS_HOME", tmp.path());
         }
 
         let p = consent_file_path();
         assert!(
             p.starts_with(tmp.path()),
-            "consent path {:?} should be rooted at WAYLAND_HOME ({:?})",
+            "consent path {:?} should be rooted at GENESIS_HOME ({:?})",
             p,
             tmp.path()
         );
@@ -420,8 +420,8 @@ mod tests {
         // SAFETY: see set_var above.
         unsafe {
             match prior {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
         }
     }
@@ -450,7 +450,7 @@ mod tests {
         let am = AutoMemorize::default();
         let digest = digest_with(vec![
             fact("u", "prefers", "rust", 0.9),
-            fact("u", "works-on", "wayland", 0.8),
+            fact("u", "works-on", "genesis", 0.8),
         ]);
         let report = am.run_session_end_with_consent(digest, true, |facts| facts.len());
         assert!(report.triggered);
@@ -463,7 +463,7 @@ mod tests {
         let am = AutoMemorize::default(); // min_confidence = 0.5
         let digest = digest_with(vec![
             fact("u", "prefers", "rust", 0.10),
-            fact("u", "works-on", "wayland", 0.20),
+            fact("u", "works-on", "genesis", 0.20),
         ]);
         let report = am.run_session_end_with_consent(digest, true, |_| {
             panic!("persist must not be invoked when nothing survives");
@@ -487,7 +487,7 @@ mod tests {
         };
         let digest = digest_with(vec![
             fact("u", "prefers", "rust", 0.99),     // survives
-            fact("u", "works-on", "wayland", 0.95), // survives
+            fact("u", "works-on", "genesis", 0.95), // survives
             fact("u", "ignores", "css", 0.10),      // filtered
         ]);
         let report = am.run_session_end_with_consent(digest, true, |_| {

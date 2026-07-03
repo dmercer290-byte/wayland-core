@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use wcore_plugin_api::access_gate::PluginAccessGate;
 
-pub trait WaylandHostWorkspace: Send + Sync {
+pub trait GenesisHostWorkspace: Send + Sync {
     fn read(&self, path: &str) -> Result<Vec<u8>, String>;
     fn write(&self, path: &str, body: Vec<u8>) -> Result<(), String>;
 }
@@ -17,7 +17,7 @@ pub trait WaylandHostWorkspace: Send + Sync {
 #[derive(Debug, Default)]
 pub struct DenyHostWorkspace;
 
-impl WaylandHostWorkspace for DenyHostWorkspace {
+impl GenesisHostWorkspace for DenyHostWorkspace {
     fn read(&self, _path: &str) -> Result<Vec<u8>, String> {
         Err("permission denied: workspace".into())
     }
@@ -138,7 +138,7 @@ fn canonicalize_through_existing(path: &Path) -> std::io::Result<PathBuf> {
     Ok(canon)
 }
 
-impl WaylandHostWorkspace for GatedHostWorkspace {
+impl GenesisHostWorkspace for GatedHostWorkspace {
     fn read(&self, path: &str) -> Result<Vec<u8>, String> {
         if !self.permitted_read {
             return Err("permission denied: workspace".into());

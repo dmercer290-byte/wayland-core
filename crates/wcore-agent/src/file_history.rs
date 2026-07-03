@@ -98,7 +98,7 @@ pub struct FileHistory {
     /// disk regardless of the caller's `ctx.vfs`.
     vfs_root: Arc<RealFs>,
     /// Directory where snapshot bytes live, e.g.
-    /// `<project>/.wayland-core/shadow/`.
+    /// `<project>/.genesis-core/shadow/`.
     shadow_root: PathBuf,
     /// Per-path cursors, keyed by the canonical input path.
     cursors: Arc<Mutex<HashMap<PathBuf, PathCursor>>>,

@@ -530,7 +530,7 @@ impl ToolApprovalManager {
 
     /// GHSA-8r7g — grant or revoke the local-operator opt-in that lets a
     /// protocol peer request [`SessionMode::Force`]. Set from an explicit
-    /// launch-time signal (the `--force` flag / `WAYLAND_ALLOW_WIRE_FORCE`
+    /// launch-time signal (the `--force` flag / `GENESIS_ALLOW_WIRE_FORCE`
     /// env), never from wire data.
     pub fn set_allow_wire_force(&self, allow: bool) {
         self.allow_wire_force.store(allow, Ordering::Relaxed);

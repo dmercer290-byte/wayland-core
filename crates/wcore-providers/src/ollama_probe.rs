@@ -3,7 +3,7 @@
 //!
 //! ## Why this exists
 //!
-//! Ollama is wired into wayland-core as an OpenAI-compatible provider, not a
+//! Ollama is wired into genesis-core as an OpenAI-compatible provider, not a
 //! distinct provider type. Many local models served by Ollama (and llama.cpp
 //! style backends) do **not** support function calling, and sending a Chat
 //! Completions request that carries a `tools` array to such a model returns a

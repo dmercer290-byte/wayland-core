@@ -3,12 +3,12 @@
 //! through linker → `PluginLoader::discover` → bootstrap → Ready event.
 //!
 //! This test exists because BLOCKER #1 in the v0.2.0 validation pass
-//! showed that `crates/wcore-cli/Cargo.toml` listing `wayland-browser`,
-//! `wayland-cua`, `wayland-ollama` as dependencies was
+//! showed that `crates/wcore-cli/Cargo.toml` listing `genesis-browser`,
+//! `genesis-cua`, `genesis-ollama` as dependencies was
 //! NOT sufficient — Rust's linker dead-code-strips entire crates whose
 //! items are never named in the binary, including the `link_section`
 //! static items `inventory::submit!` emits. The fix is the
-//! `use wayland_<plugin> as _;` lines at the top of `src/main.rs`.
+//! `use genesis_<plugin> as _;` lines at the top of `src/main.rs`.
 //!
 //! This test spawns the real CLI binary in `--json-stream` mode with a
 //! fake API key, captures the first stdout line (the Ready event), and
@@ -26,12 +26,12 @@ use tempfile::TempDir;
 /// reach `protocol_sink.emit_ready_with_plugins(...)` and return the
 /// parsed first line of stdout.
 fn first_ready_event() -> serde_json::Value {
-    // Use a clean, empty cwd so no `.wayland-core.toml` from the dev
+    // Use a clean, empty cwd so no `.genesis-core.toml` from the dev
     // environment perturbs config resolution. Also isolates the
     // session db / skills lookup from polluting the host project.
     let tmp = TempDir::new().expect("create tmp workspace");
 
-    let bin = env!("CARGO_BIN_EXE_wayland-core");
+    let bin = env!("CARGO_BIN_EXE_genesis-core");
     let mut child = Command::new(bin)
         .args([
             "--json-stream",
@@ -47,7 +47,7 @@ fn first_ready_event() -> serde_json::Value {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("spawn wayland-core --json-stream");
+        .expect("spawn genesis-core --json-stream");
 
     // Read the first stdout line on a worker thread so we can enforce
     // a wall-clock timeout against a child that never emits.
@@ -115,17 +115,17 @@ fn ready_event_has_plugin_capability_flags() {
         "Ready event missing capabilities object: {event}"
     );
 
-    // The wayland-browser plugin must produce a true `browser_suite` flag.
+    // The genesis-browser plugin must produce a true `browser_suite` flag.
     assert_eq!(
         caps["browser_suite"], true,
-        "expected capabilities.browser_suite=true (wayland-browser plugin not discovered); \
+        "expected capabilities.browser_suite=true (genesis-browser plugin not discovered); \
          caps: {caps}"
     );
 
-    // The wayland-cua plugin must produce a true `computer_use` flag.
+    // The genesis-cua plugin must produce a true `computer_use` flag.
     assert_eq!(
         caps["computer_use"], true,
-        "expected capabilities.computer_use=true (wayland-cua plugin not discovered); \
+        "expected capabilities.computer_use=true (genesis-cua plugin not discovered); \
          caps: {caps}"
     );
 

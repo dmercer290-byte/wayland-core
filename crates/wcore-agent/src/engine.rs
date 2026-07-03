@@ -175,7 +175,7 @@ fn select_tier_model(
 /// reasoning-model output budget generally) is the TOTAL of reasoning + visible
 /// output, so without a reserved floor a heavy reasoning turn can spend the
 /// whole budget thinking and return an empty, `finish_reason: length` reply
-/// (wayland#422). This floor is never sacrificed to thinking.
+/// (genesis#422). This floor is never sacrificed to thinking.
 const MIN_VISIBLE_OUTPUT: u32 = 4_096;
 
 /// #426 — Anthropic's minimum accepted `thinking.budget_tokens`. If the output
@@ -353,7 +353,7 @@ mod output_sizing_tests {
 
     #[test]
     fn unknown_reasoning_model_gets_headroom_not_the_8192_floor() {
-        // #426 / wayland#422: flux-auto on a reasoning turn must NOT be clamped
+        // #426 / genesis#422: flux-auto on a reasoning turn must NOT be clamped
         // to 8192 (the reasoning would eat the whole cap and the answer would be
         // empty). It grows to the reasoning-aware ceiling instead. This holds
         // for BOTH reasoning signals — a numeric thinking budget (Anthropic /
@@ -1036,7 +1036,7 @@ mod w8_cache_tier_producer_tests {
 /// This is the backstop the `max_turns = None` design decision (see the run
 /// loop) leaves open for *no-progress loops*: the budget cap and context
 /// ceiling bound per-turn size and total spend, not the loop itself. The
-/// threshold is read once per run from `WAYLAND_MAX_REPEATED_TOOL_CALLS`
+/// threshold is read once per run from `GENESIS_MAX_REPEATED_TOOL_CALLS`
 /// (default 10); `0` disables the breaker.
 ///
 /// The default is deliberately conservative. The cheap, common loop — re-reading
@@ -1054,7 +1054,7 @@ struct LoopGuard {
 
 impl LoopGuard {
     fn from_env() -> Self {
-        let threshold = std::env::var("WAYLAND_MAX_REPEATED_TOOL_CALLS")
+        let threshold = std::env::var("GENESIS_MAX_REPEATED_TOOL_CALLS")
             .ok()
             .and_then(|v| v.trim().parse::<u32>().ok())
             .unwrap_or(10);
@@ -1306,7 +1306,7 @@ pub struct AgentEngine {
     /// cache is disabled; wired by `AgentBootstrap` via `set_file_cache`.
     file_cache: Option<Arc<std::sync::RwLock<wcore_tools::file_cache::FileStateCache>>>,
     /// B7 writer-side wiring — the same `Arc<InMemorySessionState>` the
-    /// `wayland_status` / `wayland_telemetry_query` introspection backend
+    /// `genesis_status` / `genesis_telemetry_query` introspection backend
     /// reads. When wired by `AgentBootstrap` (via [`set_session_state`]) the
     /// engine pushes per-turn token totals and per-tool call counts into it,
     /// so the introspection tools surface live numbers instead of zeroes.
@@ -1475,7 +1475,7 @@ pub struct AgentEngine {
     /// v0.8.0 Task M — user-id key used for write-back. Defaults to
     /// `"default"` (mirrors the bootstrap read site at
     /// `bootstrap.rs::user_ctx_block`); overridable via the
-    /// `WAYLAND_USER_ID` env var for multi-user / shared-host setups.
+    /// `GENESIS_USER_ID` env var for multi-user / shared-host setups.
     /// Cached on the engine so the per-turn write-back doesn't pay an
     /// env-lookup tax on the hot path.
     user_model_user_id: String,
@@ -1696,7 +1696,7 @@ const FLUFF_STOP_SEQUENCES: [&str; 4] = [
 
 /// v0.8.0 Task M — default user-id key for per-turn user-model
 /// write-back. Mirrors the bootstrap read site (`bootstrap.rs`,
-/// `user_id = "default"`). Override via the `WAYLAND_USER_ID` env var.
+/// `user_id = "default"`). Override via the `GENESIS_USER_ID` env var.
 const DEFAULT_USER_MODEL_USER_ID: &str = "default";
 
 /// Stage 4c — one-shot, per-process suppression for the `/crucible` gate
@@ -1705,10 +1705,10 @@ const DEFAULT_USER_MODEL_USER_ID: &str = "default";
 static CRUCIBLE_SUGGEST_SUPPRESSED: AtomicBool = AtomicBool::new(false);
 
 /// v0.8.0 Task M — resolve the user-id used for user-model
-/// observations. Reads `WAYLAND_USER_ID` once at engine construction;
+/// observations. Reads `GENESIS_USER_ID` once at engine construction;
 /// falls back to `DEFAULT_USER_MODEL_USER_ID` when unset or empty.
 pub(crate) fn resolve_user_model_user_id() -> String {
-    match std::env::var("WAYLAND_USER_ID") {
+    match std::env::var("GENESIS_USER_ID") {
         Ok(v) if !v.trim().is_empty() => v,
         _ => DEFAULT_USER_MODEL_USER_ID.to_string(),
     }
@@ -2492,7 +2492,7 @@ impl AgentEngine {
     }
 
     /// v0.8.0 Task M — override the user-id key used for write-back.
-    /// Default is resolved from `WAYLAND_USER_ID` (or `"default"`); this
+    /// Default is resolved from `GENESIS_USER_ID` (or `"default"`); this
     /// setter exists for tests that need deterministic per-test user-ids.
     pub fn set_user_model_user_id(&mut self, user_id: impl Into<String>) {
         self.user_model_user_id = user_id.into();
@@ -2888,7 +2888,7 @@ impl AgentEngine {
 
     /// B7 writer-side wiring: install the shared `InMemorySessionState` so
     /// per-turn token totals and per-tool call counts land in the same struct
-    /// the `wayland_status` / `wayland_telemetry_query` introspection backend
+    /// the `genesis_status` / `genesis_telemetry_query` introspection backend
     /// reads. Called once by `AgentBootstrap` with the same `Arc` handed to
     /// `build_introspection_backend`. Engines without an introspection surface
     /// (tests, sub-agents) skip this and the counters simply stay at zero.
@@ -4610,7 +4610,7 @@ impl AgentEngine {
                 self.compat.omit_max_tokens_when_unsized(),
             );
 
-            // #426 / wayland#422 — separate the reasoning budget from the output
+            // #426 / genesis#422 — separate the reasoning budget from the output
             // budget so extended thinking can never starve the visible answer.
             // For reasoning models `max_tokens` is the TOTAL of reasoning +
             // visible output; without this a heavy thinking turn (especially on
@@ -4961,8 +4961,8 @@ impl AgentEngine {
             self.total_usage.cache_read_tokens += turn_usage.cache_read_tokens;
 
             // B7 writer-side wiring: mirror this turn's token usage into the
-            // live introspection state so `wayland_status` /
-            // `wayland_telemetry_query` report non-zero token counters.
+            // live introspection state so `genesis_status` /
+            // `genesis_telemetry_query` report non-zero token counters.
             if let Some(state) = &self.session_state {
                 state.add_token_usage(turn_usage.input_tokens, turn_usage.output_tokens);
             }
@@ -5629,7 +5629,7 @@ impl AgentEngine {
 
                     // B7 writer-side wiring: bump the per-tool call counter in
                     // the live introspection state (one increment per executed
-                    // tool result) so `wayland_status` reports real tool-call
+                    // tool result) so `genesis_status` reports real tool-call
                     // activity instead of an empty histogram.
                     if let Some(state) = &self.session_state {
                         state.record_tool_call(tool_name);
@@ -5652,7 +5652,7 @@ impl AgentEngine {
                             (tool_call_start.elapsed().as_millis() / tool_call_batch_size) as u64;
                         // W9 v0.6.3: capture the result snippet (first
                         // RESULT_SNIPPET_MAX bytes). `with_result_snippet`
-                        // self-gates on WAYLAND_TRACE_RESULT_SNIPPETS — when
+                        // self-gates on GENESIS_TRACE_RESULT_SNIPPETS — when
                         // the flag is off this is a no-op and `result_snippet`
                         // stays `None`. This is the real capture site the
                         // env gate now governs (previously the gated builder
@@ -5722,7 +5722,7 @@ impl AgentEngine {
                          arguments and produced the same result {count} times in a row — \
                          this is a no-progress loop. Change approach (different \
                          arguments/command, or a different tool) instead of repeating the \
-                         same call. (Tune or disable via WAYLAND_MAX_REPEATED_TOOL_CALLS.)"
+                         same call. (Tune or disable via GENESIS_MAX_REPEATED_TOOL_CALLS.)"
                     ),
                     false,
                 );
@@ -7188,7 +7188,7 @@ impl AgentEngine {
             // v0.9.1.1 F2: plugin-hook + rust-hook lifecycle log lines are
             // diagnostics, not user-facing messages. Re-emitting them as
             // `Info` produced transcript clutter like
-            // `[plugin-hook:wayland-ijfw:jfw_session_capture] post_tool_use fired for "WebFetch"`
+            // `[plugin-hook:genesis-ijfw:jfw_session_capture] post_tool_use fired for "WebFetch"`
             // on every turn. Route them to tracing so `/doctor` and log
             // files still see them, but the transcript stays clean.
             if is_hook_lifecycle_line(&line) {
@@ -7380,7 +7380,7 @@ impl AgentEngine {
         // (success = ≥1 tool call landed in recent_turn_traces, no
         // indication of engine error). Applies the Paraphrase mutator live
         // and persists the evolved system-prompt variant to
-        // `$WAYLAND_HOME/evolved/<id>.md`. Failure is non-fatal.
+        // `$GENESIS_HOME/evolved/<id>.md`. Failure is non-fatal.
         if self.online_evolution {
             self.fire_online_evolution().await;
         }
@@ -7410,7 +7410,7 @@ impl AgentEngine {
     /// `EvolutionEvent` so hosts can observe trajectories regardless.
     ///
     /// Persists the paraphrased system-prompt variant to
-    /// `$WAYLAND_HOME/evolved/<session_id>.md`. SkillRouter integration
+    /// `$GENESIS_HOME/evolved/<session_id>.md`. SkillRouter integration
     /// is deferred — the file is the integration point for now.
     ///
     /// Every failure branch logs at `warn` level and returns without
@@ -7495,7 +7495,7 @@ impl AgentEngine {
         // provider (formerly a no-op passthrough that wrote the prompt back
         // byte-identical). The engine's own `provider` + `model` drive the
         // rewrite, so the evolved variant reflects the session's live model.
-        let evolved_dir = wcore_config::config::wayland_config_dir().join("evolved");
+        let evolved_dir = wcore_config::config::genesis_config_dir().join("evolved");
         Self::paraphrase_and_persist(
             std::sync::Arc::clone(&self.provider),
             &self.model,
@@ -7511,7 +7511,7 @@ impl AgentEngine {
     /// [`LlmParaphraseProvider`] and persist the variant to
     /// `<evolved_dir>/<session_id>.md`. Split out of `fire_online_evolution`
     /// so it can be unit-tested with a mock `LlmProvider` against an explicit
-    /// directory (no `WAYLAND_HOME` process-env mutation).
+    /// directory (no `GENESIS_HOME` process-env mutation).
     ///
     /// Uses `paraphrase_async` (the async trait surface), NOT the sync
     /// `paraphrase_blocking` bridge — see the `fire_online_evolution` doc
@@ -7602,7 +7602,7 @@ impl AgentEngine {
     /// the session's plain-text messages, then hands it to
     /// [`AutoMemorize::run_session_end`]. That method is consent-gated
     /// internally — auto-memorize is OFF unless the user opts in via the
-    /// consent file (and `WAYLAND_AUTO_MEMORIZE=off` is the kill switch),
+    /// consent file (and `GENESIS_AUTO_MEMORIZE=off` is the kill switch),
     /// so when consent is absent this is a cheap no-op skip.
     ///
     /// The `run_session_end` `persist` closure is synchronous, but
@@ -8018,10 +8018,10 @@ mod v0_9_1_1_hook_lifecycle_filter_tests {
         // classifier here must catch every shape `fire_plugin_hooks`
         // emits so the engine routes them to `tracing::debug!` instead.
         assert!(is_hook_lifecycle_line(
-            "[plugin-hook:wayland-ijfw:jfw_session_summarize] on_session_end fired (turns: 1)"
+            "[plugin-hook:genesis-ijfw:jfw_session_summarize] on_session_end fired (turns: 1)"
         ));
         assert!(is_hook_lifecycle_line(
-            "[plugin-hook:wayland-ijfw:jfw_session_capture] post_tool_use fired for \"WebFetch\""
+            "[plugin-hook:genesis-ijfw:jfw_session_capture] post_tool_use fired for \"WebFetch\""
         ));
         // Rust-hook lifecycle (Block/ModifyInput ignored, etc.).
         assert!(is_hook_lifecycle_line(
@@ -8049,7 +8049,7 @@ mod v0_9_1_1_hook_lifecycle_filter_tests {
         assert!(is_hook_lifecycle_line("on_session_end fired (turns: 5)"));
         // The previous F2 prefixes still match.
         assert!(is_hook_lifecycle_line(
-            "[plugin-hook:wayland-ijfw:ijfw_observation_capture] post_tool_use fired for tool \"web\""
+            "[plugin-hook:genesis-ijfw:ijfw_observation_capture] post_tool_use fired for tool \"web\""
         ));
         // Lines that LOOK lifecycle-ish but aren't are still allowed
         // through (only the documented verbs match).
@@ -9265,7 +9265,7 @@ mod set_config_tests {
         // constructor seeds `rebind_system_prefix` from this; mirror that here.
         let boot_prompt = "## Constitution\nObey the rules.\n\n\
                            ## Skills\n- writer\n\n\
-                           ## Persona\nYou are Wayland.\n\n\
+                           ## Persona\nYou are Genesis.\n\n\
                            You are a helpful agent.";
         engine.system_prompt = boot_prompt.to_string();
         engine.rebind_system_prefix = Some(boot_prompt.to_string());
@@ -12195,7 +12195,7 @@ mod hook_integration_tests {
     }
 
     // ---- B7 (Rank 38): engine writer wired to the session state the
-    // `wayland_status` / `wayland_telemetry_query` tools read ---------------
+    // `genesis_status` / `genesis_telemetry_query` tools read ---------------
 
     #[test]
     fn b7_session_state_wiring_surfaces_nonzero_to_reader() {
@@ -12377,7 +12377,7 @@ mod hook_integration_tests {
 
     /// W3: when consent is NOT granted, `fire_auto_memorize` must not reach
     /// `assert_fact` even though the session messages carry extractable
-    /// facts. `WAYLAND_AUTO_MEMORIZE=off` is the hermetic kill switch.
+    /// facts. `GENESIS_AUTO_MEMORIZE=off` is the hermetic kill switch.
     #[tokio::test]
     #[serial_test::serial(env)]
     async fn w3_auto_memorize_skips_without_consent() {
@@ -12447,7 +12447,7 @@ mod hook_integration_tests {
         engine.messages = vec![Message::new(
             super::Role::Assistant,
             vec![super::ContentBlock::Text {
-                text: "wayland uses tokio".into(),
+                text: "genesis uses tokio".into(),
             }],
         )];
 
@@ -15283,7 +15283,7 @@ mod session_start_apply_tests {
             Arc::new(NullOutput),
         );
         engine.register_plugin_hooks(vec![PluginHook {
-            plugin: "wayland-ijfw".to_string(),
+            plugin: "genesis-ijfw".to_string(),
             phase: HookPhase::SessionStart,
             name: "ijfw_memory_prelude".to_string(),
         }]);
@@ -15508,7 +15508,7 @@ mod session_start_apply_tests {
             Arc::new(NullOutput),
         );
         engine.register_plugin_hooks(vec![PluginHook {
-            plugin: "wayland-ijfw".to_string(),
+            plugin: "genesis-ijfw".to_string(),
             phase: HookPhase::SessionStart,
             name: "ijfw_memory_prelude".to_string(),
         }]);
@@ -15759,15 +15759,15 @@ mod session_start_apply_tests {
     }
 }
 
-/// C1 / Task A4 — END-TO-END proof that the REAL `wayland-ijfw` plugin's
+/// C1 / Task A4 — END-TO-END proof that the REAL `genesis-ijfw` plugin's
 /// `SessionStart` hook (`ijfw_memory_prelude`) reaches a cold session's
 /// conversation as an untrusted User block, through the real C1 path
 /// (`register_plugin_hooks` → `set_hook_dispatcher(McpHookDispatcher)` →
 /// `run_session_start_hooks`).
 ///
-/// This test deliberately READS `wayland_ijfw::hooks::HOOKS` and
-/// `wayland_ijfw::mcp::SERVER_NAME` from the real plugin crate (a dev-only
-/// dependency edge — wayland-ijfw still depends ONLY on
+/// This test deliberately READS `genesis_ijfw::hooks::HOOKS` and
+/// `genesis_ijfw::mcp::SERVER_NAME` from the real plugin crate (a dev-only
+/// dependency edge — genesis-ijfw still depends ONLY on
 /// wcore-plugin-api/types/protocol per audit F2, so the edge is acyclic) so a
 /// rename on the plugin side breaks this proof rather than silently passing.
 #[cfg(test)]
@@ -15847,11 +15847,11 @@ mod ijfw_session_start_e2e_tests {
     /// Pull the SessionStart hook name out of the plugin's real HOOKS table so
     /// the test breaks if the plugin renames it.
     fn ijfw_session_start_hook_name() -> &'static str {
-        wayland_ijfw::hooks::HOOKS
+        genesis_ijfw::hooks::HOOKS
             .iter()
             .find(|(phase, _)| *phase == HookPhase::SessionStart)
             .map(|(_, name)| *name)
-            .expect("wayland-ijfw must register a SessionStart hook")
+            .expect("genesis-ijfw must register a SessionStart hook")
     }
 
     fn cold_engine_with_dispatcher(
@@ -15873,27 +15873,27 @@ mod ijfw_session_start_e2e_tests {
         engine
     }
 
-    // E2E — the real wayland-ijfw SessionStart hook, dispatched through the
+    // E2E — the real genesis-ijfw SessionStart hook, dispatched through the
     // real McpHookDispatcher against the real plugin server name, surfaces in a
     // cold conversation as exactly one untrusted User block carrying the
     // backend's payload, WITHOUT touching the system prompt.
     #[tokio::test]
     async fn ijfw_prelude_reaches_cold_session_as_untrusted_user_block() {
         let hook_name = ijfw_session_start_hook_name();
-        let server_name = wayland_ijfw::mcp::SERVER_NAME;
+        let server_name = genesis_ijfw::mcp::SERVER_NAME;
 
         let caller = Arc::new(FakeIjfwServer {
             server: server_name.to_string(),
             prelude_tool: hook_name.to_string(),
         });
         let mut server_for_plugin = HashMap::new();
-        server_for_plugin.insert("wayland-ijfw".to_string(), server_name.to_string());
+        server_for_plugin.insert("genesis-ijfw".to_string(), server_name.to_string());
         let dispatcher = Arc::new(McpHookDispatcher::new(caller, server_for_plugin));
 
         let mut engine = cold_engine_with_dispatcher(
             dispatcher,
             vec![PluginHook {
-                plugin: "wayland-ijfw".to_string(),
+                plugin: "genesis-ijfw".to_string(),
                 phase: HookPhase::SessionStart,
                 name: hook_name.to_string(),
             }],
@@ -15924,7 +15924,7 @@ mod ijfw_session_start_e2e_tests {
             "prelude must carry the backend payload: {text}"
         );
         assert!(
-            text.contains(&format!("source=\"wayland-ijfw:{hook_name}\"")),
+            text.contains(&format!("source=\"genesis-ijfw:{hook_name}\"")),
             "prelude must record the real ijfw provenance: {text}"
         );
         assert_eq!(
@@ -15939,15 +15939,15 @@ mod ijfw_session_start_e2e_tests {
     #[tokio::test]
     async fn unmapped_plugin_contributes_nothing() {
         let hook_name = ijfw_session_start_hook_name();
-        let server_name = wayland_ijfw::mcp::SERVER_NAME;
+        let server_name = genesis_ijfw::mcp::SERVER_NAME;
 
         let caller = Arc::new(FakeIjfwServer {
             server: server_name.to_string(),
             prelude_tool: hook_name.to_string(),
         });
-        // Map only "wayland-ijfw"; register the hook under a DIFFERENT plugin.
+        // Map only "genesis-ijfw"; register the hook under a DIFFERENT plugin.
         let mut server_for_plugin = HashMap::new();
-        server_for_plugin.insert("wayland-ijfw".to_string(), server_name.to_string());
+        server_for_plugin.insert("genesis-ijfw".to_string(), server_name.to_string());
         let dispatcher = Arc::new(McpHookDispatcher::new(caller, server_for_plugin));
 
         let mut engine = cold_engine_with_dispatcher(

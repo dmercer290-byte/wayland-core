@@ -1,14 +1,14 @@
 //! S9 — BashTool routes all 4 execute paths through the sandbox backend.
 //!
 //! These tests exercise BashTool with the `NoSandboxBackend` active
-//! (`WAYLAND_SANDBOX=none`) and assert that every execute path —
+//! (`GENESIS_SANDBOX=none`) and assert that every execute path —
 //! `execute`, `execute_streaming`, `execute_with_ctx`,
 //! `execute_streaming_with_ctx` — produces the same observable output it
 //! produced before S9. The four paths funnel through
 //! `SandboxBackend::execute` / `SandboxBackend::execute_streaming`; if any
 //! one were not routed it would be a sandbox-escape hole (audit B-C1).
 //!
-//! `WAYLAND_SANDBOX` is process-global, so every test in this file is
+//! `GENESIS_SANDBOX` is process-global, so every test in this file is
 //! serialized with `#[serial]` and sets the env var itself.
 
 use std::sync::Mutex;
@@ -22,10 +22,10 @@ use wcore_tools::{Tool, ToolOutputSink};
 /// Force the NoSandbox backend so behaviour is byte-identical to the
 /// pre-S9 direct-exec path, regardless of what the host platform has.
 ///
-/// `WAYLAND_SANDBOX=none` selects the NoSandbox backend, but the security
+/// `GENESIS_SANDBOX=none` selects the NoSandbox backend, but the security
 /// hardening makes that backend *refuse to run* ("sandbox UNAVAILABLE and
 /// unsandboxed execution is not permitted") unless the operator explicitly
-/// accepts running with no isolation via `WAYLAND_ALLOW_NO_SANDBOX=1`. These
+/// accepts running with no isolation via `GENESIS_ALLOW_NO_SANDBOX=1`. These
 /// are routing tests (do all 4 execute paths funnel through the backend?),
 /// not isolation tests, so the no-isolation opt-in is exactly the intended
 /// way to exercise the NoSandbox path — set both.
@@ -33,8 +33,8 @@ fn force_no_sandbox() {
     // SAFETY: test-only env mutation; every test in this file is
     // `#[serial]` so no other thread races this write.
     unsafe {
-        std::env::set_var("WAYLAND_SANDBOX", "none");
-        std::env::set_var("WAYLAND_ALLOW_NO_SANDBOX", "1");
+        std::env::set_var("GENESIS_SANDBOX", "none");
+        std::env::set_var("GENESIS_ALLOW_NO_SANDBOX", "1");
     }
 }
 
@@ -332,7 +332,7 @@ async fn denylist_still_refuses_before_sandbox_dispatch() {
 
 // ── Task 8 — exec-time capability gate ────────────────────────────────────────
 //
-// With `WAYLAND_SANDBOX=none` + `WAYLAND_ALLOW_NO_SANDBOX=1`, the active
+// With `GENESIS_SANDBOX=none` + `GENESIS_ALLOW_NO_SANDBOX=1`, the active
 // backend is `NoSandboxBackend`, which returns `enforces_read_deny()=false`.
 // A ctx carrying a `Contained` workspace policy must therefore be refused
 // at exec time — the TOCTOU-free boundary in bash.rs.

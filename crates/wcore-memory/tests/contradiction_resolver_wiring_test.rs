@@ -1,6 +1,6 @@
 //! v0.6.4 Task 6.6d — semantic.rs::assert wiring with ContradictionResolver.
 //!
-//! Covers all three resolver verdicts when the `WAYLAND_CONTRADICTION` env
+//! Covers all three resolver verdicts when the `GENESIS_CONTRADICTION` env
 //! var is set: Supersede, KeepExisting, Coexist. Also covers the
 //! default-off behaviour (env unset → existing supersedes path runs).
 //!
@@ -9,7 +9,7 @@
 //!   - KeepExisting: existing=0.95, new=0.20 (adjusted_new=0.24, diff≥0.1)
 //!   - Coexist:      existing=0.85, new=0.70 (adjusted_new=0.84, diff<0.1)
 //!
-//! Tests serialise on a Mutex because `WAYLAND_CONTRADICTION` is a
+//! Tests serialise on a Mutex because `GENESIS_CONTRADICTION` is a
 //! process-wide env var.
 
 use std::sync::{Arc, OnceLock};
@@ -21,7 +21,7 @@ use wcore_memory::embed::HashedEmbedder;
 use wcore_memory::partition::SemanticPartition;
 use wcore_memory::v2_types::{Fact, FactId, Tier};
 
-const ENV_KEY: &str = "WAYLAND_CONTRADICTION";
+const ENV_KEY: &str = "GENESIS_CONTRADICTION";
 
 // tokio::sync::Mutex so the guard can be held across .await points
 // (clippy::await_holding_lock fires on std::sync::Mutex).

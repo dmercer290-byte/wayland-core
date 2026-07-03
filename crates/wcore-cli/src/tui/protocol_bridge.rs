@@ -776,7 +776,7 @@ fn apply_event_inner(app: &mut App, event: ProtocolEvent) {
             // implies a crash. Map known internal classes to a clean
             // user-facing label; route the full class + message to
             // tracing so the log file still carries the diagnostic
-            // signal for `/doctor` / `~/.wayland/logs`. Unknown codes
+            // signal for `/doctor` / `~/.genesis/logs`. Unknown codes
             // fall back to the raw chip so a new error class shows up
             // in the rail rather than vanishing silently.
             tracing::debug!(
@@ -1106,7 +1106,7 @@ fn capture_turn_checkpoint(app: &mut App) {
 /// raw chip — a new error class added in a future patch shows up in
 /// the rail rather than disappearing silently. The full class +
 /// message is still routed to `tracing::debug!` at the call site, so
-/// the log file (`~/.wayland/logs/wayland-core.log`) carries the
+/// the log file (`~/.genesis/logs/genesis-core.log`) carries the
 /// internal name for `/doctor` / operator diagnosis.
 fn error_class_label(code: &str) -> Option<&'static str> {
     match code {

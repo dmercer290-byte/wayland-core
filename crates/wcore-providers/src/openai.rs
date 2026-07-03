@@ -222,7 +222,7 @@ impl OpenAIProvider {
     /// strict-reasoner "must replay reasoning_content" contract is a per-MODEL
     /// requirement, but a router provider's static compat has the flag off, so a
     /// DeepSeek/Kimi turn routed through Flux/OpenRouter would drop the history's
-    /// reasoning_content and 400 (wayland#417). When the target model requires
+    /// reasoning_content and 400 (genesis#417). When the target model requires
     /// replay, force the flag on for this request only; otherwise return the base
     /// compat unchanged, so a non-strict model (e.g. claude-via-Flux) never
     /// replays an unsigned thinking block. Direct DeepSeek/Kimi already set the
@@ -380,7 +380,7 @@ impl OpenAIProvider {
                                 // providers that emitted it and tolerate the
                                 // round-trip; strict OpenAI-compat endpoints
                                 // (Fireworks / GLM-5 via Flux) 400 on it during
-                                // long-context replay (wayland-core#120).
+                                // long-context replay (genesis-core#120).
                                 if compat.emit_tool_call_extra_content()
                                     && let Some(extra_val) = extra
                                 {
@@ -780,7 +780,7 @@ impl OpenAIProvider {
 /// `Authorization` header, so any non-empty value works. Sending this lets a
 /// keyless local connection succeed instead of failing the turn with
 /// `MissingApiKey` (surfaced in the UI as "OpenAI API key is required").
-const SELF_HOSTED_PLACEHOLDER_KEY: &str = "wayland-local";
+const SELF_HOSTED_PLACEHOLDER_KEY: &str = "genesis-local";
 
 /// True when `base_url`'s host is a self-hosted address that is plausibly
 /// keyless: loopback (`localhost`, `127.0.0.0/8`, `::1`), unspecified
@@ -4049,11 +4049,11 @@ mod tests {
         assert_eq!(tool_msgs.len(), 2);
     }
 
-    // --- outbound extra_content stripping (wayland-core#120) ---
+    // --- outbound extra_content stripping (genesis-core#120) ---
 
     #[test]
     fn test_tool_call_extra_content_stripped_for_strict_provider() {
-        // wayland-core#120: the internal extra_content blob (captured from an
+        // genesis-core#120: the internal extra_content blob (captured from an
         // inbound tool_calls[].extra_content, e.g. Gemini's google.thought
         // marker) must NOT be echoed onto outbound tool_calls for providers
         // that reject unknown fields. On long-context replay, strict

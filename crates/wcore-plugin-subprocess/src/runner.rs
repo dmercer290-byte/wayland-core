@@ -132,8 +132,8 @@ pub const CRASH_THRESHOLD: u8 = 3;
 
 /// Minimal env vars forwarded to subprocess plugin child processes after
 /// [`std::process::Command::env_clear`]. Everything else — including
-/// `OPENAI_API_KEY`, `WAYLAND_VAULT_*`, `ANTHROPIC_*`, etc. — is withheld
-/// (`WAYLAND_HOME` is an intentional exception below, forwarded so the child
+/// `OPENAI_API_KEY`, `GENESIS_VAULT_*`, `ANTHROPIC_*`, etc. — is withheld
+/// (`GENESIS_HOME` is an intentional exception below, forwarded so the child
 /// resolves the same isolated profile — C3; the vault secret stays withheld).
 /// Kept minimal: just enough for CLI tools to locate executables and
 /// behave correctly under different locales on every supported OS.
@@ -160,9 +160,9 @@ pub(crate) const FORWARDED_ENV_VARS: &[&str] = &[
     "TMPDIR",
     // C3: the isolated-profile home. Engine-controlled children must resolve the
     // SAME profile as the parent — without this they fall back to the default
-    // ~/.wayland (cross-profile leak). Non-secret path; the vault passphrase
-    // (WAYLAND_VAULT_*) is never forwarded.
-    "WAYLAND_HOME",
+    // ~/.genesis (cross-profile leak). Non-secret path; the vault passphrase
+    // (GENESIS_VAULT_*) is never forwarded.
+    "GENESIS_HOME",
     // Windows essentials
     "SYSTEMROOT",
     "WINDIR",
@@ -988,7 +988,7 @@ mod tests {
     /// env_clear() — secret vars must NOT reach the child process.
     ///
     /// Spawns a real `/bin/sh` child and prints the value of
-    /// `WAYLAND_TEST_SECRET_VAR`. Because `spawn_binary` calls
+    /// `GENESIS_TEST_SECRET_VAR`. Because `spawn_binary` calls
     /// `Command::env_clear()` before forwarding the allowlist, the child
     /// sees an empty string for any var not in `FORWARDED_ENV_VARS`.
     #[cfg(unix)]
@@ -998,12 +998,12 @@ mod tests {
         use tokio::io::AsyncReadExt;
 
         // Plant a secret in the engine's env.
-        let secret_var = "WAYLAND_TEST_SECRET_VAR";
+        let secret_var = "GENESIS_TEST_SECRET_VAR";
         let secret_val = "should-not-leak";
         // SAFETY: single-threaded test context; no concurrent env mutation.
         unsafe { std::env::set_var(secret_var, secret_val) };
 
-        // Spawn `sh -c 'printf "%s" "$WAYLAND_TEST_SECRET_VAR"'` via
+        // Spawn `sh -c 'printf "%s" "$GENESIS_TEST_SECRET_VAR"'` via
         // spawn_binary so the env_clear path is exercised.
         // Note: spawn_binary moves stdout into TransportSpawn.stdout, not the
         // child handle — read from result.stdout, not result.child.stdout.
@@ -1065,23 +1065,23 @@ mod tests {
         unsafe { std::env::remove_var(secret_var) };
     }
 
-    /// C3: WAYLAND_HOME is forwarded so an engine-spawned child resolves the
+    /// C3: GENESIS_HOME is forwarded so an engine-spawned child resolves the
     /// SAME isolated profile as the parent. Spawns a real `/bin/sh` that prints
-    /// $WAYLAND_HOME and asserts the child sees the parent's value.
+    /// $GENESIS_HOME and asserts the child sees the parent's value.
     #[cfg(unix)]
     #[tokio::test]
-    async fn subprocess_forwards_wayland_home() {
+    async fn subprocess_forwards_genesis_home() {
         use std::path::Path;
         use tokio::io::AsyncReadExt;
 
         // SAFETY: single-threaded serial test context; no concurrent env mutation.
-        unsafe { std::env::set_var("WAYLAND_HOME", "/tmp/isolated-profile-c3") };
+        unsafe { std::env::set_var("GENESIS_HOME", "/tmp/isolated-profile-c3") };
 
         let mut result = super::spawn_binary(
             Path::new("/bin/sh"),
             &[
                 "-c".to_string(),
-                "printf '%s' \"$WAYLAND_HOME\"".to_string(),
+                "printf '%s' \"$GENESIS_HOME\"".to_string(),
             ],
         )
         .await
@@ -1094,11 +1094,11 @@ mod tests {
         }
 
         // SAFETY: single-threaded serial test context.
-        unsafe { std::env::remove_var("WAYLAND_HOME") };
+        unsafe { std::env::remove_var("GENESIS_HOME") };
 
         assert_eq!(
             stdout_buf, "/tmp/isolated-profile-c3",
-            "child must inherit the parent's WAYLAND_HOME (C3)"
+            "child must inherit the parent's GENESIS_HOME (C3)"
         );
     }
 
@@ -1109,7 +1109,7 @@ mod tests {
         assert!(FORWARDED_ENV_VARS.contains(&"USER"));
         assert!(FORWARDED_ENV_VARS.contains(&"LANG"));
         // C3 profile propagation.
-        assert!(FORWARDED_ENV_VARS.contains(&"WAYLAND_HOME"));
+        assert!(FORWARDED_ENV_VARS.contains(&"GENESIS_HOME"));
     }
 
     /// Audit rel-panic-68/M-21: the stdout reader must NOT buffer an unbounded
@@ -1226,7 +1226,7 @@ mod tests {
         use std::path::Path;
         use tokio::io::AsyncReadExt;
 
-        let secret_var = "WAYLAND_TEST_SECRET_VAR_WIN";
+        let secret_var = "GENESIS_TEST_SECRET_VAR_WIN";
         let secret_val = "should-not-leak-windows";
         // SAFETY: single-threaded test context.
         unsafe { std::env::set_var(secret_var, secret_val) };

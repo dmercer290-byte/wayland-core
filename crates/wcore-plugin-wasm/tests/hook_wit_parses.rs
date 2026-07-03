@@ -1,7 +1,7 @@
 //! Validate hook WIT syntax (Task 2.3).
 //!
 //! Resolves the whole `wit/` directory because `hook.wit` shares its
-//! `wayland:host@1.0.0` package decl with `wayland-host.wit` (single package
+//! `genesis:host@1.0.0` package decl with `genesis-host.wit` (single package
 //! decl rule, see wit-parser docs).
 #[test]
 fn hook_wit_parses() {

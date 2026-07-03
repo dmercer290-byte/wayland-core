@@ -13,7 +13,7 @@
 //!
 //! ## Hermetic by construction
 //!
-//! Mirrors the smoke harness: every child points `WAYLAND_HOME` + `HOME` at a
+//! Mirrors the smoke harness: every child points `GENESIS_HOME` + `HOME` at a
 //! throwaway tempdir and strips the full provider-credential env set, so a run
 //! can neither read nor mutate the developer's real config/keys. The mock
 //! provider scripts a `Write` tool call so no real provider is contacted.
@@ -30,7 +30,7 @@ use tempfile::TempDir;
 
 /// Path to the debug binary under test (Cargo wires this env var).
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_wayland-core")
+    env!("CARGO_BIN_EXE_genesis-core")
 }
 
 /// The provider-credential env-var set every spawned child must NOT inherit,
@@ -56,10 +56,10 @@ const STRIPPED_PROVIDER_ENV: &[&str] = &[
     "GOOGLE_APPLICATION_CREDENTIALS",
 ];
 
-/// Apply the hermetic child env uniformly: point `WAYLAND_HOME` + `HOME` at the
+/// Apply the hermetic child env uniformly: point `GENESIS_HOME` + `HOME` at the
 /// throwaway tempdir, set a deterministic `TERM`, and strip every credential.
 fn harden_child_env(cmd: &mut std::process::Command, home: &Path) {
-    cmd.env("WAYLAND_HOME", home)
+    cmd.env("GENESIS_HOME", home)
         .env("HOME", home)
         .env("TERM", "dumb");
     for key in STRIPPED_PROVIDER_ENV {

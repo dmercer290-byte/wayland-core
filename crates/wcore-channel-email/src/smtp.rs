@@ -217,7 +217,7 @@ pub(crate) fn make_outbound_message_id(from: &str) -> String {
         .rsplit_once('@')
         .map(|(_, d)| d.trim().trim_end_matches('>'))
         .filter(|d| !d.is_empty())
-        .unwrap_or("wayland.invalid");
+        .unwrap_or("genesis.invalid");
     format!("wl-{nanos:x}-{seq:x}@{domain}")
 }
 
@@ -266,7 +266,7 @@ pub(crate) fn build_message(
         // otherwise the relay assigns it and we never learn the value). The
         // send path records this id so the IMAP poll task can recognize the
         // channel's own mail if it echoes back into the monitored mailbox and
-        // mark it `is_self` — breaking the wayland#547 self-reply loop.
+        // mark it `is_self` — breaking the genesis#547 self-reply loop.
         .message_id(Some(format!("<{}>", make_outbound_message_id(from))));
 
     if let Some(r) = reply {
@@ -581,7 +581,7 @@ mod tests {
         }
     }
 
-    // ----- wayland#547 loop guard: outbound Message-ID stamping -----
+    // ----- genesis#547 loop guard: outbound Message-ID stamping -----
 
     #[test]
     fn build_message_stamps_extractable_message_id() {
@@ -609,7 +609,7 @@ mod tests {
     #[test]
     fn outbound_message_id_domain_falls_back_when_from_has_no_at() {
         let id = make_outbound_message_id("garbage");
-        assert!(id.ends_with("@wayland.invalid"), "id = {id}");
+        assert!(id.ends_with("@genesis.invalid"), "id = {id}");
     }
 
     #[test]

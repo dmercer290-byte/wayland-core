@@ -88,7 +88,7 @@ fn plugin_tool_is_registered_into_the_tool_registry() {
     let mut outcome = InitializeOutcome::default();
     outcome
         .tools
-        .push(captured("wayland-toolful", "fixture_echo"));
+        .push(captured("genesis-toolful", "fixture_echo"));
 
     let mut registry = ToolRegistry::new();
     let _applied = apply_initialize_outcome(
@@ -109,7 +109,7 @@ async fn registered_plugin_tool_runs_its_closure() {
     let mut outcome = InitializeOutcome::default();
     outcome
         .tools
-        .push(captured("wayland-toolful", "fixture_echo"));
+        .push(captured("genesis-toolful", "fixture_echo"));
 
     let mut registry = ToolRegistry::new();
     let _applied = apply_initialize_outcome(
@@ -296,7 +296,7 @@ fn plugin_rule_reaches_the_system_prompt() {
         let mut o = InitializeOutcome::default();
         o.rules.push(RuleSpec {
             name: "wiring-rule".into(),
-            content: "WAYLAND_TASK_1_7_RULE_MARKER must appear".into(),
+            content: "GENESIS_TASK_1_7_RULE_MARKER must appear".into(),
             scope: RuleScope::Universal,
         });
         o
@@ -326,7 +326,7 @@ fn plugin_rule_reaches_the_system_prompt() {
     );
 
     assert!(
-        prompt.contains("WAYLAND_TASK_1_7_RULE_MARKER"),
+        prompt.contains("GENESIS_TASK_1_7_RULE_MARKER"),
         "the plugin rule content must reach the assembled system prompt"
     );
 }

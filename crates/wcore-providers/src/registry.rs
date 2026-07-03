@@ -35,11 +35,11 @@ pub enum RegistryError {
 
 /// Default in-memory implementation of ProviderRegistry.
 #[derive(Default)]
-pub struct WaylandProviderRegistry {
+pub struct GenesisProviderRegistry {
     providers: HashMap<String, ProviderFactory>,
 }
 
-impl WaylandProviderRegistry {
+impl GenesisProviderRegistry {
     pub fn new() -> Self {
         Self::default()
     }
@@ -52,7 +52,7 @@ impl WaylandProviderRegistry {
     }
 }
 
-impl ProviderRegistry for WaylandProviderRegistry {
+impl ProviderRegistry for GenesisProviderRegistry {
     fn register(&mut self, id: &str, factory: ProviderFactory) -> Result<(), RegistryError> {
         if id.trim().is_empty() {
             return Err(RegistryError::EmptyId);
@@ -104,14 +104,14 @@ mod tests {
 
     #[test]
     fn register_then_get() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         r.register("dummy", dummy_factory()).unwrap();
         assert!(r.get("dummy").is_some());
     }
 
     #[test]
     fn empty_id_rejected() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         assert_eq!(r.register("", dummy_factory()), Err(RegistryError::EmptyId));
         assert_eq!(
             r.register("   ", dummy_factory()),
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn duplicate_id_rejected() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         r.register("dup", dummy_factory()).unwrap();
         assert_eq!(
             r.register("dup", dummy_factory()),
@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn list_ids_sorted() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         r.register("zeta", dummy_factory()).unwrap();
         r.register("alpha", dummy_factory()).unwrap();
         r.register("mu", dummy_factory()).unwrap();
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn remove_returns_true_if_present() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         r.register("rem", dummy_factory()).unwrap();
         assert!(r.remove("rem"));
         assert!(!r.remove("rem"));
@@ -148,13 +148,13 @@ mod tests {
 
     #[test]
     fn get_returns_none_for_unknown() {
-        let r = WaylandProviderRegistry::new();
+        let r = GenesisProviderRegistry::new();
         assert!(r.get("never_registered").is_none());
     }
 
     #[test]
     fn len_tracks_registrations() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         assert_eq!(r.len(), 0);
         r.register("a", dummy_factory()).unwrap();
         r.register("b", dummy_factory()).unwrap();
@@ -171,7 +171,7 @@ mod tests {
             count_clone.fetch_add(1, Ordering::SeqCst);
             Arc::new(DummyProvider) as Arc<dyn LlmProvider>
         });
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         r.register("counted", factory).unwrap();
         let _ = r.get("counted");
         let _ = r.get("counted");

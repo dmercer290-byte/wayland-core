@@ -1043,7 +1043,7 @@ mod windows_impl {
                     target: "wcore_sandbox",
                     exit_code = out.exit_code,
                     "AppContainer real-spawn probe completed but exit code non-zero; \
-                     sandbox disabled. WAYLAND_SANDBOX_LIVE_WINDOWS spawn may also fail."
+                     sandbox disabled. GENESIS_SANDBOX_LIVE_WINDOWS spawn may also fail."
                 );
                 false
             }
@@ -1101,8 +1101,8 @@ mod windows_impl {
         unsafe {
             // ---- 1. AppContainer SID ----
             let name = profile_name_w();
-            let display = widen("Wayland-Core Sandbox");
-            let desc = widen("Sandboxed tool execution for Wayland-Core");
+            let display = widen("Genesis-Core Sandbox");
+            let desc = widen("Sandboxed tool execution for Genesis-Core");
             let mut sid_ptr: *mut core::ffi::c_void = ptr::null_mut();
             let create_hr = CreateAppContainerProfile(
                 name.as_ptr(),
@@ -2192,7 +2192,7 @@ mod windows_impl {
             // paths on Windows (issue #267: a USB drive canonicalizes to
             // `\\?\E:\...`). These must be accepted, not rejected as UNC.
             assert!(acl_path_is_safe(std::path::Path::new(
-                r"\\?\E:\AIWorkspace\Wayland\wcore-temp-1782166469597"
+                r"\\?\E:\AIWorkspace\Genesis\wcore-temp-1782166469597"
             )));
             assert!(acl_path_is_safe(std::path::Path::new(
                 r"\\?\C:\Users\Public\work"
@@ -2527,7 +2527,7 @@ mod windows_impl {
         /// env var so the matrix exercises this path.
         #[tokio::test]
         async fn echo_runs_live() {
-            if std::env::var("WAYLAND_SANDBOX_LIVE_WINDOWS").is_err() {
+            if std::env::var("GENESIS_SANDBOX_LIVE_WINDOWS").is_err() {
                 return;
             }
             let b = AppContainerBackend::new();

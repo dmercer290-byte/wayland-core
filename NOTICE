@@ -1,5 +1,10 @@
-Wayland Core
-Copyright 2026 Ferrox Labs
+Genesis
+Copyright 2026 the Genesis contributors
+
+This product is a derivative work of Wayland Core
+(https://github.com/FerroxLabs/wayland-core), Copyright 2026 Ferrox Labs,
+licensed under the Apache License, Version 2.0. The product
+name has been changed from "Wayland" to "Genesis" in this fork.
 
 This product includes software developed as a derivative work of aionrs
 (https://github.com/iOfficeAI/aionrs), Copyright the aionrs / iOfficeAI

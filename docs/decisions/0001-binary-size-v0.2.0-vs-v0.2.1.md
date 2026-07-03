@@ -10,7 +10,7 @@ Built `wcore-cli` release on macOS aarch64 (`darwin-arm64`), main + Z0 worktree,
 
 | Build | Profile | Binary size | Delta |
 |---|---|---|---|
-| `main @ 071c410` (v0.2.0-wayland-base) | default release (no explicit `[profile.release]`) | **23 MB** | baseline |
+| `main @ 071c410` (v0.2.0-genesis-base) | default release (no explicit `[profile.release]`) | **23 MB** | baseline |
 | `feat/wcore-Z0-build-infra` | `[profile.release]` with `lto = "thin"` + `codegen-units = 1` + `strip = "debuginfo"` | **19 MB** | **-4 MB (~17% smaller)** |
 
 Build wall-clock time increased from 26s (baseline incremental) → 70s (Z0 clean), an expected tradeoff from `codegen-units = 1` + thin LTO. The penalty applies to release builds only; debug/test builds unaffected.
@@ -38,11 +38,11 @@ If a future profile needs `panic = "abort"` (e.g. a separate "embedded" or "fail
 cd <engine-root>
 git checkout main
 vx cargo build --release -p wcore-cli
-ls -lh target/release/wayland-core  # ~23 MB
+ls -lh target/release/genesis-core  # ~23 MB
 
 git checkout feat/wcore-Z0-build-infra
 vx cargo build --release -p wcore-cli
-ls -lh target/release/wayland-core  # ~19 MB
+ls -lh target/release/genesis-core  # ~19 MB
 ```
 
 ## Future work

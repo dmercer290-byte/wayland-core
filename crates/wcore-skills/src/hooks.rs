@@ -39,8 +39,8 @@ pub fn parse_skill_hooks(
         return None;
     }
 
-    // GHSA-8r7g H-1: a `Project` skill (`.wayland-core/skills/`) or a `Legacy`
-    // command (`.wayland-core/commands/`) travels with a cloned repo, so its
+    // GHSA-8r7g H-1: a `Project` skill (`.genesis-core/skills/`) or a `Legacy`
+    // command (`.genesis-core/commands/`) travels with a cloned repo, so its
     // frontmatter hooks — which run as child processes at first tool use — are
     // arbitrary code execution from untrusted repo content. Gate them behind the
     // SAME operator opt-in as project *config* hooks (`[hooks] trust_project_hooks`
@@ -394,8 +394,8 @@ mod tests {
                 "operator-provisioned source {source:?} must run its hooks"
             );
         }
-        // A Project skill (`.wayland-core/skills/`) or a Legacy command
-        // (`.wayland-core/commands/`) travels with a cloned repo: its hooks are
+        // A Project skill (`.genesis-core/skills/`) or a Legacy command
+        // (`.genesis-core/commands/`) travels with a cloned repo: its hooks are
         // arbitrary code execution and MUST be default-denied, then run only
         // with the operator's global opt-in.
         for source in [SkillSource::Project, SkillSource::Legacy] {

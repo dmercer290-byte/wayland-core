@@ -1922,7 +1922,7 @@ mod tests {
 
     /// #133 — for a PARALLEL tool batch driven through the approval gate,
     /// every call must emit tool_request, tool_running, and tool_result with
-    /// the SAME call_id as the originating ToolUse block. Hosts (the Wayland
+    /// the SAME call_id as the originating ToolUse block. Hosts (the Genesis
     /// desktop) merge tool cards strictly by call_id: any divergence leaves a
     /// card in "Executing" forever (desktop #486).
     #[tokio::test]

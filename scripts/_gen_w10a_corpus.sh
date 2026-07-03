@@ -45,7 +45,7 @@ write_cheap_trace () {
   "cost_usd": 0.0012,
   "tool_calls": [],
   "hook_actions": [],
-  "source_product": "wayland-core"
+  "source_product": "genesis-core"
 }
 JSON
 }
@@ -68,7 +68,7 @@ write_expensive_trace () {
   "cost_usd": 0.95,
   "tool_calls": [],
   "hook_actions": [],
-  "source_product": "wayland-core"
+  "source_product": "genesis-core"
 }
 JSON
 }

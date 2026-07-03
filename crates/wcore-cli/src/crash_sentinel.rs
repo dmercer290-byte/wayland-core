@@ -1,6 +1,6 @@
 //! T1-E2: Dirty-death flag for crash detection.
 //!
-//! Writes a file at `$WAYLAND_HOME/.dirty-death` on startup and removes it on
+//! Writes a file at `$GENESIS_HOME/.dirty-death` on startup and removes it on
 //! clean shutdown via `Drop`. If the flag is present at next startup, the
 //! previous run crashed or was killed without unwinding — surface a warning so
 //! observability/telemetry can correlate. During a panic the `Drop` guard
@@ -14,14 +14,14 @@
 
 use std::path::{Path, PathBuf};
 
-/// Filename of the flag written under `$WAYLAND_HOME`.
+/// Filename of the flag written under `$GENESIS_HOME`.
 const FLAG_FILE: &str = ".dirty-death";
 
-/// Environment variable that overrides the default wayland home directory.
-const WAYLAND_HOME_ENV: &str = "WAYLAND_HOME";
+/// Environment variable that overrides the default genesis home directory.
+const GENESIS_HOME_ENV: &str = "GENESIS_HOME";
 
-/// Subdirectory of `$HOME` used when `WAYLAND_HOME` is unset.
-const WAYLAND_HOME_DIRNAME: &str = ".wayland";
+/// Subdirectory of `$HOME` used when `GENESIS_HOME` is unset.
+const GENESIS_HOME_DIRNAME: &str = ".genesis";
 
 /// RAII guard for the dirty-death flag. Holding a `CrashSentinel` means the
 /// flag is on disk. Dropping it (cleanly, not during a panic) removes the flag.
@@ -31,14 +31,14 @@ pub struct CrashSentinel {
 }
 
 impl CrashSentinel {
-    /// Resolve the default flag path, honoring `WAYLAND_HOME` when set, else
-    /// `$HOME/.wayland/.dirty-death`, with a final fallback to `./.wayland/`
+    /// Resolve the default flag path, honoring `GENESIS_HOME` when set, else
+    /// `$HOME/.genesis/.dirty-death`, with a final fallback to `./.genesis/`
     /// when no home directory can be determined.
     pub fn default_path() -> PathBuf {
-        let home = std::env::var_os(WAYLAND_HOME_ENV)
+        let home = std::env::var_os(GENESIS_HOME_ENV)
             .map(PathBuf::from)
-            .or_else(|| dirs::home_dir().map(|h| h.join(WAYLAND_HOME_DIRNAME)))
-            .unwrap_or_else(|| PathBuf::from("./.wayland"));
+            .or_else(|| dirs::home_dir().map(|h| h.join(GENESIS_HOME_DIRNAME)))
+            .unwrap_or_else(|| PathBuf::from("./.genesis"));
         home.join(FLAG_FILE)
     }
 
@@ -216,18 +216,18 @@ mod tests {
 
     #[test]
     #[serial(env)]
-    fn default_path_honors_wayland_home_env() {
+    fn default_path_honors_genesis_home_env() {
         let dir = TempDir::new().unwrap();
         // R3-B2: gated under `serial_test`'s `env` group to prevent
         // racing with any other env-mutating test in the binary.
         // SAFETY: `set_var` is unsafe on 1.83+ per the new contract; this is a
         // test-only single-threaded usage (enforced by `#[serial(env)]`).
         unsafe {
-            std::env::set_var(WAYLAND_HOME_ENV, dir.path());
+            std::env::set_var(GENESIS_HOME_ENV, dir.path());
         }
         let resolved = CrashSentinel::default_path();
         unsafe {
-            std::env::remove_var(WAYLAND_HOME_ENV);
+            std::env::remove_var(GENESIS_HOME_ENV);
         }
 
         assert_eq!(resolved, dir.path().join(FLAG_FILE));

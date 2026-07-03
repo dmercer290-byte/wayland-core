@@ -1,6 +1,6 @@
 //! T3-3.8 (sub-wave 8): Piper voice + binary downloader (HELPER).
 //!
-//! Ported from the prior Wayland Python engine.
+//! Ported from the prior Genesis Python engine.
 //!
 //! The Python original performs three jobs:
 //!

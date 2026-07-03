@@ -2,8 +2,8 @@
 
 {{description}}
 
-A Wayland WASM tool plugin. Built as a [WebAssembly Component](https://component-model.bytecodealliance.org/)
-that exports the `wayland:host/tool` WIT interface.
+A Genesis WASM tool plugin. Built as a [WebAssembly Component](https://component-model.bytecodealliance.org/)
+that exports the `genesis:host/tool` WIT interface.
 
 ## Toolchain
 
@@ -22,13 +22,13 @@ cargo component build --release
 ## Install
 
 ```bash
-mkdir -p ~/.wayland/plugins/{{project-name}}
-cp plugin.toml ~/.wayland/plugins/{{project-name}}/
+mkdir -p ~/.genesis/plugins/{{project-name}}
+cp plugin.toml ~/.genesis/plugins/{{project-name}}/
 cp target/wasm32-wasip1/release/{{project-name}}.wasm \
-   ~/.wayland/plugins/{{project-name}}/
+   ~/.genesis/plugins/{{project-name}}/
 ```
 
-The engine scans `~/.wayland/plugins/` at startup and loads any directory
+The engine scans `~/.genesis/plugins/` at startup and loads any directory
 that contains a `plugin.toml` with `[runtime] kind = "wasm"`.
 
 ## Signing (production)
@@ -38,11 +38,11 @@ For production:
 
 ```bash
 # Generate sig (ed25519 over component bytes)
-wayland plugin sign --key ~/.wayland/signing-key ~/.wayland/plugins/{{project-name}}/
+genesis plugin sign --key ~/.genesis/signing-key ~/.genesis/plugins/{{project-name}}/
 ```
 
 Authorize the matching public key for the engine by copying its `.pub`
-file into `~/.wayland/trusted-keys/`.
+file into `~/.genesis/trusted-keys/`.
 
 ## Test
 

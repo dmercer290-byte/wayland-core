@@ -1,6 +1,6 @@
 //! W9.1 T4 (T11): CLI integration tests for `--skills-promote` and
 //! `--skills-archive` against a fixture project. Pre-seeds a `Staged`
-//! procedure into the project's `.wayland-core/memory/memory.db`,
+//! procedure into the project's `.genesis-core/memory/memory.db`,
 //! invokes the CLI binary with the lifecycle flag, then re-opens
 //! memory and asserts the procedure's status transitioned correctly.
 //!
@@ -84,7 +84,7 @@ async fn skills_promote_transitions_staged_to_active() {
     let (project, memory_root, id) =
         fixture_with_staged_procedure("auto-grep-glob-grep-glob-grep").await;
 
-    let bin = env!("CARGO_BIN_EXE_wayland-core");
+    let bin = env!("CARGO_BIN_EXE_genesis-core");
     let out = std::process::Command::new(bin)
         .args(["--skills-promote", &id.0.to_string()])
         .current_dir(project.path())
@@ -120,7 +120,7 @@ async fn skills_archive_transitions_staged_to_archived() {
     // detouring through Active.
     let (project, memory_root, id) = fixture_with_staged_procedure("auto-loser-pattern").await;
 
-    let bin = env!("CARGO_BIN_EXE_wayland-core");
+    let bin = env!("CARGO_BIN_EXE_genesis-core");
     let out = std::process::Command::new(bin)
         .args(["--skills-archive", &id.0.to_string()])
         .current_dir(project.path())
@@ -156,7 +156,7 @@ async fn skills_promote_unknown_id_exits_nonzero() {
     fs::create_dir(project.path().join(".git")).unwrap();
 
     let bogus = Uuid::new_v4().to_string();
-    let bin = env!("CARGO_BIN_EXE_wayland-core");
+    let bin = env!("CARGO_BIN_EXE_genesis-core");
     let out = std::process::Command::new(bin)
         .args(["--skills-promote", &bogus])
         .current_dir(project.path())
@@ -182,7 +182,7 @@ async fn skills_promote_rejects_non_uuid() {
     let memory_root = TempDir::new().unwrap();
     fs::create_dir(project.path().join(".git")).unwrap();
 
-    let bin = env!("CARGO_BIN_EXE_wayland-core");
+    let bin = env!("CARGO_BIN_EXE_genesis-core");
     let out = std::process::Command::new(bin)
         .args(["--skills-promote", "not-a-uuid"])
         .current_dir(project.path())

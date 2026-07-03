@@ -5,38 +5,38 @@
 **npm** (recommended — pulls the right prebuilt binary for your platform):
 
 ```bash
-npm install -g @ferroxlabs/wayland-core
-wayland-core --version
+npm install -g @ferroxlabs/genesis-core
+genesis-core --version
 
 # or run it once with no install
-npx @ferroxlabs/wayland-core@latest "summarize the TODOs in this repo"
+npx @ferroxlabs/genesis-core@latest "summarize the TODOs in this repo"
 ```
 
 **Prebuilt signed binaries** for macOS (arm64/x64), Linux (arm64/x64), and
 Windows (arm64/x64) are on the
-[Releases](https://github.com/FerroxLabs/wayland-core/releases) page, each
-verifiable against `wayland-core-checksums.txt`.
+[Releases](https://github.com/dmercer290-byte/wayland-core/releases) page, each
+verifiable against `genesis-core-checksums.txt`.
 
 **From source** (Rust 1.95+):
 
 ```bash
-cargo install --git https://github.com/FerroxLabs/wayland-core wcore-cli
+cargo install --git https://github.com/dmercer290-byte/wayland-core wcore-cli
 
 # or build the workspace directly
 cargo build --release
-./target/release/wayland-core
+./target/release/genesis-core
 ```
 
 ## Command Format
 
 ```
-wayland-core [OPTIONS] [PROMPT]...
+genesis-core [OPTIONS] [PROMPT]...
 ```
 
 - With `PROMPT`: single-shot mode — completes the task and exits
 - Without `PROMPT`: enters interactive REPL mode
 
-> For the full list of CLI parameters, run `wayland-core --help`.
+> For the full list of CLI parameters, run `genesis-core --help`.
 
 ### Key Parameters
 
@@ -54,7 +54,7 @@ wayland-core [OPTIONS] [PROMPT]...
 | `--system-prompt <text>` | Custom system prompt |
 | `--force` | Approve every tool call without prompting (aliases: `--yolo`, `--dangerously-skip-permissions`) |
 | `--auto-approve` | Skip all tool confirmations |
-| `--project-dir <path>` | Directory to load the project `.wayland-core.toml` from (defaults to CWD) |
+| `--project-dir <path>` | Directory to load the project `.genesis-core.toml` from (defaults to CWD) |
 | `--continue`, `-c` | Resume the most-recent session |
 | `--resume <id>` | Resume a previous session |
 | `--session-id <id>` | Use a specific session ID instead of auto-generating one |
@@ -69,14 +69,14 @@ wayland-core [OPTIONS] [PROMPT]...
 | `--doctor` | Run the system-dependency / provider health doctor |
 
 Diagnostic and replay flags (`--skills-audit`, `--replay`, `--memory-show`,
-`--probe-mcp`, …) are intentionally omitted here — run `wayland-core --help`
+`--probe-mcp`, …) are intentionally omitted here — run `genesis-core --help`
 for the full set.
 
 ---
 
 ## Subcommands
 
-Beyond the flag-driven agent/REPL path, `wayland-core` exposes a set of
+Beyond the flag-driven agent/REPL path, `genesis-core` exposes a set of
 verb subcommands. The headline ones:
 
 | Subcommand | Purpose |
@@ -94,8 +94,8 @@ The rest:
 | `plugin` | Install / list / remove plugins |
 | `swarm` | Dispatch a worktree-isolated worker swarm |
 | `workflow` (alias `forgeflows`) | Validate / list / run saved `.ron` workflows |
-| `project-context` | Print the resolved project context (WAYLAND.md / AGENTS.md / CLAUDE.md) |
-| `init` | Scaffold `.wayland/config.toml` + `WAYLAND.md` in the current directory |
+| `project-context` | Print the resolved project context (GENESIS.md / AGENTS.md / CLAUDE.md) |
+| `init` | Scaffold `.genesis/config.toml` + `GENESIS.md` in the current directory |
 | `acp` | ACP server / client surface |
 | `agent` | Manage user-defined agents (create / list / show / edit / delete) |
 | `cron` | Manage scheduled cron jobs (add / list / remove / enable / disable) |
@@ -107,7 +107,7 @@ The rest:
 ### Three-Level Cascading
 
 ```
-<global config>                   (global, user-level; run `wayland-core --config-path` to find)
+<global config>                   (global, user-level; run `genesis-core --config-path` to find)
     ↓ overridden by
 <project config>                  (project-level, working directory — see layouts below)
     ↓ overridden by
@@ -120,8 +120,8 @@ from the level below.
 
 #### Global config
 
-A single user-level `config.toml`. Run `wayland-core --config-path` to print
-its location (it varies by OS). Created by `wayland-core --init-config`.
+A single user-level `config.toml`. Run `genesis-core --config-path` to print
+its location (it varies by OS). Created by `genesis-core --init-config`.
 
 #### Project config (two accepted layouts)
 
@@ -130,17 +130,17 @@ layouts:
 
 | Layout | Path | Notes |
 |--------|------|-------|
-| File form | `./.wayland-core.toml` | The documented, canonical layout. |
-| Directory form | `./.wayland-core/config.toml` | Also accepted (the eval-harness scaffold writes this form). |
+| File form | `./.genesis-core.toml` | The documented, canonical layout. |
+| Directory form | `./.genesis-core/config.toml` | Also accepted (the eval-harness scaffold writes this form). |
 
 The file form is canonical. If **both** files exist in the same directory,
-the file form (`.wayland-core.toml`) wins and a precedence warning is printed
+the file form (`.genesis-core.toml`) wins and a precedence warning is printed
 to stderr — remove one file to silence it. Keep only one project layout per
 directory to avoid the warning.
 
 #### Legacy YAML (auto-migrated)
 
-A pre-TOML `~/.wayland/config.yaml` (honouring `WAYLAND_HOME` when set) is
+A pre-TOML `~/.genesis/config.yaml` (honouring `GENESIS_HOME` when set) is
 detected on startup and migrated to the canonical TOML config automatically;
 the migration is skipped once the canonical TOML exists. This path is for
 upgrading older installs and is not a layer you author by hand.
@@ -148,14 +148,14 @@ upgrading older installs and is not a layer you author by hand.
 ### Generate Default Config
 
 ```bash
-wayland-core --init-config
-# Creates the global config file (run `wayland-core --config-path` to see the location)
+genesis-core --init-config
+# Creates the global config file (run `genesis-core --config-path` to see the location)
 ```
 
 ### Config File Format
 
 ```toml
-# Global config file (path varies by OS, use `wayland-core --config-path` to find)
+# Global config file (path varies by OS, use `genesis-core --config-path` to find)
 
 [default]
 provider = "anthropic"
@@ -200,7 +200,7 @@ allow_list = ["Read", "Grep", "Glob"]
 
 [session]
 enabled = true
-directory = ".wayland-core/sessions"
+directory = ".genesis-core/sessions"
 max_sessions = 20
 
 [compact]
@@ -213,7 +213,7 @@ max_entries = 100
 
 [plan]
 enabled = true
-plan_directory = ".wayland-core/plans"
+plan_directory = ".genesis-core/plans"
 ```
 
 ### API Key Resolution Order
@@ -226,7 +226,7 @@ plan_directory = ".wayland-core/plans"
 > **Note**: `bedrock` and `vertex` providers use their own cloud credentials and do not require a traditional API key. See [Providers & Auth](providers.md).
 
 > **Sign in with ChatGPT**: instead of an OpenAI API key you can authenticate
-> with your ChatGPT subscription via `wayland-core auth login chatgpt`, then run
+> with your ChatGPT subscription via `genesis-core auth login chatgpt`, then run
 > with `--provider openai-chatgpt`. See [Sign in with ChatGPT](providers.md#sign-in-with-chatgpt).
 
 ### Authentication
@@ -236,33 +236,33 @@ The `auth` subcommand manages provider credentials directly against the global
 
 ```bash
 # List every configured provider with a masked key
-wayland-core auth list
+genesis-core auth list
 
 # Add (or replace) a key — validated live against the provider before it is
 # written. Use `autodetect` to infer the provider from the key's prefix.
-wayland-core auth add anthropic sk-ant-xxx
-wayland-core auth add autodetect sk-or-v1-xxx
-wayland-core auth add openai sk-xxx --no-validate   # skip the live check
+genesis-core auth add anthropic sk-ant-xxx
+genesis-core auth add autodetect sk-or-v1-xxx
+genesis-core auth add openai sk-xxx --no-validate   # skip the live check
 
 # Remove a provider's key
-wayland-core auth remove openai
+genesis-core auth remove openai
 ```
 
 **OAuth sign-in.** The only OAuth sign-in is ChatGPT — sign in with your
 ChatGPT subscription instead of an OpenAI API key:
 
 ```bash
-wayland-core auth login chatgpt            # opens a browser (loopback PKCE)
-wayland-core auth login chatgpt --device   # headless device-code flow (SSH/remote)
-wayland-core auth login chatgpt --import-codex  # import an existing Codex CLI login
-wayland-core auth status                   # show signed-in provider, plan, token expiry
-wayland-core auth logout chatgpt           # delete the stored OAuth token
+genesis-core auth login chatgpt            # opens a browser (loopback PKCE)
+genesis-core auth login chatgpt --device   # headless device-code flow (SSH/remote)
+genesis-core auth login chatgpt --import-codex  # import an existing Codex CLI login
+genesis-core auth status                   # show signed-in provider, plan, token expiry
+genesis-core auth logout chatgpt           # delete the stored OAuth token
 ```
 
 After signing in, run with `--provider openai-chatgpt`.
 
 > xAI / Grok is **not** an OAuth sign-in — it is an API-key provider. Add the
-> key (`wayland-core auth add xai <key>`) and run with `--provider xai`; the
+> key (`genesis-core auth add xai <key>`) and run with `--provider xai`; the
 > engine refreshes any internal OAuth tokens on its own.
 
 ### Custom Provider Alias
@@ -290,7 +290,7 @@ base_url = "https://my-service.example.com/api/openai"
 
 ### 1. Connect a Provider (paste-to-connect)
 
-The fastest path is to just run `wayland-core` (or `wayland-core setup`) and
+The fastest path is to just run `genesis-core` (or `genesis-core setup`) and
 paste an API key when prompted. It fingerprints the provider from the key's
 shape, validates it live against the provider's model endpoint (a confidence
 ladder: Detected → CanListModels → Ready), stores it (OS keyring by default,
@@ -300,24 +300,24 @@ can also paste a key from inside the TUI at any time with `/connect`.
 Prefer to edit the config by hand instead:
 
 ```bash
-wayland-core --init-config
-# Edit the config file (run `wayland-core --config-path` to find it), add your API key
+genesis-core --init-config
+# Edit the config file (run `genesis-core --config-path` to find it), add your API key
 ```
 
 ### 2. Single-Shot Mode
 
 ```bash
-wayland-core "Read and explain crates/wcore-agent/src/engine.rs"
+genesis-core "Read and explain crates/wcore-agent/src/engine.rs"
 ```
 
 ### 3. Interactive REPL
 
 ```
-$ wayland-core
+$ genesis-core
 
 > Read the file Cargo.toml
      1  [package]
-     2  name = "wayland-core"
+     2  name = "genesis-core"
      ...
 [turns: 1 | tokens: 1234 in / 567 out]
 
@@ -335,15 +335,15 @@ REPL commands: `/quit`, `/exit`, or empty line to exit.
 ### 4. Switching Profiles
 
 ```bash
-wayland-core --profile deepseek "Fix the bug in main.rs"
-wayland-core --profile ollama "Analyze code quality"
+genesis-core --profile deepseek "Fix the bug in main.rs"
+genesis-core --profile ollama "Analyze code quality"
 ```
 
 ### 5. Environment Variables
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-xxx
-wayland-core "List all Rust files in this project"
+genesis-core "List all Rust files in this project"
 ```
 
 ---
@@ -389,23 +389,23 @@ Allow? [y]es / [n]o / [a]lways / [q]uit > y
 
 ## Session Management
 
-Sessions auto-save to `.wayland-core/sessions/`.
+Sessions auto-save to `.genesis-core/sessions/`.
 
 ```bash
 # List saved sessions
-wayland-core --list-sessions
+genesis-core --list-sessions
 
 # Resume the most-recent session (shortcut for --resume <latest-id>)
-wayland-core --continue          # or -c
+genesis-core --continue          # or -c
 
 # Resume the latest session
-wayland-core --resume latest
+genesis-core --resume latest
 
 # Resume a specific session
-wayland-core --resume a1b2c3
+genesis-core --resume a1b2c3
 
 # Create a session with a custom ID
-wayland-core --session-id my-conv-123
+genesis-core --session-id my-conv-123
 ```
 
 - `--continue` / `-c` resumes the most-recent session; it is mutually exclusive with `--resume` and `--session-id`

@@ -1,6 +1,6 @@
 //! D8 — PTY-based TUI capture driver.
 //!
-//! The json-stream runner ([`crate::runner`]) drives `wayland-core` in its
+//! The json-stream runner ([`crate::runner`]) drives `genesis-core` in its
 //! machine-facing `--json-stream` mode over plain pipes. This module instead
 //! drives the binary in its **interactive ratatui TUI** mode under a real
 //! pseudo-terminal, sends keystrokes the way a human keyboard would, and
@@ -9,7 +9,7 @@
 //!
 //! ## Why a PTY
 //!
-//! `wayland-core` only launches its full-screen TUI when
+//! `genesis-core` only launches its full-screen TUI when
 //! `IsTerminal::is_terminal(&stdout())` is true AND no prompt / `--no-tui` /
 //! `--json-stream` was given (`wcore-cli/src/main.rs` `tui_capable` gate). A
 //! plain piped subprocess fails that check and falls through to the line-based
@@ -19,10 +19,10 @@
 //! ## Hermeticity
 //!
 //! Reuses [`crate::tempenv`] exactly like the json-stream runner: a throwaway
-//! tempdir holds a seeded `.wayland-core/config.toml` (absolute session dir per
+//! tempdir holds a seeded `.genesis-core/config.toml` (absolute session dir per
 //! cross-audit C-3, plus the provider id/model/key), the binary is spawned with
-//! `cwd = env.path()`, and `WAYLAND_HOME` is pointed at the tempdir so
-//! `wcore_config::wayland_config_dir()` resolves the seeded config on every
+//! `cwd = env.path()`, and `GENESIS_HOME` is pointed at the tempdir so
+//! `wcore_config::genesis_config_dir()` resolves the seeded config on every
 //! platform (matching `wcore-cli/tests/harness_tui_flow.rs`). Ambient provider
 //! keys are stripped so a test never makes a hidden network call.
 //!
@@ -95,7 +95,7 @@ impl Default for PtyGeometry {
     }
 }
 
-/// A live `wayland-core` TUI process attached to a pseudo-terminal.
+/// A live `genesis-core` TUI process attached to a pseudo-terminal.
 ///
 /// Owns the master PTY (keystroke sink), the spawned child, a reader thread
 /// pumping the byte stream into a shared [`vt100::Parser`], and the hermetic
@@ -122,12 +122,12 @@ pub struct PtyCapture {
 }
 
 impl PtyCapture {
-    /// Spawn `wayland-core` in interactive TUI mode under a fresh PTY of the
+    /// Spawn `genesis-core` in interactive TUI mode under a fresh PTY of the
     /// default [`PtyGeometry`], seeded for `provider` via [`crate::tempenv`].
     ///
     /// The binary is located the same way the json-stream runner finds it
     /// ([`crate::runner::discover_binary`]): `WCORE_EVAL_BIN`, else the
-    /// `target/{release,debug}/wayland-core` walk-up.
+    /// `target/{release,debug}/genesis-core` walk-up.
     pub fn spawn(provider: &ProviderConfig) -> Result<Self> {
         Self::spawn_with(provider, PtyGeometry::default(), &[])
     }
@@ -144,7 +144,7 @@ impl PtyCapture {
         // Reuse the json-stream runner's binary discovery so PTY scenarios and
         // pipe scenarios always target the same artifact.
         let bin = crate::runner::discover_binary()
-            .map_err(|e| anyhow!("locate wayland-core binary: {e}"))?;
+            .map_err(|e| anyhow!("locate genesis-core binary: {e}"))?;
 
         // Hermetic tempdir + seeded config.toml (absolute session dir per C-3,
         // provider id/model/key). Held in `self._env` for the child's lifetime.
@@ -161,8 +161,8 @@ impl PtyCapture {
             .context("open PTY")?;
 
         // Build the hermetic command. cwd = tempdir so the engine's config
-        // cwd-walk lands inside the sandbox; WAYLAND_HOME = tempdir so
-        // `wayland_config_dir()` resolves the seeded config on every platform;
+        // cwd-walk lands inside the sandbox; GENESIS_HOME = tempdir so
+        // `genesis_config_dir()` resolves the seeded config on every platform;
         // a TTY-capable TERM so the TUI gate passes; ambient provider keys
         // stripped so the only key in play is the one tempenv seeded.
         let mut cmd = CommandBuilder::new(
@@ -173,7 +173,7 @@ impl PtyCapture {
             cmd.arg(arg);
         }
         cmd.cwd(env.path());
-        cmd.env("WAYLAND_HOME", env.path());
+        cmd.env("GENESIS_HOME", env.path());
         cmd.env("HOME", env.path());
         cmd.env("TERM", "xterm-256color");
         cmd.env_remove("API_KEY");
@@ -184,7 +184,7 @@ impl PtyCapture {
         let child = pty
             .slave
             .spawn_command(cmd)
-            .context("spawn wayland-core under PTY")?;
+            .context("spawn genesis-core under PTY")?;
 
         // Reader thread: pump the PTY byte stream into a shared vt100 parser.
         let mut reader = pty.master.try_clone_reader().context("clone PTY reader")?;
@@ -315,14 +315,14 @@ impl PtyCapture {
     }
 
     /// Boot the TUI and block until the workspace chrome has rendered (the
-    /// `WAYLAND` wordmark and the `Workspace` tab), the canonical "the UI is up
+    /// `GENESIS` wordmark and the `Workspace` tab), the canonical "the UI is up
     /// and settled" anchor. The first boot is dominated by the bundled
     /// `ijfw-memory` stdio MCP handshake (bounded by `CONNECT_TIMEOUT = 30s`),
     /// so 60s leaves a cold runner slack while still tripping a regression that
     /// reintroduces unbounded waiting.
     pub fn wait_for_workspace(&self) -> Result<()> {
         self.wait_for(
-            |s| s.contains("WAYLAND") && s.contains("Workspace"),
+            |s| s.contains("GENESIS") && s.contains("Workspace"),
             Duration::from_secs(60),
             "the TUI to render the chrome wordmark and Workspace tab",
         )

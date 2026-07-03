@@ -3,7 +3,7 @@ name = "wcore-acp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ACP (Agent Client Protocol) server + client for Wayland-Core"
+description = "ACP (Agent Client Protocol) server + client for Genesis-Core"
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }

@@ -35,7 +35,7 @@ use wcore_eval_scenarios::runner::run;
 #[cfg(unix)]
 use wcore_eval_scenarios::scenario::{Category, Scenario, Turn};
 
-/// Write a POSIX shell script to `path` that mimics a `wayland-core
+/// Write a POSIX shell script to `path` that mimics a `genesis-core
 /// --json-stream` child for one turn — emitting events in the SAME
 /// order the real engine does (#278 — `session_cost` BEFORE
 /// `stream_end`).
@@ -56,7 +56,7 @@ fn write_fake_binary(path: &std::path::Path) {
     // Wire order matches engine.rs: text_delta* → session_cost → stream_end.
     // The `session_cost` payload mirrors `wcore-protocol::events::SessionCost`.
     let script = r#"#!/bin/sh
-# Mock wayland-core --json-stream for runner cost-capture regression (#278).
+# Mock genesis-core --json-stream for runner cost-capture regression (#278).
 # Emit ready, consume one user message, emit one turn's events in the
 # real engine's order, then drain stdin to EOF and exit 0.
 printf '{"type":"ready","capabilities":{"cost_attribution":true}}\n'
@@ -90,7 +90,7 @@ exit 0
 #[tokio::test]
 async fn captures_session_cost_emitted_before_stream_end() {
     let tmp = tempfile::TempDir::new().expect("tempdir for fake bin");
-    let fake = tmp.path().join("wayland-core");
+    let fake = tmp.path().join("genesis-core");
     write_fake_binary(&fake);
 
     // Point the runner at the fake.

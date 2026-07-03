@@ -1,7 +1,7 @@
 name: nightly-windows-soak
 
 # Cross-OS counterpart to the DO ephemeral Linux soak that
-# scripts/wayland-e2e-real-workload.sh runs against a fresh droplet.
+# scripts/genesis-e2e-real-workload.sh runs against a fresh droplet.
 # Windows-specific code paths (cfg(target_os = "windows") in wcore-cua,
 # wcore-sandbox, channel adapters, etc.) never got nightly soak coverage
 # before this workflow. PR-time CI in ci.yml exercises the matrix but
@@ -91,7 +91,7 @@ jobs:
           # GHA-controlled path; safe to interpolate into env.
           LOCAL_RESULTS_DIR: ${{ github.workspace }}\windows-soak-results
         run: |
-          pwsh scripts/wayland-e2e-windows-soak.ps1
+          pwsh scripts/genesis-e2e-windows-soak.ps1
 
       - name: Upload soak logs
         if: always()
@@ -127,7 +127,7 @@ jobs:
               `### Triage`,
               `1. Download the artifact and grep F-build.log, G-nextest.log,`,
               `   H-mutants.log for the first failing step.`,
-              `2. Reproduce locally with pwsh scripts/wayland-e2e-windows-soak.ps1`,
+              `2. Reproduce locally with pwsh scripts/genesis-e2e-windows-soak.ps1`,
               `   on a Windows machine if the failure isn't environment-specific.`,
               `3. PR the fix; the next nightly cron tick will close this issue.`,
               ``,

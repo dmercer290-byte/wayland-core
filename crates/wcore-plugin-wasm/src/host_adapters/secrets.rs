@@ -4,14 +4,14 @@
 //! There is no `secret_read`, `secret_value`, or any method that returns the
 //! secret material. Plugins learn whether a secret is configured; the actual
 //! value is consumed host-side at HTTP-request time. This contract is enforced
-//! structurally — the surface of `WaylandHostSecrets` is the evidence.
+//! structurally — the surface of `GenesisHostSecrets` is the evidence.
 
 use std::sync::Arc;
 
 use wcore_plugin_api::access_gate::PluginAccessGate;
 
 /// Local trait. Existence-only by construction.
-pub trait WaylandHostSecrets: Send + Sync {
+pub trait GenesisHostSecrets: Send + Sync {
     fn secret_exists(&self, name: &str) -> bool;
 }
 
@@ -19,7 +19,7 @@ pub trait WaylandHostSecrets: Send + Sync {
 #[derive(Debug, Default)]
 pub struct DenyHostSecrets;
 
-impl WaylandHostSecrets for DenyHostSecrets {
+impl GenesisHostSecrets for DenyHostSecrets {
     fn secret_exists(&self, _name: &str) -> bool {
         false
     }
@@ -51,7 +51,7 @@ impl GatedHostSecrets {
     }
 }
 
-impl WaylandHostSecrets for GatedHostSecrets {
+impl GenesisHostSecrets for GatedHostSecrets {
     fn secret_exists(&self, name: &str) -> bool {
         self.permitted_secrets.iter().any(|s| s == name)
     }
@@ -91,7 +91,7 @@ mod tests {
     fn secret_exists_never_exposes_value() {
         let g = GatedHostSecrets::new(Arc::new(PluginAccessGate), "p".into(), vec!["S".into()]);
         // Only fn: secret_exists -> bool.
-        let _: bool = WaylandHostSecrets::secret_exists(&g, "S");
+        let _: bool = GenesisHostSecrets::secret_exists(&g, "S");
         // If a value-returning method were added (e.g. `secret_read -> String`),
         // a reviewer would see it on this trait. The grep audit in mod docs
         // catches the rest.

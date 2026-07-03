@@ -118,7 +118,7 @@ impl MarketplaceSurface {
         }
     }
 
-    /// The plugins store root the CLI uses (`~/.wayland/plugins`).
+    /// The plugins store root the CLI uses (`~/.genesis/plugins`).
     fn root() -> std::path::PathBuf {
         wcore_config::config::profile_home().join("plugins")
     }

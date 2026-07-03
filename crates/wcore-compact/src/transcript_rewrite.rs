@@ -10,7 +10,7 @@
 //! caller (mirrors the openclaw split between engine-decides-what and
 //! runtime-owns-how).
 //!
-//! Rollback: set `WAYLAND_TRANSCRIPT_REWRITE=off` to skip the rewrite
+//! Rollback: set `GENESIS_TRANSCRIPT_REWRITE=off` to skip the rewrite
 //! step at the primitive itself — the function returns the input vector
 //! unchanged with `changes = 0` regardless of the rule list. The flag is
 //! checked once on every call via `std::env::var`. The function is also
@@ -72,7 +72,7 @@ pub fn rewrite_transcript_entries(
 ) -> RewriteResult {
     // Rollback kill-switch (BATTLE-PLAN-v2 migration policy): operators
     // can disable the rewrite step in production without redeploying.
-    if std::env::var("WAYLAND_TRANSCRIPT_REWRITE").as_deref() == Ok("off") {
+    if std::env::var("GENESIS_TRANSCRIPT_REWRITE").as_deref() == Ok("off") {
         return RewriteResult {
             rewritten: entries,
             changes: 0,

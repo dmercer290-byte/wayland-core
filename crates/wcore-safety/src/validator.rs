@@ -140,7 +140,7 @@ impl OutputValidator {
 }
 
 // ---------------------------------------------------------------------------
-// LLM-judge validator (T2-A2 port of the prior Wayland Python engine)
+// LLM-judge validator (T2-A2 port of the prior Genesis Python engine)
 //
 // Adds an LLM-as-judge layer over the existing regex/PII checks: scores an
 // output against a configurable set of criteria, charges spend against a

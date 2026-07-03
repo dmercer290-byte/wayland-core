@@ -58,13 +58,13 @@ jobs:
           restore-keys: |
             cargo-target-drift-${{ runner.os }}-
 
-      - name: Build wayland-core
-        run: vx cargo build -p wcore-cli --bin wayland-core
+      - name: Build genesis-core
+        run: vx cargo build -p wcore-cli --bin genesis-core
 
       - name: Drift check against live marketplaces
         run: |
           set -euo pipefail
-          WB="$(pwd)/target/debug/wayland-core"
+          WB="$(pwd)/target/debug/genesis-core"
           ROOT="$(mktemp -d)/plugins"
           mkdir -p "$ROOT"
 

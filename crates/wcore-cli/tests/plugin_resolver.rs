@@ -7,7 +7,7 @@
 #[test]
 fn validates_plugin_name_rejects_path_traversal() {
     use wcore_cli::plugin::resolver::validate_plugin_name;
-    assert!(validate_plugin_name("wayland-honcho").is_ok());
+    assert!(validate_plugin_name("genesis-honcho").is_ok());
     assert!(validate_plugin_name("ollama").is_ok());
     assert!(validate_plugin_name("a").is_ok());
     assert!(validate_plugin_name("a-b-c-1").is_ok());
@@ -37,10 +37,10 @@ fn validates_plugin_name_rejects_path_traversal() {
 fn github_release_url_is_constructed_safely() {
     use wcore_cli::plugin::resolver::GitHubReleasesResolver;
     let r = GitHubReleasesResolver::new("FerroxLabs");
-    let url = r.release_api_url("wayland-honcho").unwrap();
+    let url = r.release_api_url("genesis-honcho").unwrap();
     assert_eq!(
         url.as_str(),
-        "https://api.github.com/repos/FerroxLabs/wayland-honcho/releases/latest"
+        "https://api.github.com/repos/FerroxLabs/genesis-honcho/releases/latest"
     );
 
     // Malicious names rejected before any URL is built.
@@ -57,23 +57,23 @@ fn local_file_resolver_round_trips_a_manifest() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().to_path_buf();
     std::fs::write(
-        dir.join("wayland-honcho.toml"),
+        dir.join("genesis-honcho.toml"),
         r#"
-name = "wayland-honcho"
+name = "genesis-honcho"
 version = "0.6.0"
 description = "honcho shell"
 "#,
     )
     .unwrap();
     let r = LocalFileResolver::new(&dir);
-    let mf = r.resolve_manifest("wayland-honcho").unwrap();
-    assert_eq!(mf.name, "wayland-honcho");
+    let mf = r.resolve_manifest("genesis-honcho").unwrap();
+    assert_eq!(mf.name, "genesis-honcho");
     assert_eq!(mf.version, "0.6.0");
     assert_eq!(mf.description, "honcho shell");
     assert!(!mf.requires_sandbox);
 
     // Unknown plugin → NotInRegistry (not InvalidName — name is valid).
-    let err = r.resolve_manifest("wayland-wormhole").unwrap_err();
+    let err = r.resolve_manifest("genesis-wormhole").unwrap_err();
     assert!(matches!(
         err,
         wcore_cli::plugin::error::PluginCliError::NotInRegistry(_)
@@ -96,16 +96,16 @@ fn install_via_local_file_resolver_writes_record() {
     let install_root = tmp.path().join("inst");
     std::fs::create_dir_all(&registry).unwrap();
     std::fs::write(
-        registry.join("wayland-ollama.toml"),
+        registry.join("genesis-ollama.toml"),
         r#"
-name = "wayland-ollama"
+name = "genesis-ollama"
 version = "0.6.0"
 "#,
     )
     .unwrap();
     let r = LocalFileResolver::new(&registry);
-    install_via_resolver(&r, "wayland-ollama", &install_root).unwrap();
+    install_via_resolver(&r, "genesis-ollama", &install_root).unwrap();
     let entries = list_installed(&install_root).unwrap();
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].name, "wayland-ollama");
+    assert_eq!(entries[0].name, "genesis-ollama");
 }

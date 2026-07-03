@@ -7,16 +7,16 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
-use wayland-core::confirm::ToolConfirmer;
-use wayland-core::protocol::events::ToolCategory;
-use wayland-core::config::{Config, ProviderType, ToolsConfig, SessionConfig};
-use wayland-core::hooks::HooksConfig;
-use wayland-core::mcp::config::McpConfig;
-use wayland-core::provider::{LlmProvider, ProviderError};
-use wayland-core::tools::Tool;
-use wayland-core::types::llm::{LlmEvent, LlmRequest};
-use wayland-core::types::message::{StopReason, TokenUsage};
-use wayland-core::types::tool::ToolResult;
+use genesis-core::confirm::ToolConfirmer;
+use genesis-core::protocol::events::ToolCategory;
+use genesis-core::config::{Config, ProviderType, ToolsConfig, SessionConfig};
+use genesis-core::hooks::HooksConfig;
+use genesis-core::mcp::config::McpConfig;
+use genesis-core::provider::{LlmProvider, ProviderError};
+use genesis-core::tools::Tool;
+use genesis-core::types::llm::{LlmEvent, LlmRequest};
+use genesis-core::types::message::{StopReason, TokenUsage};
+use genesis-core::types::tool::ToolResult;
 
 // ---------------------------------------------------------------------------
 // MockLlmProvider — deterministic LLM for engine / spawn tests
@@ -247,19 +247,19 @@ pub fn test_config() -> Config {
         system_prompt: Some("You are a test assistant.".to_string()),
         thinking: None,
         prompt_caching: false,
-        compat: wayland-core::provider::compat::ProviderCompat::anthropic_defaults(),
+        compat: genesis-core::provider::compat::ProviderCompat::anthropic_defaults(),
         tools: ToolsConfig {
             auto_approve: true,
             allow_list: vec![],
-            skills: wayland-core::config::SkillsPermissionConfig::default(),
+            skills: genesis-core::config::SkillsPermissionConfig::default(),
         },
         session: SessionConfig {
             enabled: false,
-            directory: "/tmp/wayland-core-test-sessions".to_string(),
+            directory: "/tmp/genesis-core-test-sessions".to_string(),
             max_sessions: 5,
         },
-        compact: wayland-core::config::CompactConfig::default(),
-        plan: wayland-core::config::PlanConfig::default(),
+        compact: genesis-core::config::CompactConfig::default(),
+        plan: genesis-core::config::PlanConfig::default(),
         hooks: HooksConfig::default(),
         bedrock: None,
         vertex: None,

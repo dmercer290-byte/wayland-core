@@ -1,6 +1,6 @@
 //! Atomic `.env` writer with strict key/value validation.
 //!
-//! v0.9.0 W4 E1 / S-H3 BLOCKER closure: writes to `~/.wayland/.env` (or
+//! v0.9.0 W4 E1 / S-H3 BLOCKER closure: writes to `~/.genesis/.env` (or
 //! any other `.env`-shaped file) must be safe under three concurrent
 //! pressures:
 //!
@@ -11,7 +11,7 @@
 //! 2. **Partial writes.** A crash mid-write must not leave the file
 //!    truncated or corrupt. We stage to a sibling tempfile and `rename`
 //!    over the target — POSIX atomicity guarantee.
-//! 3. **Permissions leakage.** The parent dir (`~/.wayland/`) is forced
+//! 3. **Permissions leakage.** The parent dir (`~/.genesis/`) is forced
 //!    to mode `0700` on Unix; the file itself to `0600`. The OAuth
 //!    storage layer uses the same posture (see `wcore_agent::oauth::storage`)
 //!    so the on-disk credential surface is uniformly tight.
@@ -138,15 +138,15 @@ pub fn read_env_vars(env_path: &Path) -> BTreeMap<String, String> {
     parse_env(&body)
 }
 
-/// Whether `key` is a provider/API credential we should load from the Wayland
+/// Whether `key` is a provider/API credential we should load from the Genesis
 /// `.env` at startup. Matches the bare `API_KEY` and anything ending in
 /// `_API_KEY` (the convention every LLM/tool provider key follows —
 /// `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `FIRECRAWL_API_KEY`,
 /// …).
 ///
 /// This deliberately EXCLUDES non-credential entries that may share the file
-/// (`~/.wayland/.env` is a shared dotenv: a host may also keep `DATABASE_URL`,
-/// `PYTHONPATH`, `WAYLAND_SHARED_SECRET`, … there). Loading those into the
+/// (`~/.genesis/.env` is a shared dotenv: a host may also keep `DATABASE_URL`,
+/// `PYTHONPATH`, `GENESIS_SHARED_SECRET`, … there). Loading those into the
 /// process is overreach and has real side effects — e.g. injecting a
 /// `DATABASE_URL` makes the engine eagerly resolve a Postgres tool backend at
 /// boot, which hangs if that DB is unreachable. We only want the provider keys
@@ -155,8 +155,8 @@ fn is_credential_key(key: &str) -> bool {
     key == "API_KEY" || key.ends_with("_API_KEY")
 }
 
-/// Load provider credential keys from the Wayland `.env` file
-/// (`~/.wayland/.env`, or `$WAYLAND_HOME/.env`) into the process environment at
+/// Load provider credential keys from the Genesis `.env` file
+/// (`~/.genesis/.env`, or `$GENESIS_HOME/.env`) into the process environment at
 /// startup.
 ///
 /// The Config TUI writes provider credentials to this file
@@ -174,7 +174,7 @@ fn is_credential_key(key: &str) -> bool {
 ///
 /// MUST be called single-threaded at process startup (before any runtime
 /// threads spawn): `std::env::set_var` is unsound with other threads running.
-pub fn load_wayland_env_file() {
+pub fn load_genesis_env_file() {
     let path = crate::config::profile_home().join(".env");
     for (key, value) in read_env_vars(&path) {
         if is_credential_key(&key) && std::env::var_os(&key).is_none() {
@@ -251,7 +251,7 @@ fn parse_env(body: &str) -> BTreeMap<String, String> {
 /// is wrapped in double-quotes so the parser can recover it.
 fn serialise_env(entries: &BTreeMap<String, String>) -> String {
     let mut out = String::new();
-    out.push_str("# Wayland credentials store — managed by the Config TUI.\n");
+    out.push_str("# Genesis credentials store — managed by the Config TUI.\n");
     out.push_str("# Do not edit values that contain newlines; one entry per line only.\n");
     for (k, v) in entries {
         out.push_str(k);
@@ -489,11 +489,11 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn load_wayland_env_file_applies_without_overriding() {
+    fn load_genesis_env_file_applies_without_overriding() {
         // Snapshot the env vars this test mutates so it restores them on exit
         // (it touches process-global state; #[serial] keeps it off the other
         // env-reading tests' threads).
-        let prev_home = std::env::var_os("WAYLAND_HOME");
+        let prev_home = std::env::var_os("GENESIS_HOME");
         let prev_foo = std::env::var_os("FOO_API_KEY");
         let prev_bar = std::env::var_os("BAR_API_KEY");
         let prev_db = std::env::var_os("DATABASE_URL");
@@ -512,14 +512,14 @@ mod tests {
 
         // SAFETY: #[serial] gates this test against other env mutators.
         unsafe {
-            std::env::set_var("WAYLAND_HOME", dir.path());
+            std::env::set_var("GENESIS_HOME", dir.path());
             // BAR_API_KEY is already exported — the file value must NOT clobber it.
             std::env::set_var("BAR_API_KEY", "exported");
             std::env::remove_var("FOO_API_KEY");
             std::env::remove_var("DATABASE_URL");
         }
 
-        load_wayland_env_file();
+        load_genesis_env_file();
 
         assert_eq!(
             std::env::var("FOO_API_KEY").ok().as_deref(),
@@ -540,8 +540,8 @@ mod tests {
         // SAFETY: still inside the #[serial] guard.
         unsafe {
             match prev_home {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
             match prev_foo {
                 Some(v) => std::env::set_var("FOO_API_KEY", v),

@@ -937,7 +937,7 @@ impl<'t> MarkdownRenderer<'t> {
         // v0.9.2 W7 (S6 variant D): VERIFIED — backticks are already
         // dropped (pulldown emits `Event::Code` content sans fences) and
         // the fg is the brand orange on the surface_hover chip. CC's S6
-        // "perm-blue" maps to Wayland's brand orange (SPEC §1C chrome
+        // "perm-blue" maps to Genesis's brand orange (SPEC §1C chrome
         // note). No change needed; the assertion lives in the
         // `inline_code_*` tests below.
         let span = Span::styled(

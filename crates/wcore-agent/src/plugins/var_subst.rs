@@ -30,10 +30,10 @@ impl PluginPathCtx {
     /// Build the standard context for a plugin installed at `install_dir`.
     /// `${CLAUDE_PLUGIN_DATA}` resolves to
     /// `<profile_home>/plugins/data/<sanitized-plugin-name>` so it is
-    /// sandboxed by `WAYLAND_HOME`. On first access a one-time best-effort
+    /// sandboxed by `GENESIS_HOME`. On first access a one-time best-effort
     /// migration copies the pre-isolation
-    /// `<data_dir>/wayland/plugins/data/<name>` tree here — but ONLY when
-    /// `WAYLAND_HOME` is unset (an isolated profile must not inherit
+    /// `<data_dir>/genesis/plugins/data/<name>` tree here — but ONLY when
+    /// `GENESIS_HOME` is unset (an isolated profile must not inherit
     /// another profile's live plugin state / secrets).
     pub fn for_plugin(install_dir: &Path, plugin_name: &str, project: &Path) -> Self {
         let safe_name = sanitize(plugin_name);
@@ -111,11 +111,11 @@ fn sanitize(s: &str) -> String {
 }
 
 /// One-time best-effort migration of a plugin's pre-isolation data dir
-/// (`<data_dir>/wayland/plugins/data/<name>`) into the `WAYLAND_HOME`-rooted
+/// (`<data_dir>/genesis/plugins/data/<name>`) into the `GENESIS_HOME`-rooted
 /// location.
 ///
 /// Gated + idempotent + atomic:
-///   * **Gate:** if `WAYLAND_HOME` is set, return — an isolated profile must
+///   * **Gate:** if `GENESIS_HOME` is set, return — an isolated profile must
 ///     NOT inherit another profile's live plugin state (credential caches,
 ///     tokens, per-plugin DBs);
 ///   * skip once `new_dir` exists (means *fully* migrated — atomic publish
@@ -127,14 +127,14 @@ fn sanitize(s: &str) -> String {
 /// gracefully (the plugin re-initializes); it must never crash boot.
 fn migrate_legacy_plugin_data(safe_name: &str, new_dir: &Path) {
     // Explicit-isolation profiles never inherit shared legacy data.
-    if std::env::var_os("WAYLAND_HOME").is_some() {
+    if std::env::var_os("GENESIS_HOME").is_some() {
         return;
     }
     if new_dir.exists() {
         return;
     }
     let Some(legacy) = dirs::data_dir().map(|d| {
-        d.join("wayland")
+        d.join("genesis")
             .join("plugins")
             .join("data")
             .join(safe_name)
@@ -193,14 +193,14 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn plugin_data_roots_under_wayland_home() {
+    fn plugin_data_roots_under_genesis_home() {
         let tmp = tempfile::tempdir().unwrap();
-        let prev = std::env::var_os("WAYLAND_HOME");
-        unsafe { std::env::set_var("WAYLAND_HOME", tmp.path()) };
+        let prev = std::env::var_os("GENESIS_HOME");
+        unsafe { std::env::set_var("GENESIS_HOME", tmp.path()) };
         let ctx = PluginPathCtx::for_plugin(Path::new("/install"), "my-plugin", Path::new("/proj"));
         match prev {
-            Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-            None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+            Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+            None => unsafe { std::env::remove_var("GENESIS_HOME") },
         }
         assert_eq!(
             ctx.data,
@@ -223,15 +223,15 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn migrate_skipped_when_wayland_home_set() {
+    fn migrate_skipped_when_genesis_home_set() {
         let tmp = tempfile::tempdir().unwrap();
         let new_dir = tmp.path().join("plugins").join("data").join("p");
-        let prev = std::env::var_os("WAYLAND_HOME");
-        unsafe { std::env::set_var("WAYLAND_HOME", tmp.path()) };
+        let prev = std::env::var_os("GENESIS_HOME");
+        unsafe { std::env::set_var("GENESIS_HOME", tmp.path()) };
         super::migrate_legacy_plugin_data("p", &new_dir);
         match prev {
-            Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-            None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+            Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+            None => unsafe { std::env::remove_var("GENESIS_HOME") },
         }
         assert!(!new_dir.exists());
     }
@@ -243,11 +243,11 @@ mod tests {
         let new_dir = tmp.path().join("plugins").join("data").join("p");
         std::fs::create_dir_all(&new_dir).unwrap();
         std::fs::write(new_dir.join("keep.txt"), b"keep").unwrap();
-        let prev = std::env::var_os("WAYLAND_HOME");
-        unsafe { std::env::remove_var("WAYLAND_HOME") };
+        let prev = std::env::var_os("GENESIS_HOME");
+        unsafe { std::env::remove_var("GENESIS_HOME") };
         super::migrate_legacy_plugin_data("p", &new_dir);
         if let Some(v) = prev {
-            unsafe { std::env::set_var("WAYLAND_HOME", v) }
+            unsafe { std::env::set_var("GENESIS_HOME", v) }
         }
         assert_eq!(std::fs::read(new_dir.join("keep.txt")).unwrap(), b"keep");
     }
@@ -261,20 +261,20 @@ mod tests {
         use wcore_plugin_api::manifest::PluginIdentity;
         let cases: [Option<&str>; 3] = [None, Some("/tmp/wh-equality-x"), Some("bad\nvalue")];
         for case in cases {
-            let prev = std::env::var_os("WAYLAND_HOME");
+            let prev = std::env::var_os("GENESIS_HOME");
             match case {
-                Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-                None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+                Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+                None => unsafe { std::env::remove_var("GENESIS_HOME") },
             }
             let mirror = PluginIdentity::default_plugin_root();
             let canonical = wcore_config::config::profile_home().join("plugins");
             match prev {
-                Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-                None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+                Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+                None => unsafe { std::env::remove_var("GENESIS_HOME") },
             }
             assert_eq!(
                 mirror, canonical,
-                "default_plugin_root() drifted from profile_home()/plugins for WAYLAND_HOME={case:?}"
+                "default_plugin_root() drifted from profile_home()/plugins for GENESIS_HOME={case:?}"
             );
         }
     }

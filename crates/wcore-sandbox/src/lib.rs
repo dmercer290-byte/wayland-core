@@ -10,11 +10,11 @@
 //!
 //! `default_for_platform` selects the platform's real backend by `cfg`:
 //! bubblewrap on Linux, sandbox-exec on macOS, AppContainer on Windows
-//! (Docker is an opt-in via `WAYLAND_SANDBOX=docker`). There is no
+//! (Docker is an opt-in via `GENESIS_SANDBOX=docker`). There is no
 //! unsandboxed default — when no real backend is available the dispatcher
 //! fails closed via `FailClosedBackend` (refusing execution), and only
 //! falls back to `NoSandboxBackend` under the explicit
-//! `WAYLAND_ALLOW_NO_SANDBOX=1` opt-in.
+//! `GENESIS_ALLOW_NO_SANDBOX=1` opt-in.
 
 pub mod backends;
 pub mod error;
@@ -34,16 +34,16 @@ use std::time::{Duration, Instant};
 /// isolation when the platform's real sandbox is unavailable. Without it
 /// the sandbox layer fails CLOSED (refuses execution) rather than silently
 /// degrading to host-permission execution (audit M-2 / rel-concurrency-70).
-const ALLOW_NO_SANDBOX_ENV: &str = "WAYLAND_ALLOW_NO_SANDBOX";
+const ALLOW_NO_SANDBOX_ENV: &str = "GENESIS_ALLOW_NO_SANDBOX";
 
 /// Env-var name selecting the sandbox backend (`none` / `docker`).
-const SANDBOX_ENV: &str = "WAYLAND_SANDBOX";
+const SANDBOX_ENV: &str = "GENESIS_SANDBOX";
 
 /// #327: config-sourced sandbox toggle, installed once at bootstrap from
 /// `[tools] sandbox` / `[tools] allow_no_sandbox`.
 ///
 /// This is a process-global fallback consulted only when the corresponding
-/// env var is unset — the `WAYLAND_SANDBOX` / `WAYLAND_ALLOW_NO_SANDBOX`
+/// env var is unset — the `GENESIS_SANDBOX` / `GENESIS_ALLOW_NO_SANDBOX`
 /// env vars keep precedence for back-compat. Mirrors the process-global
 /// pattern used by `wcore_tools::env_passthrough::set_config_passthrough`.
 #[derive(Clone, Default)]
@@ -63,8 +63,8 @@ fn sandbox_config_override() -> &'static RwLock<SandboxConfigOverride> {
 /// Install the config-sourced sandbox toggle (#327).
 ///
 /// Called once at host bootstrap with the resolved `[tools] sandbox` /
-/// `[tools] allow_no_sandbox` values. The `WAYLAND_SANDBOX` /
-/// `WAYLAND_ALLOW_NO_SANDBOX` env vars still take precedence — config is
+/// `[tools] allow_no_sandbox` values. The `GENESIS_SANDBOX` /
+/// `GENESIS_ALLOW_NO_SANDBOX` env vars still take precedence — config is
 /// only the fallback when the env var is absent. Subsequent calls replace
 /// the previous config (the host owns the source of truth).
 pub fn set_config_sandbox(backend: Option<String>, allow_no_sandbox: Option<bool>) {
@@ -86,7 +86,7 @@ pub fn set_config_sandbox(backend: Option<String>, allow_no_sandbox: Option<bool
     };
 }
 
-/// Resolve the effective sandbox backend selection: the `WAYLAND_SANDBOX`
+/// Resolve the effective sandbox backend selection: the `GENESIS_SANDBOX`
 /// env var wins; otherwise the config-installed value (#327); otherwise
 /// `None` (platform default).
 fn resolved_sandbox_choice() -> Option<String> {
@@ -101,7 +101,7 @@ fn resolved_sandbox_choice() -> Option<String> {
 
 /// True iff the operator has explicitly opted in to unsandboxed execution.
 ///
-/// The `WAYLAND_ALLOW_NO_SANDBOX=1` (or `=true`) env var wins; otherwise
+/// The `GENESIS_ALLOW_NO_SANDBOX=1` (or `=true`) env var wins; otherwise
 /// the config-installed `[tools] allow_no_sandbox` value is consulted
 /// (#327).
 pub fn no_sandbox_opt_in() -> bool {
@@ -120,7 +120,7 @@ const DEGRADED_WARN_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Emit a warn-level log on EVERY unsandboxed selection, rate-limited to at
 /// most once per [`DEGRADED_WARN_INTERVAL`]. Unlike the process-global
-/// warn-once used for the explicit `WAYLAND_SANDBOX=none` path, this keeps
+/// warn-once used for the explicit `GENESIS_SANDBOX=none` path, this keeps
 /// the degraded-isolation state visible for the life of a long-running
 /// agent process instead of logging it exactly once at startup (audit M-2 /
 /// rel-concurrency-70).
@@ -141,15 +141,15 @@ fn warn_sandbox_degraded_rate_limited() {
         tracing::warn!(
             target: "wcore_sandbox",
             "sandbox UNAVAILABLE — running model-driven command with NO isolation \
-             (WAYLAND_ALLOW_NO_SANDBOX opt-in is set). Filesystem and network are \
-             unconfined. Install bubblewrap (Linux) or set WAYLAND_SANDBOX=docker.",
+             (GENESIS_ALLOW_NO_SANDBOX opt-in is set). Filesystem and network are \
+             unconfined. Install bubblewrap (Linux) or set GENESIS_SANDBOX=docker.",
         );
     }
 }
 
 /// Fail-closed backend selected when no real sandbox is available and the
 /// operator has NOT opted in to unsandboxed execution via
-/// `WAYLAND_ALLOW_NO_SANDBOX=1`.
+/// `GENESIS_ALLOW_NO_SANDBOX=1`.
 ///
 /// Every `execute` call is refused with an error that names the remediation.
 /// This is the default-safe behavior: rather than silently substituting
@@ -171,8 +171,8 @@ impl FailClosedBackend {
         SandboxError::ExecFailed(
             "sandbox UNAVAILABLE and unsandboxed execution is not permitted — \
              refusing to run with host permissions. Install bubblewrap (Linux), \
-             set WAYLAND_SANDBOX=docker, or explicitly opt in with \
-             WAYLAND_ALLOW_NO_SANDBOX=1 to accept running with NO isolation."
+             set GENESIS_SANDBOX=docker, or explicitly opt in with \
+             GENESIS_ALLOW_NO_SANDBOX=1 to accept running with NO isolation."
                 .into(),
         )
     }
@@ -203,7 +203,7 @@ impl backends::SandboxBackend for FailClosedBackend {
         tracing::error!(
             target: "wcore_sandbox",
             "refused unsandboxed command — no real sandbox backend available \
-             and WAYLAND_ALLOW_NO_SANDBOX is not set",
+             and GENESIS_ALLOW_NO_SANDBOX is not set",
         );
         Err(Self::refusal())
     }
@@ -211,7 +211,7 @@ impl backends::SandboxBackend for FailClosedBackend {
 
 /// Select the unsandboxed fallback backend, failing CLOSED by default.
 ///
-/// - If `WAYLAND_ALLOW_NO_SANDBOX=1` (or `=true`): warn (rate-limited, on
+/// - If `GENESIS_ALLOW_NO_SANDBOX=1` (or `=true`): warn (rate-limited, on
 ///   every selection) and return [`backends::no_sandbox::NoSandboxBackend`]
 ///   so execution proceeds with NO isolation per explicit operator opt-in.
 /// - Otherwise: return [`FailClosedBackend`], which refuses execution.
@@ -225,10 +225,10 @@ fn unsandboxed_fallback() -> Box<dyn backends::SandboxBackend> {
     } else {
         tracing::error!(
             target: "wcore_sandbox",
-            "no real sandbox backend available and WAYLAND_ALLOW_NO_SANDBOX is not \
+            "no real sandbox backend available and GENESIS_ALLOW_NO_SANDBOX is not \
              set — sandbox FAILS CLOSED; model-driven commands will be refused. \
-             Install bubblewrap (Linux), set WAYLAND_SANDBOX=docker, or set \
-             WAYLAND_ALLOW_NO_SANDBOX=1 to run with NO isolation.",
+             Install bubblewrap (Linux), set GENESIS_SANDBOX=docker, or set \
+             GENESIS_ALLOW_NO_SANDBOX=1 to run with NO isolation.",
         );
         Box::new(FailClosedBackend::new())
     }
@@ -325,15 +325,15 @@ impl SandboxRegistry {
 /// used when its `is_available()` holds. There is no unsandboxed default —
 /// when no real backend is available the dispatcher fails closed (see below).
 ///
-/// `WAYLAND_SANDBOX=none` forces the no-op backend, but ONLY when the
-/// operator has also opted in via `WAYLAND_ALLOW_NO_SANDBOX=1`; otherwise it
-/// fails closed (audit M-2). `WAYLAND_SANDBOX=docker` opts in to the Docker
+/// `GENESIS_SANDBOX=none` forces the no-op backend, but ONLY when the
+/// operator has also opted in via `GENESIS_ALLOW_NO_SANDBOX=1`; otherwise it
+/// fails closed (audit M-2). `GENESIS_SANDBOX=docker` opts in to the Docker
 /// backend; when Docker is unreachable it fails closed rather than silently
 /// substituting NoSandbox.
 ///
 /// Whenever no real sandbox backend is available, this routes through
 /// [`unsandboxed_fallback`]: it returns a [`FailClosedBackend`] (refuses
-/// execution) unless `WAYLAND_ALLOW_NO_SANDBOX=1` is set, in which case it
+/// execution) unless `GENESIS_ALLOW_NO_SANDBOX=1` is set, in which case it
 /// returns [`backends::no_sandbox::NoSandboxBackend`] with a rate-limited
 /// warning on every selection.
 pub fn default_for_platform() -> Box<dyn backends::SandboxBackend> {
@@ -343,7 +343,7 @@ pub fn default_for_platform() -> Box<dyn backends::SandboxBackend> {
             "none" => {
                 // Explicit operator request for no sandbox. Honor it only
                 // when the unsandboxed opt-in is ALSO set; otherwise fail
-                // closed so a stray `WAYLAND_SANDBOX=none` cannot silently
+                // closed so a stray `GENESIS_SANDBOX=none` cannot silently
                 // strip isolation (audit M-2).
                 if no_sandbox_opt_in() {
                     backends::no_sandbox::warn_once_sandbox_disabled();
@@ -351,9 +351,9 @@ pub fn default_for_platform() -> Box<dyn backends::SandboxBackend> {
                 }
                 tracing::error!(
                     target: "wcore_sandbox",
-                    "WAYLAND_SANDBOX=none requested but WAYLAND_ALLOW_NO_SANDBOX \
+                    "GENESIS_SANDBOX=none requested but GENESIS_ALLOW_NO_SANDBOX \
                      is not set — refusing to disable the sandbox. Set \
-                     WAYLAND_ALLOW_NO_SANDBOX=1 to run with NO isolation."
+                     GENESIS_ALLOW_NO_SANDBOX=1 to run with NO isolation."
                 );
                 return Box::new(FailClosedBackend::new());
             }
@@ -368,8 +368,8 @@ pub fn default_for_platform() -> Box<dyn backends::SandboxBackend> {
                 // running unsandboxed under the host's full permissions.
                 tracing::error!(
                     target: "wcore_sandbox",
-                    "WAYLAND_SANDBOX=docker but Docker socket not reachable; \
-                     failing closed (set WAYLAND_ALLOW_NO_SANDBOX=1 to run \
+                    "GENESIS_SANDBOX=docker but Docker socket not reachable; \
+                     failing closed (set GENESIS_ALLOW_NO_SANDBOX=1 to run \
                      unsandboxed instead)"
                 );
                 return unsandboxed_fallback();
@@ -407,7 +407,7 @@ pub fn default_for_platform() -> Box<dyn backends::SandboxBackend> {
 }
 
 /// Crate-wide serialization lock for tests that mutate the process-global
-/// sandbox state (`WAYLAND_SANDBOX` / `WAYLAND_ALLOW_NO_SANDBOX` env vars and
+/// sandbox state (`GENESIS_SANDBOX` / `GENESIS_ALLOW_NO_SANDBOX` env vars and
 /// the `#327` config override). Both `fail_closed_tests` and
 /// `config_toggle_tests` touch the SAME globals, so they must share one lock —
 /// per-module locks would let env mutations from one module race the reads of
@@ -420,8 +420,8 @@ mod fail_closed_tests {
     use super::*;
     use backends::SandboxBackend as _;
 
-    /// Serialize the env-mutating tests in this module — `WAYLAND_SANDBOX`
-    /// and `WAYLAND_ALLOW_NO_SANDBOX` are process-global. Shared with
+    /// Serialize the env-mutating tests in this module — `GENESIS_SANDBOX`
+    /// and `GENESIS_ALLOW_NO_SANDBOX` are process-global. Shared with
     /// `config_toggle_tests` (same globals).
     use super::SANDBOX_TEST_LOCK as ENV_LOCK;
 
@@ -446,7 +446,7 @@ mod fail_closed_tests {
             // Clear config so these tests observe env-only behavior.
             set_config_sandbox(None, None);
             Self {
-                sandbox: std::env::var("WAYLAND_SANDBOX").ok(),
+                sandbox: std::env::var("GENESIS_SANDBOX").ok(),
                 allow: std::env::var(ALLOW_NO_SANDBOX_ENV).ok(),
                 cfg,
             }
@@ -456,8 +456,8 @@ mod fail_closed_tests {
             // this binary reads these vars concurrently during the test.
             unsafe {
                 match v {
-                    Some(val) => std::env::set_var("WAYLAND_SANDBOX", val),
-                    None => std::env::remove_var("WAYLAND_SANDBOX"),
+                    Some(val) => std::env::set_var("GENESIS_SANDBOX", val),
+                    None => std::env::remove_var("GENESIS_SANDBOX"),
                 }
             }
         }
@@ -497,7 +497,7 @@ mod fail_closed_tests {
         match err {
             SandboxError::ExecFailed(msg) => {
                 assert!(
-                    msg.contains("WAYLAND_ALLOW_NO_SANDBOX"),
+                    msg.contains("GENESIS_ALLOW_NO_SANDBOX"),
                     "refusal must name the opt-in env: {msg}"
                 );
             }
@@ -514,7 +514,7 @@ mod fail_closed_tests {
         assert_eq!(
             backend.name(),
             "fail_closed",
-            "without WAYLAND_ALLOW_NO_SANDBOX the fallback must fail closed"
+            "without GENESIS_ALLOW_NO_SANDBOX the fallback must fail closed"
         );
     }
 
@@ -527,7 +527,7 @@ mod fail_closed_tests {
         assert_eq!(
             backend.name(),
             "no_sandbox",
-            "WAYLAND_ALLOW_NO_SANDBOX=1 must opt in to NoSandbox"
+            "GENESIS_ALLOW_NO_SANDBOX=1 must opt in to NoSandbox"
         );
     }
 
@@ -537,12 +537,12 @@ mod fail_closed_tests {
         let _g = EnvGuard::capture();
         EnvGuard::set_sandbox(Some("none"));
         EnvGuard::set_allow(None);
-        // A stray WAYLAND_SANDBOX=none must NOT silently strip isolation.
+        // A stray GENESIS_SANDBOX=none must NOT silently strip isolation.
         let backend = default_for_platform();
         assert_eq!(
             backend.name(),
             "fail_closed",
-            "WAYLAND_SANDBOX=none without the opt-in must fail closed"
+            "GENESIS_SANDBOX=none without the opt-in must fail closed"
         );
     }
 
@@ -556,7 +556,7 @@ mod fail_closed_tests {
         assert_eq!(
             backend.name(),
             "no_sandbox",
-            "WAYLAND_SANDBOX=none + opt-in must honor the no-op backend"
+            "GENESIS_SANDBOX=none + opt-in must honor the no-op backend"
         );
     }
 
@@ -673,7 +673,7 @@ mod config_toggle_tests {
         unsafe { std::env::set_var(ALLOW_NO_SANDBOX_ENV, "0") };
         assert!(
             !no_sandbox_opt_in(),
-            "WAYLAND_ALLOW_NO_SANDBOX must take precedence over config"
+            "GENESIS_ALLOW_NO_SANDBOX must take precedence over config"
         );
     }
 
@@ -713,7 +713,7 @@ mod config_toggle_tests {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _g = StateGuard::capture();
         StateGuard::clear_env();
-        // Config selects docker; env forces none. The env WAYLAND_SANDBOX
+        // Config selects docker; env forces none. The env GENESIS_SANDBOX
         // backend selection wins. With the env opt-in set, none resolves to
         // NoSandbox (proving env's `none` overrode config's `docker`).
         set_config_sandbox(Some("docker".into()), Some(false));
@@ -726,7 +726,7 @@ mod config_toggle_tests {
         assert_eq!(
             backend.name(),
             "no_sandbox",
-            "env WAYLAND_SANDBOX must take precedence over config sandbox backend"
+            "env GENESIS_SANDBOX must take precedence over config sandbox backend"
         );
     }
 

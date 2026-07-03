@@ -76,7 +76,7 @@ impl TelegramChannel {
     ) -> Self {
         let http = wcore_egress::EgressClient::builder()
             .pool_idle_timeout(std::time::Duration::from_secs(90))
-            .user_agent(concat!("wayland-core/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("genesis-core/", env!("CARGO_PKG_VERSION")))
             .build()
             .unwrap_or_else(|_| wcore_egress::EgressClient::new());
 
@@ -444,7 +444,7 @@ mod tests {
 
     fn cfg() -> TelegramConfig {
         // Isolate per-test persisted state (the getUpdates offset watermark)
-        // under a pid-unique WAYLAND_HOME so concurrent test processes — and
+        // under a pid-unique GENESIS_HOME so concurrent test processes — and
         // prior box runs — can't read each other's offset and skip a mocked
         // update. nextest runs one test per process, so the pid is unique and
         // the env mutation is local. Set once, before any state I/O.
@@ -454,7 +454,7 @@ mod tests {
                 std::env::temp_dir().join(format!("wcore_tg_test_state_{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             // SAFETY: process-per-test under nextest; no other thread reads the env.
-            unsafe { std::env::set_var("WAYLAND_HOME", &dir) };
+            unsafe { std::env::set_var("GENESIS_HOME", &dir) };
         });
 
         TelegramConfig {
@@ -691,7 +691,7 @@ mod tests {
     // -----------------------------------------------------------------
     #[tokio::test]
     async fn longpoll_ingests_message_into_inbox() {
-        // State isolation (pid-unique WAYLAND_HOME) is set up by `cfg()` below.
+        // State isolation (pid-unique GENESIS_HOME) is set up by `cfg()` below.
         let mut server = mockito::Server::new_async().await;
         // First getUpdates returns one update; subsequent calls return
         // empty so the loop doesn't burn CPU.

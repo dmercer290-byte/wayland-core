@@ -36,7 +36,7 @@ fn source_product_field_is_present() {
     let tmp = tempfile::tempdir().unwrap();
     save_plan_json("sess-3", "x", Some(tmp.path())).unwrap();
     let p = load_plan_json("sess-3", Some(tmp.path())).unwrap().unwrap();
-    assert_eq!(p.source_product, "wayland-core");
+    assert_eq!(p.source_product, "genesis-core");
 }
 
 #[test]

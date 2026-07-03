@@ -45,7 +45,7 @@ default behavior and you MUST follow them exactly as written.";
 pub fn collect_agents_md(cwd: &str) -> Vec<AgentsMdFile> {
     let cwd_path = Path::new(cwd);
 
-    // 1. Global: <config_dir>/wayland-core/AGENTS.md (least specific).
+    // 1. Global: <config_dir>/genesis-core/AGENTS.md (least specific).
     let global_path = app_config_dir()
         .map(|d| d.join("AGENTS.md"))
         .filter(|p| p.is_file());
@@ -581,7 +581,7 @@ mod tests {
     fn test_format_global_and_project() {
         let files = vec![
             AgentsMdFile {
-                path: PathBuf::from("/home/user/.config/wayland-core/AGENTS.md"),
+                path: PathBuf::from("/home/user/.config/genesis-core/AGENTS.md"),
                 content: "Global rules".to_string(),
                 is_global: true,
             },

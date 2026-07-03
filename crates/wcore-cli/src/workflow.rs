@@ -1,4 +1,4 @@
-//! B2 — `wayland workflow <subcommand>` CLI surface for the dynamic-workflow
+//! B2 — `genesis workflow <subcommand>` CLI surface for the dynamic-workflow
 //! engine.
 //!
 //! Three subcommands wrap the public workflow API
@@ -8,11 +8,11 @@
 //!   [`WorkflowPlan::parse`], and print an OK summary (name, IR-walked agent
 //!   count) or the typed [`WorkflowParseError`] with its field pointer. Pure:
 //!   no provider, no engine.
-//! - `list` — discover `.wayland/workflows/*.ron` under the resolved project
+//! - `list` — discover `.genesis/workflows/*.ron` under the resolved project
 //!   root, parse each, and print `name  ~est_agents agents  — description`
 //!   (from [`WorkflowMeta`] + [`estimate`]). Unparseable files are skipped with
 //!   a warning, never aborting the listing.
-//! - `run <NAME>` — resolve `<NAME>` to `.wayland/workflows/<NAME>.ron`, parse,
+//! - `run <NAME>` — resolve `<NAME>` to `.genesis/workflows/<NAME>.ron`, parse,
 //!   and execute through [`WorkflowRunner`] over a real provider + spawner. The
 //!   provider/spawner are built from the SAME construction path the main agent
 //!   loop uses: [`Config::resolve`] → [`wcore_providers::create_provider`] →
@@ -20,11 +20,11 @@
 //!
 //! ## Project-root resolution
 //!
-//! Saved workflows live under `<project-root>/.wayland/workflows/`. The project
+//! Saved workflows live under `<project-root>/.genesis/workflows/`. The project
 //! root is found by [`find_workflows_dir`], which walks up from the cwd looking
-//! for an existing `.wayland` directory (the same project-local convention
-//! `bootstrap.rs` uses for `.wayland/user-model.json`). When no ancestor has a
-//! `.wayland` dir, it falls back to `<cwd>/.wayland/workflows` so a fresh
+//! for an existing `.genesis` directory (the same project-local convention
+//! `bootstrap.rs` uses for `.genesis/user-model.json`). When no ancestor has a
+//! `.genesis` dir, it falls back to `<cwd>/.genesis/workflows` so a fresh
 //! project still resolves to a sensible default path.
 
 use std::path::{Path, PathBuf};
@@ -39,7 +39,7 @@ use wcore_agent::orchestration::workflow::runner::{WorkflowPlan, WorkflowRunner}
 use wcore_agent::spawner::AgentSpawner;
 use wcore_config::config::{CliArgs, Config};
 
-/// `wayland workflow <subcommand>`.
+/// `genesis workflow <subcommand>`.
 #[derive(Subcommand, Debug)]
 pub enum WorkflowCmd {
     /// Parse and validate a single workflow `.ron` file without executing it.
@@ -49,15 +49,15 @@ pub enum WorkflowCmd {
         /// Path to the workflow `.ron` file.
         file: PathBuf,
     },
-    /// List the saved workflows discovered under `.wayland/workflows/*.ron`.
+    /// List the saved workflows discovered under `.genesis/workflows/*.ron`.
     /// Each line is `name  ~N agents  — description`. Unparseable files are
     /// skipped with a warning to stderr.
     List,
     /// Execute a saved workflow by name. Resolves `<NAME>` to
-    /// `.wayland/workflows/<NAME>.ron`, parses it, and runs it through the
+    /// `.genesis/workflows/<NAME>.ron`, parses it, and runs it through the
     /// workflow engine over a real provider.
     Run {
-        /// Saved-workflow name (the `.ron` stem under `.wayland/workflows/`).
+        /// Saved-workflow name (the `.ron` stem under `.genesis/workflows/`).
         name: String,
     },
 }
@@ -177,7 +177,7 @@ async fn run_workflow(name: &str) -> anyhow::Result<()> {
 
     // Resolve config + provider through the canonical path. `CliArgs` with all
     // `None`s means "use the file/env layers only" — identical to a plain
-    // `wayland-core` launch with no provider/model flags.
+    // `genesis-core` launch with no provider/model flags.
     let config = Config::resolve(&default_cli_args())?;
 
     // B2 — `workflow run` resolves its own config and spawns sub-agents in-process
@@ -287,7 +287,7 @@ fn spawn_lifecycle_logger(bus: Arc<AgentBus>) {
 }
 
 /// `CliArgs` with every flag unset — config resolution falls back to the
-/// file/env layers exactly as a flagless `wayland-core` launch would.
+/// file/env layers exactly as a flagless `genesis-core` launch would.
 fn default_cli_args() -> CliArgs {
     CliArgs {
         provider: None,
@@ -303,24 +303,24 @@ fn default_cli_args() -> CliArgs {
     }
 }
 
-/// Resolve `<project-root>/.wayland/workflows`.
+/// Resolve `<project-root>/.genesis/workflows`.
 ///
 /// Walks up from the cwd looking for an ancestor that already contains a
-/// `.wayland` directory (the project-local convention used elsewhere, e.g.
-/// `bootstrap.rs`'s `.wayland/user-model.json`). Falls back to
-/// `<cwd>/.wayland/workflows` when no ancestor has one.
+/// `.genesis` directory (the project-local convention used elsewhere, e.g.
+/// `bootstrap.rs`'s `.genesis/user-model.json`). Falls back to
+/// `<cwd>/.genesis/workflows` when no ancestor has one.
 fn find_workflows_dir() -> anyhow::Result<PathBuf> {
     let cwd = std::env::current_dir()?;
     let root = find_project_root(&cwd).unwrap_or_else(|| cwd.clone());
-    Ok(root.join(".wayland").join("workflows"))
+    Ok(root.join(".genesis").join("workflows"))
 }
 
 /// Walk up from `start` returning the first ancestor (inclusive) that holds a
-/// `.wayland` directory, or `None` if none do.
+/// `.genesis` directory, or `None` if none do.
 fn find_project_root(start: &Path) -> Option<PathBuf> {
     let mut cursor: Option<&Path> = Some(start);
     while let Some(dir) = cursor {
-        if dir.join(".wayland").is_dir() {
+        if dir.join(".genesis").is_dir() {
             return Some(dir.to_path_buf());
         }
         cursor = dir.parent();
@@ -429,10 +429,10 @@ Workflow(
 
     #[test]
     fn read_ron_files_lists_two_good_warns_on_bad() {
-        // Build a temp `.wayland/workflows` with 2 good + 1 bad `.ron`, plus a
+        // Build a temp `.genesis/workflows` with 2 good + 1 bad `.ron`, plus a
         // non-ron file that must be ignored entirely.
         let dir = tempfile::tempdir().unwrap();
-        let wf = dir.path().join(".wayland").join("workflows");
+        let wf = dir.path().join(".genesis").join("workflows");
         std::fs::create_dir_all(&wf).unwrap();
         std::fs::write(wf.join("demo.ron"), GOOD).unwrap();
         std::fs::write(wf.join("pair.ron"), GOOD2).unwrap();
@@ -460,19 +460,19 @@ Workflow(
     #[test]
     fn read_ron_files_missing_dir_is_not_found() {
         let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join(".wayland").join("workflows");
+        let missing = dir.path().join(".genesis").join("workflows");
         let err = read_ron_files(&missing).expect_err("missing dir errors");
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }
 
     #[test]
-    fn find_project_root_walks_up_to_wayland_dir() {
+    fn find_project_root_walks_up_to_genesis_dir() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::create_dir_all(root.join(".wayland")).unwrap();
+        std::fs::create_dir_all(root.join(".genesis")).unwrap();
         let nested = root.join("a").join("b");
         std::fs::create_dir_all(&nested).unwrap();
-        // From a nested cwd, the root with `.wayland` is discovered.
+        // From a nested cwd, the root with `.genesis` is discovered.
         let found = find_project_root(&nested).expect("should find root");
         // Compare canonicalized paths to neutralize macOS `/private` symlinks.
         assert_eq!(
@@ -484,14 +484,14 @@ Workflow(
     #[test]
     fn find_project_root_none_when_absent() {
         let dir = tempfile::tempdir().unwrap();
-        // No `.wayland` anywhere under this isolated temp tree's leaf — but an
+        // No `.genesis` anywhere under this isolated temp tree's leaf — but an
         // ancestor (the real cwd / home) might have one, so assert only that a
         // tree with none returns the temp root itself is NOT matched. We test
-        // the leaf has no `.wayland` and find_project_root does not invent one.
+        // the leaf has no `.genesis` and find_project_root does not invent one.
         let leaf = dir.path().join("x");
         std::fs::create_dir_all(&leaf).unwrap();
-        // The temp dir has no `.wayland`; walking up may still hit a real
+        // The temp dir has no `.genesis`; walking up may still hit a real
         // ancestor, so we only assert the immediate dir is not falsely matched.
-        assert!(!leaf.join(".wayland").is_dir());
+        assert!(!leaf.join(".genesis").is_dir());
     }
 }

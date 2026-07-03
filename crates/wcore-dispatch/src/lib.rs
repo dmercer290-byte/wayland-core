@@ -1,4 +1,4 @@
-//! `wcore-dispatch` — internal decision router for Wayland-Core.
+//! `wcore-dispatch` — internal decision router for Genesis-Core.
 //!
 //! This crate selects *templates*, *agents*, and *skills* given task
 //! context. It is NOT a model router (that lives in Flux as a separate

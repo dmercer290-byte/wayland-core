@@ -1,7 +1,7 @@
 //! `LocalBackend` — in-memory backend with optional JSON persistence.
 //!
 //! Default backend for single-user deployments. Persists to
-//! `~/.wayland/user-model.json` on every write so a restart picks
+//! `~/.genesis/user-model.json` on every write so a restart picks
 //! up the running estimates. Concurrency: an `Arc<RwLock<HashMap>>`
 //! holds the state; no fancy aggregation, just per-user-id buckets.
 

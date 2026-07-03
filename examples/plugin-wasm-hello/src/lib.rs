@@ -1,8 +1,8 @@
-//! Canonical Wayland WASM Tool plugin — returns `Hello, {input}!`.
+//! Canonical Genesis WASM Tool plugin — returns `Hello, {input}!`.
 //!
-//! Built with `cargo-component` against the `wayland-tool` world
+//! Built with `cargo-component` against the `genesis-tool` world
 //! (`wit/tool.wit`). Imports the shared host interface
-//! (`wayland:host/host`) — though this hello plugin doesn't actually
+//! (`genesis:host/host`) — though this hello plugin doesn't actually
 //! invoke any host capability — and exports the `tool` interface.
 //!
 //! Why this exists:
@@ -23,7 +23,7 @@
 #[allow(warnings)]
 mod bindings;
 
-use bindings::exports::wayland::host::tool::{
+use bindings::exports::genesis::host::tool::{
     Guest as ToolGuest, GuestTool, Request, Response, ToolCategory, ToolMetadata,
 };
 
@@ -55,7 +55,7 @@ impl GuestTool for Tool {
     }
 
     fn description() -> String {
-        "Greets the input name. Canonical Wayland WASM Tool example.".into()
+        "Greets the input name. Canonical Genesis WASM Tool example.".into()
     }
 
     fn metadata() -> ToolMetadata {

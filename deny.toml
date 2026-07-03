@@ -1,4 +1,4 @@
-# cargo-deny configuration for wayland-core
+# cargo-deny configuration for genesis-core
 # T3-9 (v0.6.2): final dependency-set audit gate.
 #
 # Policy:

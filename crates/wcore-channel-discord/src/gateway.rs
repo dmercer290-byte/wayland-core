@@ -221,8 +221,8 @@ pub(crate) fn identify_frame(token: &str, intents: u64) -> String {
             intents,
             properties: IdentifyProperties {
                 os: std::env::consts::OS,
-                browser: "wayland-core",
-                device: "wayland-core",
+                browser: "genesis-core",
+                device: "genesis-core",
             },
         },
     })

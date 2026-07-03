@@ -343,7 +343,7 @@ mod stub_tests {
     #[tokio::test]
     async fn self_cosine_is_one() {
         let e = LocalBgeSmallEmbedder::new().await.unwrap();
-        let v = e.embed("wayland-core local embeddings").await.unwrap();
+        let v = e.embed("genesis-core local embeddings").await.unwrap();
         let c = cosine(&v, &v);
         assert!((c - 1.0).abs() < 1e-5, "self cosine {c}");
     }
@@ -371,7 +371,7 @@ mod stub_tests {
     async fn diverges_from_hashed_backend() {
         let bge = LocalBgeSmallEmbedder::new().await.unwrap();
         let hashed = HashedEmbedder::new().await.unwrap();
-        let probe = "wayland-core divergence probe";
+        let probe = "genesis-core divergence probe";
         let v_bge = bge.embed(probe).await.unwrap();
         let v_hashed = hashed.embed(probe).await.unwrap();
         assert_eq!(v_bge.len(), v_hashed.len(), "both backends are 384-dim");

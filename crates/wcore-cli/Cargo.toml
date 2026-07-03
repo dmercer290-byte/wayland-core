@@ -1,6 +1,6 @@
 [package]
 name = "wcore-cli"
-description = "CLI binary for wayland-core — a multi-provider AI agent with tool orchestration"
+description = "CLI binary for genesis-core — a multi-provider AI agent with tool orchestration"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ keywords = ["ai", "agent", "cli", "llm", "anthropic"]
 categories = ["command-line-utilities"]
 
 [[bin]]
-name = "wayland-core"
+name = "genesis-core"
 path = "src/main.rs"
 
 # M5.4: lib target so the plugin marketplace module is callable from
@@ -62,7 +62,7 @@ async-trait.workspace    = true
 wcore-agent.workspace    = true
 wcore-agents-pack.workspace = true
 # S10: read-only Integrations view in `/doctor` scans the on-disk channel
-# configs (`scan_user_channels`) through the same WAYLAND_HOME-correct path the
+# configs (`scan_user_channels`) through the same GENESIS_HOME-correct path the
 # engine loader uses. Already in the graph transitively via wcore-agent.
 wcore-channels-registry = { path = "../wcore-channels-registry" }
 wcore-compact.workspace  = true
@@ -73,7 +73,7 @@ wcore-memory.workspace   = true
 # `as_any` to recover the concrete `OllamaProvider`).
 wcore-plugin-api.workspace = true
 # Lane C: marketplace resolver lowers foreign plugin formats (Claude Code, MCP
-# registry) into the Wayland-native plugin model via the install-time adapters
+# registry) into the Genesis-native plugin model via the install-time adapters
 # in `wcore-pluginsrc`. The runtime loader stays format-blind.
 wcore-pluginsrc.workspace = true
 wcore-providers.workspace = true
@@ -126,10 +126,10 @@ humantime-serde.workspace = true
 # every `submit!` block at startup via `linkme`-style ctors as long
 # as the crate is *linked*. Removing any line below means the
 # corresponding plugin silently disappears.
-wayland-browser = { path = "../wayland-browser" }
-wayland-cua     = { path = "../wayland-cua" }
-wayland-honcho  = { path = "../wayland-honcho" }
-wayland-ollama  = { path = "../wayland-ollama" }
+genesis-browser = { path = "../genesis-browser" }
+genesis-cua     = { path = "../genesis-cua" }
+genesis-honcho  = { path = "../genesis-honcho" }
+genesis-ollama  = { path = "../genesis-ollama" }
 
 tokio.workspace  = true
 # AUDIT-D: `CancellationToken` for the TUI's cooperative turn-cancel —
@@ -201,7 +201,7 @@ wcore-egress = { workspace = true, optional = true }
 ed25519-dalek = { workspace = true }
 sha2          = { workspace = true }
 
-# `wayland-core self-update` deps (keyless Sigstore provenance via gh; R16).
+# `genesis-core self-update` deps (keyless Sigstore provenance via gh; R16).
 # - `self_replace` swaps the running binary across POSIX (rename) and
 #   Windows (MoveFileExW + the running-exe-lock dance).
 # - `futures-util` streams reqwest response bytes into a file in
@@ -257,7 +257,7 @@ serial_test.workspace = true
 # Test fixtures for the chatgpt OAuth verbs build base64url-encoded JWT
 # payloads (Task 5.2) — same encoder wcore-agent's oauth module uses.
 base64.workspace = true
-# User-flow harness Layer 2/3: drive the real `wayland-core` binary
+# User-flow harness Layer 2/3: drive the real `genesis-core` binary
 # through a pseudo-terminal like a human would.
 # - `portable-pty` spawns the binary attached to a PTY (so the TUI's
 #   `IsTerminal` check passes and the full-screen UI launches).

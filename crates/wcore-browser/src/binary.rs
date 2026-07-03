@@ -66,7 +66,7 @@ pub enum BinaryError {
 /// and returns the path. Other backends (chromium, browserbase) reuse the
 /// `verify_sha256` + `download_to` helpers.
 pub struct BrowserBinaryManager {
-    /// Install root — by default `~/.wayland-core/browser/bin/`.
+    /// Install root — by default `~/.genesis-core/browser/bin/`.
     pub install_root: PathBuf,
     /// When `true`, refuse to make any network call.
     pub offline: bool,

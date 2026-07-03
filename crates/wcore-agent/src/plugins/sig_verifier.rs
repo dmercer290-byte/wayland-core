@@ -1,12 +1,12 @@
 //! Sec6: ed25519 plugin signature verification (unified, v0.6.5 Task 1.3 fixup).
 //!
 //! ONE verification path: [`verify_path_plugin_signature`] reads
-//! `<plugin_dir>/wayland-plugin.sig` (raw 64-byte ed25519 signature over the
+//! `<plugin_dir>/genesis-plugin.sig` (raw 64-byte ed25519 signature over the
 //! entry binary bytes) and verifies against the UNION of:
 //!
 //! * filesystem-side trusted keys — every `*.pub` file (raw 32-byte ed25519
-//!   public key) in the trust-anchor directory (`$WAYLAND_TRUSTED_KEYS_DIR`
-//!   or `~/.wayland/trusted-keys`), and
+//!   public key) in the trust-anchor directory (`$GENESIS_TRUSTED_KEYS_DIR`
+//!   or `~/.genesis/trusted-keys`), and
 //! * config-side trusted keys — every base64-encoded entry in
 //!   `PluginsConfig.trusted_plugin_keys` (parsed by the loader before this
 //!   function is called).
@@ -15,7 +15,7 @@
 //! (`plugin_path() == None`) always skip — the engine binary is their trust
 //! anchor.
 //!
-//! Dev escape: `WAYLAND_PLUGIN_TRUST_UNSIGNED=1` allows unsigned path-based
+//! Dev escape: `GENESIS_PLUGIN_TRUST_UNSIGNED=1` allows unsigned path-based
 //! plugins to load. The loader logs a warning when set; NEVER the default.
 
 use ed25519_dalek::{Signature, VerifyingKey, ed25519::signature::Verifier};
@@ -23,13 +23,13 @@ use std::path::{Path, PathBuf};
 use wcore_plugin_api::{PluginError, PluginResult};
 
 /// Filename of the detached signature inside a plugin directory (v0.6.5 Task 1.3).
-pub const PLUGIN_SIG_FILENAME: &str = "wayland-plugin.sig";
+pub const PLUGIN_SIG_FILENAME: &str = "genesis-plugin.sig";
 
 /// Env var that opts a path-based plugin out of signature verification (dev/CI only).
-pub const ENV_TRUST_UNSIGNED: &str = "WAYLAND_PLUGIN_TRUST_UNSIGNED";
+pub const ENV_TRUST_UNSIGNED: &str = "GENESIS_PLUGIN_TRUST_UNSIGNED";
 
 /// Env var that overrides the trust-anchor directory (tests / sandboxed deployments).
-pub const ENV_TRUSTED_KEYS_DIR: &str = "WAYLAND_TRUSTED_KEYS_DIR";
+pub const ENV_TRUSTED_KEYS_DIR: &str = "GENESIS_TRUSTED_KEYS_DIR";
 
 /// Origin of a trusted key, kept alongside the key for log clarity.
 #[derive(Debug, Clone)]
@@ -51,13 +51,13 @@ impl std::fmt::Display for KeySource {
 
 /// Resolve the trust-anchor directory.
 ///
-/// 1. `$WAYLAND_TRUSTED_KEYS_DIR` if set.
-/// 2. `<WAYLAND_HOME or ~/.wayland>/trusted-keys` otherwise.
+/// 1. `$GENESIS_TRUSTED_KEYS_DIR` if set.
+/// 2. `<GENESIS_HOME or ~/.genesis>/trusted-keys` otherwise.
 ///
 /// Isolation: the fallback routes through `wcore_config::config::profile_home()`
 /// so each profile has its OWN trust-anchor set (a key trusted in profile A
 /// must not validate plugins in profile B). Byte-identical to
-/// `~/.wayland/trusted-keys` when `WAYLAND_HOME` is unset.
+/// `~/.genesis/trusted-keys` when `GENESIS_HOME` is unset.
 pub fn trusted_keys_dir() -> Option<PathBuf> {
     if let Ok(d) = std::env::var(ENV_TRUSTED_KEYS_DIR)
         && !d.is_empty()
@@ -124,14 +124,14 @@ pub fn key_fingerprint(key: &VerifyingKey) -> String {
 /// v0.6.5 Task 1.3 (fixup): verify a path-based plugin against the UNION of
 /// filesystem-side and config-side trusted keys.
 ///
-/// Reads `<plugin_path.parent()>/wayland-plugin.sig` (raw 64-byte ed25519
+/// Reads `<plugin_path.parent()>/genesis-plugin.sig` (raw 64-byte ed25519
 /// signature over the entry binary bytes). Verifies against every key in
 /// `union_keys`; accepts on first match. Callers MUST have already checked
-/// the `WAYLAND_PLUGIN_TRUST_UNSIGNED` escape — this function does NOT
+/// the `GENESIS_PLUGIN_TRUST_UNSIGNED` escape — this function does NOT
 /// consult it.
 ///
 /// Errors:
-/// - [`PluginError::SignatureMissing`] when `wayland-plugin.sig` is absent.
+/// - [`PluginError::SignatureMissing`] when `genesis-plugin.sig` is absent.
 /// - [`PluginError::ConfigError`] when `union_keys` is empty (no anchor to
 ///   verify against — refuse rather than silently accept).
 /// - [`PluginError::SignatureVerificationFailed`] when no key accepts the sig.
@@ -164,7 +164,7 @@ pub fn verify_path_plugin_signature(
 /// swaps the file in the gap gets unverified code run.
 ///
 /// `plugin_dir` is the directory containing both the artifact and its detached
-/// `wayland-plugin.sig`. `binary_bytes` are the exact artifact bytes the caller
+/// `genesis-plugin.sig`. `binary_bytes` are the exact artifact bytes the caller
 /// will run.
 pub fn verify_plugin_signature_bytes(
     plugin_name: &str,
@@ -183,9 +183,9 @@ pub fn verify_plugin_signature_bytes(
     if union_keys.is_empty() {
         return Err(PluginError::ConfigError(format!(
             "plugin {plugin_name}: no trusted keys available — add ed25519 *.pub \
-             files to the trust-anchor directory (default ~/.wayland/trusted-keys, \
-             override via WAYLAND_TRUSTED_KEYS_DIR) or set trusted_plugin_keys in \
-             plugins.toml, or set WAYLAND_PLUGIN_TRUST_UNSIGNED=1 (DEV ONLY)"
+             files to the trust-anchor directory (default ~/.genesis/trusted-keys, \
+             override via GENESIS_TRUSTED_KEYS_DIR) or set trusted_plugin_keys in \
+             plugins.toml, or set GENESIS_PLUGIN_TRUST_UNSIGNED=1 (DEV ONLY)"
         )));
     }
 
@@ -241,17 +241,17 @@ mod tests {
     use rand::rngs::OsRng;
     use tempfile::TempDir;
 
-    /// Isolation (Phase 0): the trust-anchor dir follows `WAYLAND_HOME` so each
-    /// profile has its OWN trust set, and the explicit `$WAYLAND_TRUSTED_KEYS_DIR`
+    /// Isolation (Phase 0): the trust-anchor dir follows `GENESIS_HOME` so each
+    /// profile has its OWN trust set, and the explicit `$GENESIS_TRUSTED_KEYS_DIR`
     /// override still wins over it.
     #[test]
-    #[serial_test::serial(wayland_home_env)]
-    fn trusted_keys_dir_follows_wayland_home_and_env_override() {
-        let wh = "WAYLAND_HOME";
+    #[serial_test::serial(genesis_home_env)]
+    fn trusted_keys_dir_follows_genesis_home_and_env_override() {
+        let wh = "GENESIS_HOME";
         let tk = ENV_TRUSTED_KEYS_DIR;
         let prev_wh = std::env::var_os(wh);
         let prev_tk = std::env::var_os(tk);
-        // 1. Fallback roots under WAYLAND_HOME (per-profile trust set).
+        // 1. Fallback roots under GENESIS_HOME (per-profile trust set).
         unsafe {
             std::env::remove_var(tk);
             std::env::set_var(wh, "/tmp/wl-trust-test");
@@ -259,16 +259,16 @@ mod tests {
         assert_eq!(
             trusted_keys_dir(),
             Some(PathBuf::from("/tmp/wl-trust-test").join("trusted-keys")),
-            "fallback must follow WAYLAND_HOME"
+            "fallback must follow GENESIS_HOME"
         );
-        // 2. Explicit override still wins over WAYLAND_HOME.
+        // 2. Explicit override still wins over GENESIS_HOME.
         unsafe {
             std::env::set_var(tk, "/tmp/explicit-trust");
         }
         assert_eq!(
             trusted_keys_dir(),
             Some(PathBuf::from("/tmp/explicit-trust")),
-            "WAYLAND_TRUSTED_KEYS_DIR must win over WAYLAND_HOME"
+            "GENESIS_TRUSTED_KEYS_DIR must win over GENESIS_HOME"
         );
         // restore
         unsafe {
@@ -287,7 +287,7 @@ mod tests {
         SigningKey::generate(&mut OsRng)
     }
 
-    /// Build a path-based plugin layout: `<tmp>/plugin.bin` + (optional) `wayland-plugin.sig`
+    /// Build a path-based plugin layout: `<tmp>/plugin.bin` + (optional) `genesis-plugin.sig`
     /// and `<tmp>/keys/<name>.pub`. Returns (plugin_path, keys_dir, tmp).
     fn setup_path_plugin(
         content: &[u8],

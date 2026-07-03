@@ -1,6 +1,6 @@
 # wcore-repomap
 
-Aider-style light symbol extractor and codebase index for `wayland-core`.
+Aider-style light symbol extractor and codebase index for `genesis-core`.
 
 **Isolated crate.** No internal `wcore-*` dependencies; no protocol
 events. Future waves wire `RepoMap` into the agent tool registry; this
@@ -65,5 +65,5 @@ claims** that W3 is shaped-to-hit but does not measure:
    plus a micro-benchmark is the closing gate.
 
 All three are reserved for a **benchmark wave** that runs against real
-repos (this engine and the Wayland Desktop app are reasonable
+repos (this engine and the Genesis Desktop app are reasonable
 candidates). W3 ships architecture + fixture-level correctness only.

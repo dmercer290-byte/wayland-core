@@ -28,7 +28,7 @@ pub struct HooksConfig {
     #[serde(default = "default_dispatch_enabled")]
     pub dispatch_enabled: bool,
     /// GHSA-8r7g — operator opt-in to run hooks defined in a PROJECT config
-    /// (`.wayland-core.toml` in the working directory). A `HookDef.command` is
+    /// (`.genesis-core.toml` in the working directory). A `HookDef.command` is
     /// executed as a child process, so a project config that travels with a
     /// cloned repo is an arbitrary-code-execution surface. Default `false`:
     /// project-defined `pre_tool_use` / `post_tool_use` / `stop` hooks are NOT
@@ -191,7 +191,7 @@ mod trust_helper_tests {
     fn sanitize_ident_strips_attribute_injection() {
         assert_eq!(sanitize_ident("x\" trust=\"trusted"), "x__trust__trusted");
         assert_eq!(sanitize_ident("h>"), "h_");
-        assert_eq!(sanitize_ident("wayland-ijfw"), "wayland-ijfw");
+        assert_eq!(sanitize_ident("genesis-ijfw"), "genesis-ijfw");
         assert_eq!(sanitize_ident("ijfw_memory_prelude"), "ijfw_memory_prelude");
     }
 }

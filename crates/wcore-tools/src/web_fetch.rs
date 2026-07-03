@@ -5,7 +5,7 @@
 //! The `Browser` tool (in `wcore-browser`) targets the interactive
 //! browsing case: click, fill, screenshot, multi-step navigation through
 //! JS-heavy SPAs. It dispatches into a Camoufox / Chromium / Browserbase
-//! backend - none of which are present on a fresh `wayland-core` install
+//! backend - none of which are present on a fresh `genesis-core` install
 //! out of the box. A user asking "fetch github.com/trending and summarize
 //! it" does NOT need a full browser; they need an HTTP GET against a
 //! static HTML page, and a model can do everything else from the response.
@@ -160,7 +160,7 @@ impl FetchBackend for CapturingFetchBackend {
 }
 
 /// `WebFetch` tool - HTTP GET against a single URL, returns readable
-/// text. Default-on for every wayland-core install.
+/// text. Default-on for every genesis-core install.
 pub struct WebFetchTool {
     backend: Arc<dyn FetchBackend>,
     backend_configured: bool,

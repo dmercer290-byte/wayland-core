@@ -65,7 +65,7 @@ pub fn accepts_reasoning_effort(model: &str) -> bool {
 /// contract, so it must be keyed off the model id — not just the provider's
 /// static compat. A router provider (Flux/OpenRouter) carries a generic compat
 /// with `replays_thinking_in_history` off, yet can route to DeepSeek/Kimi, which
-/// is exactly the case wayland#417 hit. Keying off the model lets a router serve
+/// is exactly the case genesis#417 hit. Keying off the model lets a router serve
 /// a strict reasoner correctly while NEVER replaying for a non-strict model
 /// (e.g. claude-via-Flux, which would 400 on an unsigned thinking block). The
 /// `has-thinking` gate at the replay site still prevents replay when a turn
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn requires_replay_for_strict_reasoners() {
-        // DeepSeek (incl. the wayland#417 model) and Moonshot/Kimi require it.
+        // DeepSeek (incl. the genesis#417 model) and Moonshot/Kimi require it.
         assert!(requires_reasoning_content_replay("deepseek-v4-pro"));
         assert!(requires_reasoning_content_replay("deepseek-reasoner"));
         assert!(requires_reasoning_content_replay("deepseek-chat"));

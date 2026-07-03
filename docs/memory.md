@@ -1,6 +1,6 @@
 # Memory model
 
-Wayland-Core's memory layer is a **5-partition × 3-tier** SQLite-backed
+Genesis-Core's memory layer is a **5-partition × 3-tier** SQLite-backed
 store that captures what an agent saw, did, learned, and concluded across
 sessions. The two axes are orthogonal: every memory write is addressed by
 both a *partition* (what kind of memory) and a *tier* (how durable). This
@@ -13,7 +13,7 @@ The authoritative type surface lives in
 
 ## 1. Overview
 
-Wayland-Core agents are long-lived: one user, many projects, many
+Genesis-Core agents are long-lived: one user, many projects, many
 sessions. A blank-slate agent is useless after session 2 — it re-asks
 the same questions, re-discovers the same project quirks, and re-makes
 the same mistakes. The memory layer fixes that by writing structured
@@ -54,7 +54,7 @@ The `wcore_memory::v2_types::Tier` enum has exactly three variants:
 | Tier      | Variant         | Scope                                                          |
 |-----------|-----------------|----------------------------------------------------------------|
 | Session   | `Tier::Session` | Lives only while the session is open. Discarded on shutdown.   |
-| Project   | `Tier::Project` | Per project root, in `.wayland-core/memory/memory.db`.         |
+| Project   | `Tier::Project` | Per project root, in `.genesis-core/memory/memory.db`.         |
 | Global    | `Tier::Global`  | Cross-project, in `<config_dir>/memory/memory.db`.             |
 
 ### The 9 valid (partition, tier) combinations
@@ -88,7 +88,7 @@ Episodic→Project, Semantic→Project, Procedural→Project, Core→Global.
 ### Configuration
 
 Memory is off by default. To enable it, set the following in your config
-(`.wayland-core.toml` for project scope, or the global config — see
+(`.genesis-core.toml` for project scope, or the global config — see
 [getting-started.md](getting-started.md) for cascading precedence):
 
 ```toml
@@ -108,14 +108,14 @@ zero rows.
 
 | Path                                                       | Contents                                  |
 |------------------------------------------------------------|-------------------------------------------|
-| `<project_root>/.wayland-core/memory/memory.db`            | Project-tier SQLite                       |
+| `<project_root>/.genesis-core/memory/memory.db`            | Project-tier SQLite                       |
 | `<config_dir>/memory/memory.db`                            | Global-tier SQLite                        |
 | `<config_dir>/memory/sessions/<session_id>.db`             | Session-tier SQLite (one per session)     |
 | `<config_dir>/memory/audit.db`                             | Access-gate audit log                     |
 | `<config_dir>/memory/changelog/<tier>.changelog.jsonl`     | Append-only CDC tail per tier             |
 
-`<config_dir>` follows OS convention (`~/.config/wayland-core` on Linux,
-`~/Library/Application Support/wayland-core` on macOS, `%APPDATA%\wayland-core`
+`<config_dir>` follows OS convention (`~/.config/genesis-core` on Linux,
+`~/Library/Application Support/genesis-core` on macOS, `%APPDATA%\genesis-core`
 on Windows).
 
 Override the base directory by exporting `WCORE_MEMORY_DIR` before
@@ -212,13 +212,13 @@ by the unit tests in `crates/wcore-memory/tests/dream_throttle_test.rs`.
 
 ## 5. Inspection
 
-### CLI: `wayland-core --memory-show <session>`
+### CLI: `genesis-core --memory-show <session>`
 
 The fastest way to see what the agent remembers about a session is the
 inspection flag (shipped in M3.4):
 
 ```bash
-$ wayland-core --memory-show 2026-05-16-abc123 --project-dir ~/project
+$ genesis-core --memory-show 2026-05-16-abc123 --project-dir ~/project
 {
   "session_id": "2026-05-16-abc123",
   "project_root": "/home/me/project",
@@ -241,8 +241,8 @@ Each tier's SQLite database is openable with any client. To inspect
 project-tier memory directly:
 
 ```bash
-sqlite3 .wayland-core/memory/memory.db ".schema episodes"
-sqlite3 .wayland-core/memory/memory.db \
+sqlite3 .genesis-core/memory/memory.db ".schema episodes"
+sqlite3 .genesis-core/memory/memory.db \
   "SELECT id, episode_type, ts, decay_score, status FROM episodes ORDER BY ts DESC LIMIT 20;"
 ```
 
@@ -290,8 +290,8 @@ posture has to pass the regression tests in
 `crates/wcore-config/tests/memory_config_test.rs`.
 
 To opt in for a single project, add the `[memory]` block to that
-project's `.wayland-core.toml`. To opt in globally, add it to the
-global config (`<config_dir>/wayland-core/config.toml`). Project values
+project's `.genesis-core.toml`. To opt in globally, add it to the
+global config (`<config_dir>/genesis-core/config.toml`). Project values
 override global values per the cascading rule documented in
 [getting-started.md](getting-started.md).
 
@@ -323,13 +323,13 @@ What's not stored:
 To wipe project-tier memory:
 
 ```bash
-rm .wayland-core/memory/memory.db
+rm .genesis-core/memory/memory.db
 ```
 
 To wipe global-tier memory (including the user model):
 
 ```bash
-rm -rf "$(wayland-core --print-config-dir)/memory"
+rm -rf "$(genesis-core --print-config-dir)/memory"
 ```
 
 Both operations are non-recoverable. The CDC changelog tail under

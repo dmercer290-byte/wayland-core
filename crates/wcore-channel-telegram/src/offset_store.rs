@@ -6,7 +6,7 @@
 //! unconfirmed batch (up to 100 updates) as duplicate agent turns.
 //!
 //! This module persists the last-confirmed offset per channel name under the
-//! profile home (`$WAYLAND_HOME/channel-state/`) so a restart resumes exactly
+//! profile home (`$GENESIS_HOME/channel-state/`) so a restart resumes exactly
 //! where it left off. Writes are best-effort: a failure is logged and the
 //! in-session in-memory offset still prevents same-process re-delivery.
 
@@ -20,7 +20,7 @@ fn state_path(channel_name: &str) -> PathBuf {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     channel_name.hash(&mut h);
     let key = h.finish();
-    wcore_config::config::wayland_config_dir()
+    wcore_config::config::genesis_config_dir()
         .join("channel-state")
         .join(format!("telegram-{key:016x}.offset"))
 }

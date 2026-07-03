@@ -1,6 +1,6 @@
 [package]
 name = "wcore-observability"
-description = "Trace schema, OTLP exporter, span sinks, and prompt-cache discipline for wayland-core"
+description = "Trace schema, OTLP exporter, span sinks, and prompt-cache discipline for genesis-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -39,7 +39,7 @@ workspace-hack.workspace = true
 rstest.workspace    = true
 tempfile.workspace  = true
 tokio-test.workspace = true
-# W9: serialize env-var mutation in WAYLAND_TRACE_RESULT_SNIPPETS tests.
+# W9: serialize env-var mutation in GENESIS_TRACE_RESULT_SNIPPETS tests.
 serial_test.workspace = true
 # Integration tests round-trip through the Anthropic build_messages helper.
 wcore-providers.workspace = true

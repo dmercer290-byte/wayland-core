@@ -105,7 +105,7 @@ pub fn register_catalog(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::WaylandProviderRegistry;
+    use crate::registry::GenesisProviderRegistry;
 
     fn cfg() -> CatalogProviderConfig {
         CatalogProviderConfig {
@@ -134,7 +134,7 @@ mod tests {
             "openrouter",
             "moonshotai",
         ];
-        let mut reg = WaylandProviderRegistry::new();
+        let mut reg = GenesisProviderRegistry::new();
         let n = register_catalog(&mut reg, &catalog, &native, cfg());
 
         // Every non-native entry registered.
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn register_catalog_registers_all_when_no_natives() {
         let catalog = ProviderCatalog::load_bundled().expect("catalog parses");
-        let mut reg = WaylandProviderRegistry::new();
+        let mut reg = GenesisProviderRegistry::new();
         let n = register_catalog(&mut reg, &catalog, &[], cfg());
         assert_eq!(n, catalog.len());
         assert_eq!(reg.len(), catalog.len());

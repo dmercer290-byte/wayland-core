@@ -24,7 +24,7 @@ pub const DEFAULT_INTENTS: u64 =
     INTENT_GUILD_MESSAGES | INTENT_MESSAGE_CONTENT | INTENT_DIRECT_MESSAGES;
 
 /// Per-channel Discord config. Parsed from the `[options]` table of
-/// `~/.wayland/channels/<name>.toml`.
+/// `~/.genesis/channels/<name>.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct DiscordConfig {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# smoke.sh — wayland-core P0 SMOKE GATE (pre-release).
+# smoke.sh — genesis-core P0 SMOKE GATE (pre-release).
 #
 # Runs the live P0 smoke suite from
 # .planning/audit/UX-AUDIT-AND-TEST-PLAN.md §4 — the ordered checks a new user
@@ -35,7 +35,7 @@ set -euo pipefail
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'__HELP_END__'
-smoke.sh — wayland-core P0 smoke gate
+smoke.sh — genesis-core P0 smoke gate
 
 USAGE
   scripts/smoke.sh
@@ -85,7 +85,7 @@ HARD_GATE_TESTS=(
   "smoke_24_quit_exits_cleanly"
 )
 
-echo "=== wayland-core P0 SMOKE GATE ==="
+echo "=== genesis-core P0 SMOKE GATE ==="
 echo "repo: $REPO_ROOT"
 echo
 

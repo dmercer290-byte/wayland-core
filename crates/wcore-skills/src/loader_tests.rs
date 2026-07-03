@@ -267,8 +267,8 @@ async fn test_load_commands_nested_flat() {
 #[tokio::test]
 async fn test_load_all_skills_bare_mode() {
     let tmp = TempDir::new().unwrap();
-    // Create .wayland-core/skills/ under the add_dir
-    let skills_dir = tmp.path().join(".wayland-core").join("skills");
+    // Create .genesis-core/skills/ under the add_dir
+    let skills_dir = tmp.path().join(".genesis-core").join("skills");
     fs::create_dir_all(&skills_dir).unwrap();
     write_skill(&skills_dir, "my-skill/SKILL.md", "---\n---\n");
 
@@ -290,7 +290,7 @@ async fn test_load_all_skills_deduplicates() {
     fs::create_dir(root.join(".git")).unwrap();
 
     // Create same skill in project dir (will appear twice due to walk)
-    let skills_dir = root.join(".wayland-core").join("skills");
+    let skills_dir = root.join(".genesis-core").join("skills");
     fs::create_dir_all(&skills_dir).unwrap();
     write_skill(&skills_dir, "my-skill/SKILL.md", "---\n---\n");
 

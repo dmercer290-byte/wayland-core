@@ -4,14 +4,14 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use wayland-core::engine::AgentEngine;
-use wayland-core::output::OutputSink;
-use wayland-core::output::terminal::TerminalSink;
-use wayland-core::protocol::{ToolApprovalManager, ToolApprovalResult};
-use wayland-core::protocol::writer::ProtocolWriter;
-use wayland-core::tools::registry::ToolRegistry;
-use wayland-core::types::llm::LlmEvent;
-use wayland-core::types::message::{StopReason, TokenUsage};
+use genesis-core::engine::AgentEngine;
+use genesis-core::output::OutputSink;
+use genesis-core::output::terminal::TerminalSink;
+use genesis-core::protocol::{ToolApprovalManager, ToolApprovalResult};
+use genesis-core::protocol::writer::ProtocolWriter;
+use genesis-core::tools::registry::ToolRegistry;
+use genesis-core::types::llm::LlmEvent;
+use genesis-core::types::message::{StopReason, TokenUsage};
 
 use common::{ExecMockTool, MockLlmProvider, test_config};
 

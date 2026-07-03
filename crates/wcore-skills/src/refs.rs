@@ -59,7 +59,7 @@ pub struct SkillCatalog {
     eager: std::collections::HashMap<String, Arc<SkillMetadata>>,
     /// W6 — root directory whose one-level subdirectories are treated as
     /// sibling projects. When set, a `resolve()` miss widens the lookup
-    /// across sibling projects' `.wayland-core/skills/` directories before
+    /// across sibling projects' `.genesis-core/skills/` directories before
     /// returning `NotFound`. `None` keeps single-project behaviour.
     cross_project_root: Option<PathBuf>,
 }
@@ -82,7 +82,7 @@ impl SkillCatalog {
     /// same shape `wcore_memory::cross_project::discover_projects` expects:
     /// a sibling counts only if it carries a `memory.db`). When a
     /// `resolve()` call misses the local catalog, each sibling's
-    /// `.wayland-core/skills/` directory is searched for the named skill.
+    /// `.genesis-core/skills/` directory is searched for the named skill.
     ///
     /// Discovery is best-effort: a missing root, no siblings, or a sibling
     /// without the skill all degrade silently to single-project `NotFound`.
@@ -279,7 +279,7 @@ impl SkillCatalog {
     ///
     /// Consults `wcore_memory::cross_project::discover_projects` against the
     /// configured `cross_project_root`, then scans each discovered sibling's
-    /// `.wayland-core/skills/` directory for a skill named `name`. The first
+    /// `.genesis-core/skills/` directory for a skill named `name`. The first
     /// match wins. Returns `None` — never an error — when cross-project
     /// resolution is disabled, finds no siblings, or no sibling carries the
     /// skill, so the caller can fall through to single-project `NotFound`.
@@ -292,11 +292,11 @@ impl SkillCatalog {
         for project in projects {
             // `memory_db_path` is `<project_dir>/memory.db`; the project dir
             // is its parent. Sibling skills live under
-            // `<project_dir>/.wayland-core/skills/`.
+            // `<project_dir>/.genesis-core/skills/`.
             let Some(project_dir) = project.memory_db_path.parent() else {
                 continue;
             };
-            let skills_dir = project_dir.join(".wayland-core").join("skills");
+            let skills_dir = project_dir.join(".genesis-core").join("skills");
             if !skills_dir.is_dir() {
                 continue;
             }
@@ -479,13 +479,13 @@ mod tests {
 
     /// W6 — write a minimal sibling project under `root` with one skill.
     /// Layout matches what `discover_projects` expects (`<proj>/memory.db`)
-    /// plus a `.wayland-core/skills/<skill>/SKILL.md` body.
+    /// plus a `.genesis-core/skills/<skill>/SKILL.md` body.
     fn make_sibling_project(root: &std::path::Path, project: &str, skill: &str) {
         let proj = root.join(project);
         std::fs::create_dir_all(&proj).unwrap();
         // discover_projects only counts a subdir that carries memory.db.
         std::fs::write(proj.join("memory.db"), b"").unwrap();
-        let skill_dir = proj.join(".wayland-core").join("skills").join(skill);
+        let skill_dir = proj.join(".genesis-core").join("skills").join(skill);
         std::fs::create_dir_all(&skill_dir).unwrap();
         std::fs::write(
             skill_dir.join("SKILL.md"),

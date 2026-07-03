@@ -23,7 +23,7 @@ fn user_models_manifest() -> PluginManifest {
     PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-honcho"
+name = "genesis-honcho"
 version = "1.0.0"
 description = "t"
 entry = "builtin:h"
@@ -83,7 +83,7 @@ fn scoped_user_models_with_permission_registers() {
 
 #[test]
 fn scoped_user_models_constructor_rejects_without_permission() {
-    let m_no = empty_manifest("wayland-mute");
+    let m_no = empty_manifest("genesis-mute");
     let mut host = CaptureUserModels {
         registered: Vec::new(),
     };

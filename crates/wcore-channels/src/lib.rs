@@ -53,7 +53,7 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait Channel: Send + Sync {
     /// Stable identifier for this channel. Matches the config file
-    /// stem at `~/.wayland/channels/<name>.toml`. Used for routing.
+    /// stem at `~/.genesis/channels/<name>.toml`. Used for routing.
     fn name(&self) -> &str;
 
     /// Platform tag — `"slack"`, `"discord"`, `"telegram"`, etc.

@@ -390,7 +390,7 @@ mod tests {
     }
 
     /// Build a minimal valid JPEG that carries an APP1/EXIF segment with a
-    /// single ASCII `Make` tag ("Wayland"). Hand-assembled because the
+    /// single ASCII `Make` tag ("Genesis"). Hand-assembled because the
     /// `image` crate does not write EXIF.
     ///
     /// Layout: SOI, APP1(EXIF), then a real (EXIF-free) JPEG body minus
@@ -405,7 +405,7 @@ mod tests {
 
         // IFD0: 1 entry.
         tiff.extend_from_slice(&[0x00, 0x01]); // entry count = 1
-        // Entry: Make (0x010F), type ASCII (2), count 8 ("Wayland\0").
+        // Entry: Make (0x010F), type ASCII (2), count 8 ("Genesis\0").
         tiff.extend_from_slice(&[0x01, 0x0F]); // tag = Make
         tiff.extend_from_slice(&[0x00, 0x02]); // type = ASCII
         tiff.extend_from_slice(&[0x00, 0x00, 0x00, 0x08]); // count = 8
@@ -414,7 +414,7 @@ mod tests {
         // so the value lives at offset 8 + 2 + 12 + 4 = 26.
         tiff.extend_from_slice(&[0x00, 0x00, 0x00, 0x1A]); // value offset = 26
         tiff.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // next IFD = 0 (none)
-        tiff.extend_from_slice(b"Wayland\0"); // the ASCII value, 8 bytes
+        tiff.extend_from_slice(b"Genesis\0"); // the ASCII value, 8 bytes
 
         // --- APP1 segment wrapping the EXIF identifier + TIFF payload ---
         let mut app1_body: Vec<u8> = Vec::new();
@@ -510,8 +510,8 @@ mod tests {
             result.content
         );
         assert!(
-            result.content.contains("Make") && result.content.contains("Wayland"),
-            "expected the embedded Make=Wayland tag in: {}",
+            result.content.contains("Make") && result.content.contains("Genesis"),
+            "expected the embedded Make=Genesis tag in: {}",
             result.content
         );
     }

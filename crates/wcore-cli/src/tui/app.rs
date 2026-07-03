@@ -230,7 +230,7 @@ pub struct App {
     checkpoints: Option<CheckpointStore>,
     /// D019 — owns the per-session scratch [`tempfile::TempDir`] backing the
     /// checkpoint store so it is CLEANED UP when the `App` drops (process
-    /// exit), instead of leaking a `wayland-rewind-*` directory under the
+    /// exit), instead of leaking a `genesis-rewind-*` directory under the
     /// system temp dir on every run. `None` until the store is first built.
     checkpoint_tempdir: Option<tempfile::TempDir>,
     /// D019 — absolute on-disk paths the agent has touched this session, in
@@ -414,7 +414,7 @@ impl App {
     ///
     /// The scratch root is created via `tempfile` as a `0700`, random-named
     /// directory owned by the current user. We deliberately do NOT use a
-    /// predictable `wayland-rewind-<pid>` path under a world-writable `/tmp`:
+    /// predictable `genesis-rewind-<pid>` path under a world-writable `/tmp`:
     /// a guessable name in shared `/tmp` lets another local user pre-create the
     /// directory or plant a crafted checkpoint, and on a `/rewind` restore the
     /// store writes blob contents back to the file paths recorded in the
@@ -428,18 +428,18 @@ impl App {
             // handle on `App` so it is removed when the process exits, instead
             // of `.keep()`-leaking a directory per run. If the secure create
             // fails we fall back to a per-user cache dir (NOT the predictable,
-            // world-writable `/tmp/wayland-rewind-<pid>` path the secure path
+            // world-writable `/tmp/genesis-rewind-<pid>` path the secure path
             // exists to avoid — that name is guessable and pre-creatable by
             // another local user, which restore would then trust).
             let td = tempfile::Builder::new()
-                .prefix("wayland-rewind-")
+                .prefix("genesis-rewind-")
                 .tempdir()
                 .ok();
             let scratch = match &td {
                 Some(d) => d.path().to_path_buf(),
                 None => dirs::cache_dir()
                     .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".cache"))
-                    .join("wayland-core")
+                    .join("genesis-core")
                     .join("rewind"),
             };
             self.checkpoint_tempdir = td;

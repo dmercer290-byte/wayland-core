@@ -151,7 +151,7 @@ async fn agent_emits_one_turn_trace_per_turn() {
     assert_eq!(calls.len(), 1, "turn 0 must capture one tool call");
     assert_eq!(calls[0]["tool_name"], "mock_tool");
     assert_eq!(calls[0]["call_id"], "tu_01");
-    assert_eq!(calls[0]["source_product"], "wayland-core");
+    assert_eq!(calls[0]["source_product"], "genesis-core");
 
     // Turn 1: warm cache. cache_hit_rate = 900/1200 = 0.75.
     let t1 = &traces[1];
@@ -171,7 +171,7 @@ async fn agent_emits_one_turn_trace_per_turn() {
     // Source-product tag (S5) on every emitted trace.
     for (i, t) in traces.iter().enumerate() {
         assert_eq!(
-            t["source_product"], "wayland-core",
+            t["source_product"], "genesis-core",
             "trace[{i}] missing source_product tag"
         );
     }

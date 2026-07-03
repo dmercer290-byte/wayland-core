@@ -64,7 +64,7 @@ pub(crate) struct ImapPollArgs {
     /// From address plus the IMAP account when it is address-shaped. Inbound
     /// mail whose `From:` matches is marked `is_self` so the dispatch
     /// kernel's loop guard drops it instead of starting an agent turn
-    /// (wayland#547 — the agent otherwise replies to its own mail forever).
+    /// (genesis#547 — the agent otherwise replies to its own mail forever).
     pub own_addresses: Vec<String>,
     /// Message-IDs this channel has sent (recorded by the SMTP path). An
     /// inbound whose id matches is the channel's own mail echoing back and
@@ -306,7 +306,7 @@ fn poll_once(
 }
 
 /// Run the full inbound admission chain for one fetched RFC822 body:
-/// parse → self-mark (wayland#547 loop guard) → sender allow-list →
+/// parse → self-mark (genesis#547 loop guard) → sender allow-list →
 /// record reply-threading → wrap as a `MessageReceived` event.
 ///
 /// `None` means the message was dropped here (parse failure or allow-list).
@@ -326,7 +326,7 @@ fn admit_fetched_message(
 ) -> Option<ChannelEvent> {
     match parse_message(uid, body) {
         Ok((mut msg, reply_ctx)) => {
-            // Loop guard (wayland#547): mark the channel's own mail echoing
+            // Loop guard (genesis#547): mark the channel's own mail echoing
             // back in so the dispatch kernel drops it instead of triggering
             // an agent turn that would reply to it forever. INFO (id only,
             // no content) because the kernel drop itself is silent.
@@ -1088,7 +1088,7 @@ pub(crate) enum SelfMatch {
 }
 
 /// Mark an inbound message `is_self` when it is this channel's own mail
-/// echoing back into the monitored mailbox (wayland#547 loop guard).
+/// echoing back into the monitored mailbox (genesis#547 loop guard).
 /// Returns the detector that fired, `None` when the message was left alone
 /// (or was already marked).
 ///
@@ -1173,7 +1173,7 @@ fn parse_rfc2822_to_epoch(s: String) -> Option<i64> {
 mod tests {
     use super::*;
 
-    // ----- wayland#547 loop guard: mark_self_inbound -----
+    // ----- genesis#547 loop guard: mark_self_inbound -----
 
     #[test]
     fn mark_self_by_own_address() {
@@ -1228,7 +1228,7 @@ mod tests {
         assert!(!m.is_self);
     }
 
-    // ----- wayland#547 loop guard: the REAL admission path -----
+    // ----- genesis#547 loop guard: the REAL admission path -----
     // These drive raw RFC822 bytes through `admit_fetched_message` — the
     // same function `poll_once` calls per fetch — so removing the guard
     // wiring (not just the helper) fails tests.

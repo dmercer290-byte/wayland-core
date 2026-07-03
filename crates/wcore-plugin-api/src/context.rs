@@ -33,15 +33,15 @@ pub struct PluginContext<'a> {
     pub rules: Option<ScopedRuleRegistry<'a>>,
     pub mcp_servers: Option<ScopedMcpRegistry<'a>>,
     pub providers: Option<ScopedProviderRegistry<'a>>,
-    /// Wave BR — wayland-browser plugin reifies its `BrowserToolSpec` via
+    /// Wave BR — genesis-browser plugin reifies its `BrowserToolSpec` via
     /// this registry. Host (wcore-agent) builds a real `BrowserTool` via
     /// `wcore_browser::adapter::from_spec` after `initialize()` returns.
     pub browser: Option<ScopedBrowserRegistry<'a>>,
-    /// Wave CU — wayland-cua plugin reifies its `CuaToolSpec` via this
+    /// Wave CU — genesis-cua plugin reifies its `CuaToolSpec` via this
     /// registry. Host (wcore-agent) builds a real `CuaTool` via
     /// `wcore_cua::adapter::from_spec` after `initialize()` returns.
     pub cua: Option<ScopedCuaRegistry<'a>>,
-    /// v0.6.4 Task 2.1 — wayland-honcho (and future user-model backend
+    /// v0.6.4 Task 2.1 — genesis-honcho (and future user-model backend
     /// plugins) reify a `UserModelSpec` via this registry. Host
     /// (wcore-agent) constructs a real backend client after
     /// `initialize()` returns (Task 2.2).

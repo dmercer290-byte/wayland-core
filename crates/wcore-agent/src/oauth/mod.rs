@@ -12,7 +12,7 @@
 //! - CSRF `state` token is 32 random bytes from `OsRng`, compared with
 //!   `subtle::ConstantTimeEq` on the callback so timing leaks cannot
 //!   forge a valid replay.
-//! - Token storage at `~/.wayland/oauth/{provider}.json` enforces dir
+//! - Token storage at `~/.genesis/oauth/{provider}.json` enforces dir
 //!   mode `0700` + file mode `0600` on Unix.
 //! - Single-flight refresh ensures N concurrent refresh calls coalesce
 //!   into one network round-trip.

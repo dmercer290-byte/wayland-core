@@ -11,9 +11,9 @@ fn install_then_list_then_remove_round_trips() {
     std::fs::create_dir_all(&registry_dir).unwrap();
 
     std::fs::write(
-        registry_dir.join("wayland-honcho.toml"),
+        registry_dir.join("genesis-honcho.toml"),
         r#"
-name = "wayland-honcho"
+name = "genesis-honcho"
 version = "0.6.0"
 requires_sandbox = false
 description = "Honcho user-model plugin shell"
@@ -24,14 +24,14 @@ description = "Honcho user-model plugin shell"
     let store = wcore_cli::plugin::registry::Registry::from_dir(&registry_dir).unwrap();
     assert_eq!(store.list_available().len(), 1);
 
-    wcore_cli::plugin::install::install_from_registry(&store, "wayland-honcho", &install_root)
+    wcore_cli::plugin::install::install_from_registry(&store, "genesis-honcho", &install_root)
         .unwrap();
     let installed = wcore_cli::plugin::install::list_installed(&install_root).unwrap();
     assert_eq!(installed.len(), 1);
-    assert_eq!(installed[0].name, "wayland-honcho");
+    assert_eq!(installed[0].name, "genesis-honcho");
     assert_eq!(installed[0].version, "0.6.0");
 
-    wcore_cli::plugin::install::remove(&install_root, "wayland-honcho").unwrap();
+    wcore_cli::plugin::install::remove(&install_root, "genesis-honcho").unwrap();
     let installed_after = wcore_cli::plugin::install::list_installed(&install_root).unwrap();
     assert_eq!(installed_after.len(), 0);
 }
@@ -45,7 +45,7 @@ fn install_unknown_plugin_returns_typed_error() {
     let store = wcore_cli::plugin::registry::Registry::from_dir(&registry_dir).unwrap();
     let err = wcore_cli::plugin::install::install_from_registry(
         &store,
-        "wayland-wormhole",
+        "genesis-wormhole",
         &install_root,
     )
     .unwrap_err();
@@ -62,18 +62,18 @@ fn double_install_returns_already_installed() {
     let install_root = tmp.path().join("installed");
     std::fs::create_dir_all(&registry_dir).unwrap();
     std::fs::write(
-        registry_dir.join("wayland-honcho.toml"),
+        registry_dir.join("genesis-honcho.toml"),
         r#"
-name = "wayland-honcho"
+name = "genesis-honcho"
 version = "0.6.0"
 "#,
     )
     .unwrap();
     let store = wcore_cli::plugin::registry::Registry::from_dir(&registry_dir).unwrap();
-    wcore_cli::plugin::install::install_from_registry(&store, "wayland-honcho", &install_root)
+    wcore_cli::plugin::install::install_from_registry(&store, "genesis-honcho", &install_root)
         .unwrap();
     let err =
-        wcore_cli::plugin::install::install_from_registry(&store, "wayland-honcho", &install_root)
+        wcore_cli::plugin::install::install_from_registry(&store, "genesis-honcho", &install_root)
             .unwrap_err();
     assert!(matches!(
         err,
@@ -86,7 +86,7 @@ fn remove_unknown_returns_not_installed() {
     let tmp = tempfile::tempdir().unwrap();
     let install_root = tmp.path().join("installed");
     std::fs::create_dir_all(&install_root).unwrap();
-    let err = wcore_cli::plugin::install::remove(&install_root, "wayland-honcho").unwrap_err();
+    let err = wcore_cli::plugin::install::remove(&install_root, "genesis-honcho").unwrap_err();
     assert!(matches!(
         err,
         wcore_cli::plugin::error::PluginCliError::NotInstalled(_)
@@ -112,12 +112,12 @@ fn default_registry_loads_all_v0_6_entries() {
     // The exact contents are pinned to the v0.6 lineup. Adding a plugin
     // to `registry-default.json` MUST update this assertion so the test
     // keeps the embedded registry honest.
-    assert!(names.contains(&"wayland-ollama"));
-    assert!(names.contains(&"wayland-honcho"));
-    assert!(names.contains(&"wayland-browser"));
-    assert!(names.contains(&"wayland-cua"));
-    // wayland-ijfw is a declarative-install-only integration (installed via
+    assert!(names.contains(&"genesis-ollama"));
+    assert!(names.contains(&"genesis-honcho"));
+    assert!(names.contains(&"genesis-browser"));
+    assert!(names.contains(&"genesis-cua"));
+    // genesis-ijfw is a declarative-install-only integration (installed via
     // the IJFW skill/MCP path, not bundled into the binary). It must NOT
     // appear in the embedded install catalog.
-    assert!(!names.contains(&"wayland-ijfw"));
+    assert!(!names.contains(&"genesis-ijfw"));
 }

@@ -3,13 +3,13 @@ name: Release
 on:
   push:
     tags:
-      # Superset of the wayland release tag convention: vX.Y.Z-wayland-<suffix>
+      # Superset of the genesis release tag convention: vX.Y.Z-genesis-<suffix>
       # (e.g. -base, -safety, -spawner-wired, -multi-agent-nav, -tui-*). The
       # v0.9.x series used new suffixes that the old two explicit patterns
       # never matched, so the pipeline silently never fired for any v0.9.x tag
       # (release run history: nothing between v0.8.1 and v0.9.4.2). This single
       # glob catches the whole family so future tags auto-publish on push.
-      - 'v*-wayland-*'
+      - 'v*-genesis-*'
   workflow_call:
     inputs:
       tag_name:
@@ -27,7 +27,7 @@ permissions:
   contents: write
 
 env:
-  BINARY_NAME: wayland-core
+  BINARY_NAME: genesis-core
   CARGO_TERM_COLOR: always
   CARGO_HTTP_TIMEOUT: "600"
   CARGO_NET_RETRY: "10"
@@ -62,23 +62,23 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary_name: wayland-core
+            binary_name: genesis-core
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            binary_name: wayland-core
+            binary_name: genesis-core
             use_cross: true
           - os: macos-latest
             target: x86_64-apple-darwin
-            binary_name: wayland-core
+            binary_name: genesis-core
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary_name: wayland-core
+            binary_name: genesis-core
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            binary_name: wayland-core.exe
+            binary_name: genesis-core.exe
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            binary_name: wayland-core.exe
+            binary_name: genesis-core.exe
 
     steps:
       - uses: actions/checkout@v6
@@ -89,7 +89,7 @@ jobs:
       # x86_64-unknown-linux-gnu needs libdbus-1-dev for the keyring crate's
       # transitive `libdbus-sys` dep; without it the build fails with
       # `pkg_config failed: dbus-1 not found` (release run 25961407439 for
-      # tag v0.2.3-wayland-base). Cross-compile aarch64 is handled by the
+      # tag v0.2.3-genesis-base). Cross-compile aarch64 is handled by the
       # cross docker image (Cross.toml pre-build) so doesn't need host libs.
       - name: Free disk space (drop unused preinstalled toolchains)
         if: runner.os == 'Linux' && matrix.use_cross != true
@@ -151,7 +151,7 @@ jobs:
           VERSION: ${{ needs.prepare-release.outputs.version }}
         run: |
           mkdir -p dist
-          ARCHIVE="wayland-core-v${VERSION}-${{ matrix.target }}.tar.gz"
+          ARCHIVE="genesis-core-v${VERSION}-${{ matrix.target }}.tar.gz"
           tar -C target/${{ matrix.target }}/release -czf "dist/${ARCHIVE}" ${{ matrix.binary_name }}
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
@@ -162,7 +162,7 @@ jobs:
           VERSION: ${{ needs.prepare-release.outputs.version }}
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $archive = "wayland-core-v${env:VERSION}-${{ matrix.target }}.zip"
+          $archive = "genesis-core-v${env:VERSION}-${{ matrix.target }}.zip"
           Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" -DestinationPath "dist/${archive}" -Force
           "ARCHIVE=${archive}" | Out-File -FilePath $env:GITHUB_ENV -Append
 
@@ -200,14 +200,14 @@ jobs:
           # Attest the distributed archives themselves — that is what consumers
           # download and what `gh attestation verify <archive>` checks.
           subject-path: |
-            artifacts/wayland-core-*.tar.gz
-            artifacts/wayland-core-*.zip
+            artifacts/genesis-core-*.tar.gz
+            artifacts/genesis-core-*.zip
 
       - name: Generate checksums
         shell: bash
         run: |
           cd artifacts
-          sha256sum wayland-core-* > wayland-core-checksums.txt
+          sha256sum genesis-core-* > genesis-core-checksums.txt
 
       - name: Upload release assets
         shell: bash
@@ -237,7 +237,7 @@ jobs:
 
   # ── M2.5 — Post-tag binary smoke ──────────────────────────────────────
   # Download each platform's release archive from the just-published
-  # release, extract it, and run `wayland-core --version`. Any non-zero
+  # release, extract it, and run `genesis-core --version`. Any non-zero
   # exit fails the job. Gates the next tag: a missing or unrunnable
   # binary surfaces BEFORE customers try to download it.
   #
@@ -248,9 +248,9 @@ jobs:
   # COFF machine field instead (promote to a self-hosted ARM runner
   # when one is provisioned).
   #
-  # Manual verification against an existing tag (e.g. v0.3.0-wayland-base):
+  # Manual verification against an existing tag (e.g. v0.3.0-genesis-base):
   #   gh workflow run release.yml --ref main \
-  #     --field tag_name=v0.3.0-wayland-base
+  #     --field tag_name=v0.3.0-genesis-base
   # The workflow_dispatch path reuses `inputs.tag_name` end to end.
   post-tag-smoke:
     name: Smoke ${{ matrix.target }}
@@ -265,28 +265,28 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             archive_ext: tar.gz
-            binary_name: wayland-core
+            binary_name: genesis-core
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             archive_ext: tar.gz
-            binary_name: wayland-core
+            binary_name: genesis-core
             use_qemu: true
           - os: macos-latest
             target: x86_64-apple-darwin
             archive_ext: tar.gz
-            binary_name: wayland-core
+            binary_name: genesis-core
           - os: macos-latest
             target: aarch64-apple-darwin
             archive_ext: tar.gz
-            binary_name: wayland-core
+            binary_name: genesis-core
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive_ext: zip
-            binary_name: wayland-core.exe
+            binary_name: genesis-core.exe
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             archive_ext: zip
-            binary_name: wayland-core.exe
+            binary_name: genesis-core.exe
     steps:
       # M4.9 prep: Linux aarch64 binaries link against libdbus + other host
       # libs that the GitHub-hosted amd64 runner does not have in arm64
@@ -310,7 +310,7 @@ jobs:
           ARCHIVE_EXT: ${{ matrix.archive_ext }}
         run: |
           set -euo pipefail
-          archive="wayland-core-v${VERSION}-${TARGET}.${ARCHIVE_EXT}"
+          archive="genesis-core-v${VERSION}-${TARGET}.${ARCHIVE_EXT}"
           echo "Downloading ${archive} from release ${RELEASE_TAG}"
           gh release download "${RELEASE_TAG}" \
             --repo "${REPOSITORY}" \
@@ -350,8 +350,8 @@ jobs:
           set -euo pipefail
           out="$("./smoke/extracted/${BINARY_NAME}" --version)"
           echo "version output: ${out}"
-          # Sanity: output must contain "wayland-core" and a SemVer.
-          echo "${out}" | grep -E 'wayland-core[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+' \
+          # Sanity: output must contain "genesis-core" and a SemVer.
+          echo "${out}" | grep -E 'genesis-core[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+' \
             || { echo "ERROR: --version output did not match expected shape"; exit 1; }
 
       - name: Verify Linux aarch64 binary file shape only (cannot execute on amd64 runner)
@@ -386,7 +386,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $out = & "./smoke/extracted/$env:BINARY_NAME" --version
           Write-Host "version output: $out"
-          if ($out -notmatch 'wayland-core\s+\d+\.\d+\.\d+') {
+          if ($out -notmatch 'genesis-core\s+\d+\.\d+\.\d+') {
             throw "ERROR: --version output did not match expected shape"
           }
 
@@ -418,9 +418,9 @@ jobs:
 
   # ── npm publish ────────────────────────────────────────────────────────────
   # Repackage the smoke-verified release binaries into the npm publish tree
-  # (launcher `@ferroxlabs/wayland-core` + six os/cpu-gated platform packages)
-  # and publish them. Consumers — AionCLI (a plain dependency) and the Wayland
-  # desktop's prepareWaylandCore.js (node_modules resolution path) — pull the
+  # (launcher `@ferroxlabs/genesis-core` + six os/cpu-gated platform packages)
+  # and publish them. Consumers — AionCLI (a plain dependency) and the Genesis
+  # desktop's prepareGenesisCore.js (node_modules resolution path) — pull the
   # ONE binary matching their platform via npm's os/cpu + optionalDependencies.
   #
   # Gated on post-tag-smoke: npm only ever serves a binary that already ran
@@ -488,9 +488,9 @@ jobs:
             mkdir -p "$dest"
             case "$triple" in
               *windows*)
-                unzip -o "artifacts/wayland-core-v${VERSION}-${triple}.zip" -d "$dest" ;;
+                unzip -o "artifacts/genesis-core-v${VERSION}-${triple}.zip" -d "$dest" ;;
               *)
-                tar -xzf "artifacts/wayland-core-v${VERSION}-${triple}.tar.gz" -C "$dest" ;;
+                tar -xzf "artifacts/genesis-core-v${VERSION}-${triple}.tar.gz" -C "$dest" ;;
             esac
             ls -l "$dest"
           done
@@ -511,20 +511,20 @@ jobs:
           set -euo pipefail
           # A semver pre-release (e.g. 0.11.0-rc.1) must publish under the
           # `next` dist-tag, NOT `latest` — otherwise a plain
-          # `npm install @ferroxlabs/wayland-core` would serve the RC over the
+          # `npm install @ferroxlabs/genesis-core` would serve the RC over the
           # stable line. Stable versions keep the default `latest`.
           case "${VERSION}" in
             *-*) NPM_DIST_TAG="next" ;;
             *)   NPM_DIST_TAG="latest" ;;
           esac
-          echo "Publishing @ferroxlabs/wayland-core@${VERSION} under dist-tag '${NPM_DIST_TAG}'"
+          echo "Publishing @ferroxlabs/genesis-core@${VERSION} under dist-tag '${NPM_DIST_TAG}'"
           # Platform packages BEFORE the launcher so the launcher's
           # optionalDependencies are resolvable the instant it lands.
           # `--provenance` rides the job's `id-token: write` to emit a keyless
           # Sigstore provenance statement (requires repository.url in each
           # package.json to case-match the GitHub slug — see npm/generate.mjs).
-          for d in npm-dist/wayland-core-*; do
+          for d in npm-dist/genesis-core-*; do
             ( cd "$d" && npm publish --provenance --access public --tag "${NPM_DIST_TAG}" )
           done
-          ( cd npm-dist/wayland-core && npm publish --provenance --access public --tag "${NPM_DIST_TAG}" )
-          echo "Published @ferroxlabs/wayland-core@${VERSION} (dist-tag ${NPM_DIST_TAG}) + platform packages"
+          ( cd npm-dist/genesis-core && npm publish --provenance --access public --tag "${NPM_DIST_TAG}" )
+          echo "Published @ferroxlabs/genesis-core@${VERSION} (dist-tag ${NPM_DIST_TAG}) + platform packages"

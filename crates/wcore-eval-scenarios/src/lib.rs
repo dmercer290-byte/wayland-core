@@ -1,4 +1,4 @@
-//! `wcore-eval-scenarios` — scenario-level eval harness for `wayland-core`.
+//! `wcore-eval-scenarios` — scenario-level eval harness for `genesis-core`.
 //!
 //! Drives the real shipped binary against a real LLM API through a real
 //! tool chain and asserts the OUTCOME — not just that the tools ran.
@@ -59,7 +59,7 @@ pub mod trace;
 pub mod usability;
 
 // Public API re-exports — the surface external callers (scenario tests,
-// the wayland-eval binary, future T6-T8 dispatch agents) import.
+// the genesis-eval binary, future T6-T8 dispatch agents) import.
 pub use assertions::{Assertion, TraceAssertion};
 pub use cost::{CostReport, TurnCost};
 pub use cross_session::{CrossSessionEnv, run_cross_session};

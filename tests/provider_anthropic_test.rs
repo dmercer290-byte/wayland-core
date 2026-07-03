@@ -3,12 +3,12 @@
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use wayland-core::provider::anthropic::AnthropicProvider;
-use wayland-core::provider::compat::ProviderCompat;
-use wayland-core::provider::debug::DebugConfig;
-use wayland-core::provider::{LlmProvider, ProviderError};
-use wayland-core::types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
-use wayland-core::types::message::{ContentBlock, Message, Role, StopReason};
+use genesis-core::provider::anthropic::AnthropicProvider;
+use genesis-core::provider::compat::ProviderCompat;
+use genesis-core::provider::debug::DebugConfig;
+use genesis-core::provider::{LlmProvider, ProviderError};
+use genesis-core::types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
+use genesis-core::types::message::{ContentBlock, Message, Role, StopReason};
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -10,7 +10,7 @@ fn make_project_with_skills(count: usize) -> TempDir {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
     fs::create_dir_all(root.join(".git")).unwrap();
-    let dir = root.join(".wayland-core").join("skills");
+    let dir = root.join(".genesis-core").join("skills");
     fs::create_dir_all(&dir).unwrap();
     for i in 0..count {
         let skill_dir = dir.join(format!("skill-{i}"));
@@ -31,7 +31,7 @@ async fn load_catalog_returns_one_ref_per_skill_file() {
     let tmp = make_project_with_skills(5);
     // Use `bare = true` + add_dirs pointing at the fixture so user-level
     // skills outside the temp dir don't leak into the test.
-    // additional_skills_dirs appends .wayland-core/skills/ to each entry,
+    // additional_skills_dirs appends .genesis-core/skills/ to each entry,
     // so pass the project root, not the skills subdir.
     let add = vec![tmp.path().to_path_buf()];
     let refs = load_catalog(tmp.path(), &add, true, None).await;
@@ -54,7 +54,7 @@ async fn load_catalog_returns_one_ref_per_skill_file() {
 #[tokio::test]
 async fn load_catalog_carries_listing_fields_only() {
     let tmp = make_project_with_skills(1);
-    // additional_skills_dirs appends .wayland-core/skills/ to each entry,
+    // additional_skills_dirs appends .genesis-core/skills/ to each entry,
     // so pass the project root, not the skills subdir.
     let add = vec![tmp.path().to_path_buf()];
     let refs = load_catalog(tmp.path(), &add, true, None).await;

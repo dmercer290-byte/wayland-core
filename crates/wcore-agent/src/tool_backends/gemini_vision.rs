@@ -26,7 +26,7 @@ const GEMINI_VISION_ENDPOINT_BASE: &str = "https://generativelanguage.googleapis
 
 impl GeminiVisionBackend {
     pub fn new(api_key: String) -> Self {
-        let model = std::env::var("WAYLAND_VISION_MODEL")
+        let model = std::env::var("GENESIS_VISION_MODEL")
             .unwrap_or_else(|_| "gemini-2.5-flash".to_string());
         Self {
             client: build_ssrf_safe_tool_client(),

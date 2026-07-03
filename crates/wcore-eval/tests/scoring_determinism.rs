@@ -49,7 +49,7 @@ fn baseline_trace() -> TurnTrace {
         cost_usd: 0.001,
         tool_calls: vec![ToolCallTrace::new("c1".into(), "Read".into(), json!({}))],
         hook_actions: vec![],
-        source_product: "wayland-core".into(),
+        source_product: "genesis-core".into(),
         agent_run_id: String::new(),
     }
 }

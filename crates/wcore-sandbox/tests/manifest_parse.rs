@@ -6,7 +6,7 @@ use wcore_sandbox::manifest::{NetworkPolicy, SandboxManifest, SyscallPolicy};
 #[test]
 fn parses_full_manifest() {
     let toml = r#"
-        fs_read_allow = ["/usr/lib", "/etc/wayland"]
+        fs_read_allow = ["/usr/lib", "/etc/genesis"]
         fs_write_allow = ["/tmp/work"]
         network = { kind = "allow_hosts", hosts = ["api.openai.com"] }
         syscall_policy = "strict"

@@ -4,7 +4,7 @@
 // SQLite FTS5 against a session transcript table, then summarizes the top
 // matches with a cheap LLM.
 //
-// In wayland-core the session/episode store lives in `wcore-memory` (v2
+// In genesis-core the session/episode store lives in `wcore-memory` (v2
 // 5-partition × 3-tier model), and the public `MemoryApi::search` entry
 // point returns ranked `Hit` rows with `session_id` + `preview` for every
 // matching episode. This tool wraps that surface so the agent can recall

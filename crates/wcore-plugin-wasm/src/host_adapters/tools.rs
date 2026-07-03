@@ -13,7 +13,7 @@ use wcore_plugin_api::access_gate::PluginAccessGate;
 #[derive(Debug, Default)]
 pub struct ToolRegistry;
 
-pub trait WaylandHostTools: Send + Sync {
+pub trait GenesisHostTools: Send + Sync {
     fn tool_invoke(&self, alias: &str, params_json: &str) -> Result<String, String>;
 }
 
@@ -21,7 +21,7 @@ pub trait WaylandHostTools: Send + Sync {
 #[derive(Debug, Default)]
 pub struct DenyHostTools;
 
-impl WaylandHostTools for DenyHostTools {
+impl GenesisHostTools for DenyHostTools {
     fn tool_invoke(&self, _alias: &str, _params_json: &str) -> Result<String, String> {
         Err("permission denied: tool-invoke".into())
     }
@@ -54,7 +54,7 @@ impl GatedHostTools {
     }
 }
 
-impl WaylandHostTools for GatedHostTools {
+impl GenesisHostTools for GatedHostTools {
     fn tool_invoke(&self, alias: &str, _params_json: &str) -> Result<String, String> {
         if !self.permitted {
             return Err("permission denied: tool-invoke".into());

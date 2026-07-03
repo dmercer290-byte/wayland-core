@@ -593,7 +593,7 @@ impl Router {
         // return `None` here and fall through to the normal swap.
         if oauth_provider_signed_in(name) == Some(false) {
             return format!(
-                "Not signed in to ChatGPT. Run `wayland-core auth login chatgpt` \
+                "Not signed in to ChatGPT. Run `genesis-core auth login chatgpt` \
                  first, then retry /provider {name}."
             );
         }
@@ -789,7 +789,7 @@ impl Router {
     /// body, the overlay (if any), and the one-row bottom status bar.
     ///
     /// Layout, top to bottom:
-    ///  * row 0      — the top chrome: `◆ WAYLAND` wordmark + the inline
+    ///  * row 0      — the top chrome: `◆ GENESIS` wordmark + the inline
     ///    surface tabs. Brand + navigation only, no live stats.
     ///  * the body   — the active surface (and any overlay over it).
     ///  * last row   — the bottom status bar: provider·model, mode, the
@@ -2451,8 +2451,8 @@ fn render_skills_list(inv: Option<&EngineInventory>) -> String {
     };
     let skills = &inv.skills;
     if skills.is_empty() {
-        return "No skills loaded. Drop a SKILL.md in .wayland-core/skills/ \
-                (or ~/.wayland/skills/) and it shows up here."
+        return "No skills loaded. Drop a SKILL.md in .genesis-core/skills/ \
+                (or ~/.genesis/skills/) and it shows up here."
             .to_string();
     }
     let invocable = skills.iter().filter(|s| s.user_invocable).count();
@@ -2549,7 +2549,7 @@ fn render_resume(sessions: &[wcore_agent::session::SessionMeta], arg: Option<&st
         let hit = sessions.iter().find(|m| m.id == id || m.id.starts_with(id));
         return match hit {
             Some(m) => format!(
-                "Session {} — \"{}\".\nLive in-session resume isn't wired yet; reopen it with:\n  wayland-core --resume {}",
+                "Session {} — \"{}\".\nLive in-session resume isn't wired yet; reopen it with:\n  genesis-core --resume {}",
                 short_id(&m.id),
                 one_line(&m.summary, 60),
                 short_id(&m.id),
@@ -2575,7 +2575,7 @@ fn render_resume(sessions: &[wcore_agent::session::SessionMeta], arg: Option<&st
             one_line(&m.summary, 50),
         ));
     }
-    out.push_str("\nReopen one with `wayland-core --resume <id>` (live in-TUI resume is coming).");
+    out.push_str("\nReopen one with `genesis-core --resume <id>` (live in-TUI resume is coming).");
     out
 }
 
@@ -2626,7 +2626,7 @@ fn oauth_provider_signed_in(name: &str) -> Option<bool> {
 /// credential. Mirrors the same three credential classes the engine's
 /// `resolve_api_key` (wcore-config) distinguishes:
 /// - **OAuth** (`openai-chatgpt`): ready when the stored login token file
-///   (`~/.wayland/oauth/chatgpt.json`) exists.
+///   (`~/.genesis/oauth/chatgpt.json`) exists.
 /// - **Ambient cloud** (`bedrock`, `vertex`): always ready — they authenticate
 ///   with AWS/GCP ambient credentials and carry no API key (their
 ///   `resolve_api_key` arms return an empty string by design).
@@ -2718,7 +2718,7 @@ fn render_profile(profiles: &[(String, String, String)], arg: Option<&str>) -> S
         return match profiles.iter().find(|(n, _, _)| n == name) {
             Some((n, provider, model)) => format!(
                 "Profile `{n}` → {}{}. Applying a profile re-resolves config — relaunch with:\n  \
-                 wayland-core --profile {n}",
+                 genesis-core --profile {n}",
                 provider_or(provider),
                 model_suffix(model),
             ),
@@ -2740,7 +2740,7 @@ fn render_profile(profiles: &[(String, String, String)], arg: Option<&str>) -> S
             model_suffix(model)
         ));
     }
-    out.push_str("\nActivate one by relaunching: `wayland-core --profile <name>`.");
+    out.push_str("\nActivate one by relaunching: `genesis-core --profile <name>`.");
     out
 }
 
@@ -2750,8 +2750,8 @@ fn render_profile(profiles: &[(String, String, String)], arg: Option<&str>) -> S
 fn render_replay() -> String {
     "Replay deterministically re-runs a recorded session trace — it's a boot mode for \
      debugging, not an in-session action. Run it from your shell:\n  \
-     wayland-core --replay <trace.json>\n  \
-     wayland-core --replay <trace.json> --replay-diff <other.json>   (find the first divergence)\n\n\
+     genesis-core --replay <trace.json>\n  \
+     genesis-core --replay <trace.json> --replay-diff <other.json>   (find the first divergence)\n\n\
      Point --replay at a trace the engine recorded to verify it re-executes identically on \
      this build."
         .to_string()
@@ -2765,7 +2765,7 @@ fn render_replay() -> String {
 /// checkpoints accrue as turns complete — never a faked entry.
 fn render_rewind_list(metas: &[crate::tui::checkpoint::CheckpointMeta]) -> String {
     if metas.is_empty() {
-        return "No checkpoints yet. Wayland snapshots the files the agent touches at the \
+        return "No checkpoints yet. Genesis snapshots the files the agent touches at the \
                 end of each turn, so a restore point appears here after your first turn. \
                 Then `/rewind <id>` restores the workspace to that snapshot."
             .to_string();
@@ -2862,7 +2862,7 @@ fn resolve_model_choice(provider: &str, arg: &str) -> (String, String) {
 /// (a config-resolve error, a provider HTTP/auth error, a cache-write error) is
 /// swallowed: `refresh_connected` is internally best-effort and `list_models`
 /// never errors (it floors to the alias catalog), so the worst case leaves the
-/// existing cache untouched. A no-op when `WAYLAND_MODEL_DISCOVERY=off`
+/// existing cache untouched. A no-op when `GENESIS_MODEL_DISCOVERY=off`
 /// (`refresh_connected` checks the flag itself).
 fn kick_model_catalog_refresh() {
     // Only spawn when a Tokio runtime is actually present. The live TUI always
@@ -3326,7 +3326,7 @@ mod tests {
     #[test]
     fn top_chrome_carries_brand_and_tabs_on_one_row() {
         // The 7-row layout (top_pad / chrome / divider / body / divider /
-        // status / bot_pad) places the `◆ WAYLAND` wordmark + tabs on
+        // status / bot_pad) places the `◆ GENESIS` wordmark + tabs on
         // row 1 (row 0 is intentional pad so the chrome doesn't crowd
         // the terminal edge).
         let mut app = App::new();
@@ -3335,7 +3335,7 @@ mod tests {
         let out = render_to_string(&mut router, &app, 120, 24);
         let chrome_line = out.lines().nth(1).unwrap_or("");
         assert!(
-            chrome_line.contains("WAYLAND"),
+            chrome_line.contains("GENESIS"),
             "wordmark not on the chrome row:\n{chrome_line}"
         );
         assert!(
@@ -3346,7 +3346,7 @@ mod tests {
 
     #[test]
     fn top_chrome_is_shown_on_onboarding() {
-        // The `◆ WAYLAND` chrome is painted on EVERY surface — including
+        // The `◆ GENESIS` chrome is painted on EVERY surface — including
         // Onboarding — so the product identity is always present.
         let app = App::new();
         let mut router = Router::new(&app);
@@ -3354,7 +3354,7 @@ mod tests {
         let out = render_to_string(&mut router, &app, 120, 24);
         let chrome_line = out.lines().nth(1).unwrap_or("");
         assert!(
-            chrome_line.contains('◆') && chrome_line.contains("WAYLAND"),
+            chrome_line.contains('◆') && chrome_line.contains("GENESIS"),
             "top chrome missing on the chrome row of Onboarding:\n{chrome_line}"
         );
     }
@@ -4284,7 +4284,7 @@ mod tests {
 
         // `/resume <prefix>` resolves to the exact restart command.
         let one = render_resume(&sessions, Some("cccc2222"));
-        assert!(one.contains("wayland-core --resume cccc2222"), "got: {one}");
+        assert!(one.contains("genesis-core --resume cccc2222"), "got: {one}");
         assert!(one.contains("newest work"));
 
         // Unknown id → honest miss, never a fake.
@@ -4343,7 +4343,7 @@ mod tests {
 
         // `/profile <name>`: exact relaunch command.
         let one = render_profile(&profiles, Some("work"));
-        assert!(one.contains("wayland-core --profile work"), "got: {one}");
+        assert!(one.contains("genesis-core --profile work"), "got: {one}");
 
         // Unknown + empty cases stay honest.
         assert!(render_profile(&profiles, Some("ghost")).contains("No profile named"));
@@ -4510,7 +4510,7 @@ mod tests {
             "resume must confirm the in-TUI reopen, not hand back a CLI string: {transcript}"
         );
         assert!(
-            !transcript.contains("wayland-core --resume"),
+            !transcript.contains("genesis-core --resume"),
             "the wired /resume must reopen, not print a relaunch command: {transcript}"
         );
         // And it actually paints — drive the real render so the assertion is a
@@ -4629,7 +4629,7 @@ mod tests {
             "/profile must drive the live load, not print a relaunch command: {last}"
         );
         assert!(
-            !last.contains("wayland-core --profile"),
+            !last.contains("genesis-core --profile"),
             "the phantom-verb relaunch copy must be gone from the load path: {last}"
         );
     }
@@ -4639,7 +4639,7 @@ mod tests {
         // /replay hands over the real boot-mode command, never fakes a viewer.
         let replay = render_replay();
         assert!(
-            replay.contains("wayland-core --replay <trace.json>"),
+            replay.contains("genesis-core --replay <trace.json>"),
             "got: {replay}"
         );
         assert!(replay.contains("--replay-diff"));

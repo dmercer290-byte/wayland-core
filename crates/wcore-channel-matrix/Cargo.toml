@@ -3,7 +3,7 @@ name = "wcore-channel-matrix"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Matrix channel adapter for Wayland-Core — send via CS API REST (send-only MVP; poll deferred to v0.8.3)"
+description = "Matrix channel adapter for Genesis-Core — send via CS API REST (send-only MVP; poll deferred to v0.8.3)"
 
 [dependencies]
 async-trait = { workspace = true }

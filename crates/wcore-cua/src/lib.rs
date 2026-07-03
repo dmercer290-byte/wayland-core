@@ -9,7 +9,7 @@
 //! Crate-graph position (mid-tier): depends DOWNWARD on `wcore-types`,
 //! `wcore-tools`, `wcore-protocol`, `wcore-config`. MUST NOT depend on
 //! `wcore-agent`, `wcore-cli`, `wcore-evolve`, `wcore-eval`, or
-//! `wcore-browser`. Plugin shells (`wayland-cua`) MUST NOT depend on this
+//! `wcore-browser`. Plugin shells (`genesis-cua`) MUST NOT depend on this
 //! crate directly; they flow through
 //! `wcore-plugin-api::cua_spec::CuaToolSpec` mirrors (audit F2).
 //!

@@ -8,7 +8,7 @@ use crate::frontmatter::{parse_frontmatter_with_source, parse_skill_fields};
 use crate::mcp::load_mcp_skills;
 use crate::paths::{
     additional_skills_dirs, project_commands_dirs, project_skills_dirs, user_commands_dir,
-    user_skills_dir, wayland_home_skills_dirs,
+    user_skills_dir, genesis_home_skills_dirs,
 };
 use crate::types::{LoadedFrom, SkillMetadata, SkillSource};
 use wcore_mcp::manager::McpManager;
@@ -72,14 +72,14 @@ pub async fn load_all_skills(
         all.extend(load_skills_from_dir(&dir, SkillSource::User, LoadedFrom::Skills).await);
     }
 
-    // 1b. `$WAYLAND_HOME`-rooted skills, including the auto-skill drafter's
+    // 1b. `$GENESIS_HOME`-rooted skills, including the auto-skill drafter's
     // `skills/auto/` write target. Treated as user-tier so auto-drafted
     // skills learned in a prior session load on the next boot. Read path ==
-    // drafter write path (see `paths::wayland_home_skills_dirs`). The
+    // drafter write path (see `paths::genesis_home_skills_dirs`). The
     // recursive walk discovers each `<name>/SKILL.md`; later dedup-by-name
     // keeps the higher-priority `user_skills_dir()` copy when both resolve to
-    // the same `$WAYLAND_HOME` and a skill appears in both.
-    for dir in wayland_home_skills_dirs() {
+    // the same `$GENESIS_HOME` and a skill appears in both.
+    for dir in genesis_home_skills_dirs() {
         if dir.is_dir() {
             all.extend(load_skills_from_dir(&dir, SkillSource::User, LoadedFrom::Skills).await);
         }
@@ -449,8 +449,8 @@ async fn draft_needs_review(skill_dir: &Path) -> bool {
 /// Build a colon-separated namespace from a directory hierarchy.
 ///
 /// Examples:
-/// - base=`<config_dir>/wayland-core/skills`, target=`<config_dir>/wayland-core/skills/db/migrate` → `"db:migrate"`
-/// - base=`<config_dir>/wayland-core/skills`, target=`<config_dir>/wayland-core/skills/my-skill` → `"my-skill"`
+/// - base=`<config_dir>/genesis-core/skills`, target=`<config_dir>/genesis-core/skills/db/migrate` → `"db:migrate"`
+/// - base=`<config_dir>/genesis-core/skills`, target=`<config_dir>/genesis-core/skills/my-skill` → `"my-skill"`
 pub(crate) fn build_namespace(base_dir: &Path, target_dir: &Path) -> String {
     match target_dir.strip_prefix(base_dir) {
         Ok(relative) => relative

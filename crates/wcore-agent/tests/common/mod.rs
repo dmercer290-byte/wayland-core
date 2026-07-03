@@ -272,7 +272,7 @@ pub fn test_config() -> Config {
             // but `std::env::temp_dir()` keeps the literal honest on Windows
             // (no hardcoded `/tmp/...` reaching any future validator).
             directory: std::env::temp_dir()
-                .join("wayland-core-test-sessions")
+                .join("genesis-core-test-sessions")
                 .to_string_lossy()
                 .into_owned(),
             max_sessions: 5,

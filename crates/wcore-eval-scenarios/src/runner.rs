@@ -1,6 +1,6 @@
 //! The json-stream runner core (T2).
 //!
-//! Spawn `wayland-core --json-stream`, drive per-turn via
+//! Spawn `genesis-core --json-stream`, drive per-turn via
 //! `message` / `stream_end` events, capture stderr + the trailing
 //! `session_cost`, enforce wall-time hygiene (`kill_on_drop` + explicit
 //! `start_kill` on `Elapsed`), build a [`ScenarioResult`].
@@ -124,22 +124,22 @@ pub enum Failure {
 
 #[derive(Debug, Error)]
 pub enum SpawnError {
-    #[error("could not locate wayland-core binary: {0}")]
+    #[error("could not locate genesis-core binary: {0}")]
     BinaryMissing(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 
-/// Locate the `wayland-core` binary the runner should spawn.
+/// Locate the `genesis-core` binary the runner should spawn.
 ///
 /// Resolution order (first hit wins):
 /// 1. `WCORE_EVAL_BIN` env var — explicit override; tests can pin a
 ///    specific build.
-/// 2. `target/release/wayland-core` then `target/debug/wayland-core`
+/// 2. `target/release/genesis-core` then `target/debug/genesis-core`
 ///    by walking up from `CARGO_MANIFEST_DIR` two levels (mirrors the
 ///    pattern in `crates/wcore-cli/tests/release_binary_smoke.rs`).
 ///
-/// `CARGO_BIN_EXE_wayland-core` is NOT available here — Cargo only
+/// `CARGO_BIN_EXE_genesis-core` is NOT available here — Cargo only
 /// exposes that for binaries owned by the same crate as the test. We
 /// live in a different crate (`wcore-eval-scenarios`), so we must
 /// discover the artifact.
@@ -167,9 +167,9 @@ pub fn discover_binary() -> Result<PathBuf, SpawnError> {
         })?;
 
     let bin_name = if cfg!(windows) {
-        "wayland-core.exe"
+        "genesis-core.exe"
     } else {
-        "wayland-core"
+        "genesis-core"
     };
 
     for profile in ["release", "debug"] {
@@ -180,13 +180,13 @@ pub fn discover_binary() -> Result<PathBuf, SpawnError> {
     }
 
     Err(SpawnError::BinaryMissing(format!(
-        "no wayland-core binary at {}/target/{{release,debug}}/{bin_name}; \
+        "no genesis-core binary at {}/target/{{release,debug}}/{bin_name}; \
          pre-build it (`cargo build -p wcore-cli`) or set WCORE_EVAL_BIN",
         workspace_root.display()
     )))
 }
 
-/// Spawn `wayland-core` configured for a scenario run — `--yolo`
+/// Spawn `genesis-core` configured for a scenario run — `--yolo`
 /// (approval bypass; PTY scenarios use no-yolo separately), `--json-stream`
 /// (the only mode that emits `session_cost` per C-2), per-provider
 /// `--provider` + `--model` (H-5 — engine default is empty for DeepSeek),
@@ -200,7 +200,7 @@ pub fn spawn_for_run(
     cwd: &std::path::Path,
     provider: &ProviderConfig,
     yolo: bool,
-    wayland_home: Option<&std::path::Path>,
+    genesis_home: Option<&std::path::Path>,
 ) -> Result<Child, SpawnError> {
     let mut cmd = Command::new(bin);
     // D3: only force-approve when the scenario's policy is `Yolo`. Without
@@ -219,19 +219,19 @@ pub fn spawn_for_run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    // `wayland_config_dir()` = `$WAYLAND_HOME` resolves the global config layer:
+    // `genesis_config_dir()` = `$GENESIS_HOME` resolves the global config layer:
     // MCP servers, skills dir, and memory DBs. D4 cross-session runs pass ONE
     // persistent home so those carry across sessions. Persona/coverage runs pass
     // their per-run tempdir (an EMPTY global layer) for true hermeticity —
     // stripping the var (`None`) instead falls back to the developer's real home
     // and dials their actual MCP servers. `None` remains for callers that
     // genuinely want the host default.
-    match wayland_home {
+    match genesis_home {
         Some(home) => {
-            cmd.env("WAYLAND_HOME", home);
+            cmd.env("GENESIS_HOME", home);
         }
         None => {
-            cmd.env_remove("WAYLAND_HOME");
+            cmd.env_remove("GENESIS_HOME");
         }
     }
     // Hermeticity: pass an explicitly-configured key to the child via
@@ -247,7 +247,7 @@ pub fn spawn_for_run(
 }
 
 /// Spawn the binary with arbitrary args + no provider seeding — used by
-/// the `wayland-core --help` smoke test that does NOT touch the engine.
+/// the `genesis-core --help` smoke test that does NOT touch the engine.
 /// stdout/stderr piped so the caller can collect output; stdin null so
 /// the process exits immediately when `--help` finishes.
 pub fn spawn_with_args(bin: &std::path::Path, args: &[&str]) -> Result<Child, SpawnError> {
@@ -268,16 +268,16 @@ pub async fn run(
     scenario: &crate::scenario::Scenario,
     provider: &ProviderConfig,
 ) -> anyhow::Result<ScenarioResult> {
-    // Persona path: a fresh hermetic throwaway env per run. WAYLAND_HOME points
-    // at the tempdir (NOT stripped): `wayland_config_dir()` then resolves to the
+    // Persona path: a fresh hermetic throwaway env per run. GENESIS_HOME points
+    // at the tempdir (NOT stripped): `genesis_config_dir()` then resolves to the
     // empty tempdir, so the global config layer — the developer's real MCP
     // servers, skills, and memory under `~/Library/Application Support/
-    // wayland-core` — is NOT loaded. (Stripping the var, the prior behaviour,
+    // genesis-core` — is NOT loaded. (Stripping the var, the prior behaviour,
     // FELL BACK to that real dir, so every eval boot dialed the user's MCP
     // servers — slow and flaky: an occasional handshake stall hung boot to the
     // wall-time guard.) The seeded provider key + any setup-appended `[mcp.*]`
-    // live in the cwd-walk PROJECT layer (`<tempdir>/.wayland-core/config.toml`),
-    // which loads regardless of WAYLAND_HOME, so this only empties the global
+    // live in the cwd-walk PROJECT layer (`<tempdir>/.genesis-core/config.toml`),
+    // which loads regardless of GENESIS_HOME, so this only empties the global
     // layer. The cross-session harness drives `run_session_in` directly against
     // its own persistent home instead.
     let env = tempenv::build_with(provider, &TempEnvOptions::default())?;
@@ -289,23 +289,23 @@ pub async fn run(
 /// directory `cwd`, returning the assembled + asserted [`ScenarioResult`].
 ///
 /// Split out of [`run`] so the cross-session harness (D4) can drive several
-/// sessions against ONE shared persistent home (`wayland_home = Some(home)`),
+/// sessions against ONE shared persistent home (`genesis_home = Some(home)`),
 /// while the persona path keeps its hermetic throwaway env
-/// (`wayland_home = None`, which strips `WAYLAND_HOME`). The caller owns the
+/// (`genesis_home = None`, which strips `GENESIS_HOME`). The caller owns the
 /// working dir's lifetime (a `TempDir` for personas; a held cross-session env).
 pub(crate) async fn run_session_in(
     scenario: &crate::scenario::Scenario,
     provider: &ProviderConfig,
     bin: &std::path::Path,
     cwd: &std::path::Path,
-    wayland_home: Option<&std::path::Path>,
+    genesis_home: Option<&std::path::Path>,
 ) -> anyhow::Result<ScenarioResult> {
     let start = Instant::now();
 
     // Run the scenario's setup hook BEFORE spawning the engine. The closure
     // seeds the working dir — input files to probe, fixture scripts (mock MCP
     // server, shell hooks), and config appends (`[mcp.servers.*]`,
-    // `[[hooks.*]]`) onto the tempenv-seeded `.wayland-core/config.toml`. This
+    // `[[hooks.*]]`) onto the tempenv-seeded `.genesis-core/config.toml`. This
     // was previously assigned on `Scenario` but never invoked, so any
     // setup-dependent scenario silently degraded; D6/D7/coverage need it.
     if let Some(setup) = &scenario.setup {
@@ -317,7 +317,7 @@ pub(crate) async fn run_session_in(
         cwd,
         provider,
         scenario.approval == crate::scenario::ApprovalPolicy::Yolo,
-        wayland_home,
+        genesis_home,
     )
     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 

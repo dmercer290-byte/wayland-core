@@ -2,7 +2,7 @@
 
 {{description}}
 
-A Wayland **static plugin** — compiled into the engine binary at build time,
+A Genesis **static plugin** — compiled into the engine binary at build time,
 discovered at startup via `inventory::submit!`.
 
 ## Build
@@ -20,9 +20,9 @@ cargo test
 ## Install
 
 Static plugins compile **into** the engine binary. To use this plugin in
-Wayland-Core:
+Genesis-Core:
 
-1. Clone Wayland-Core: `git clone https://github.com/FerroxLabs/wayland-core`
+1. Clone Genesis-Core: `git clone https://github.com/dmercer290-byte/wayland-core`
 2. Add this crate as a path dep in the workspace `Cargo.toml`:
    ```toml
    [workspace]
@@ -50,7 +50,7 @@ For **dynamic** (on-disk, no engine rebuild required) plugins, use the
 
 ## API version
 
-This template depends on `wcore-plugin-api` via git tag `v0.6.5-wayland-base`
+This template depends on `wcore-plugin-api` via git tag `v0.6.5-genesis-base`
 (`PLUGIN_API_VERSION = "1.0"`). The host rejects plugins whose
 `plugin_api_version` does not match. When `wcore-plugin-api` is published to
 crates.io, the dep will be converted to a plain version string.

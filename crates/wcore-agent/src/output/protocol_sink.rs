@@ -90,16 +90,16 @@ impl ActiveTokenRedactor {
 /// **Wave SC SECURITY MAJOR (plugin identity).** `from_loaded` now
 /// consumes verified `(name, identity)` pairs — the engine MUST
 /// verify each plugin's [`PluginIdentity`] before constructing this
-/// set, so a malicious crate with `name = "wayland-browser"` in its
+/// set, so a malicious crate with `name = "genesis-browser"` in its
 /// manifest cannot flip `browser_suite` without owning the real
 /// surface (anchored to either an inventory-registered static symbol
 /// or a path-prefixed manifest under the host's plugin root).
 #[derive(Debug, Clone, Default)]
 pub struct PluginCapabilitySet {
-    /// True when `wayland-browser` is among the loaded plugins AND
+    /// True when `genesis-browser` is among the loaded plugins AND
     /// the manifest's identity was verified.
     pub browser_suite: bool,
-    /// True when `wayland-cua` is among the loaded plugins AND
+    /// True when `genesis-cua` is among the loaded plugins AND
     /// the manifest's identity was verified.
     pub computer_use: bool,
 }
@@ -107,7 +107,7 @@ pub struct PluginCapabilitySet {
 impl PluginCapabilitySet {
     /// **DEPRECATED for Wave SC.** Plain-name `from_loaded` does not
     /// verify identity — a malicious plugin with
-    /// `name = "wayland-browser"` would impersonate the real
+    /// `name = "genesis-browser"` would impersonate the real
     /// browser plugin and flip the host's UI capability flag. New
     /// callers MUST use [`Self::from_verified`] which consumes
     /// `(name, PluginIdentity)` tuples.
@@ -124,8 +124,8 @@ impl PluginCapabilitySet {
             );
         }
         Self {
-            browser_suite: names.iter().any(|n| n == "wayland-browser"),
-            computer_use: names.iter().any(|n| n == "wayland-cua"),
+            browser_suite: names.iter().any(|n| n == "genesis-browser"),
+            computer_use: names.iter().any(|n| n == "genesis-cua"),
         }
     }
 
@@ -135,7 +135,7 @@ impl PluginCapabilitySet {
     /// validation) does NOT flip the capability flag.
     ///
     /// Why per-pair verification: the audit threat is a crate with
-    /// `name = "wayland-browser"` shipping outside the static inventory
+    /// `name = "genesis-browser"` shipping outside the static inventory
     /// AND outside the host's plugin root — that name match must
     /// produce `browser_suite = false`. By taking
     /// `Vec<(String, PluginIdentity)>` we make the verification an
@@ -148,8 +148,8 @@ impl PluginCapabilitySet {
             )
         };
         Self {
-            browser_suite: verified("wayland-browser"),
-            computer_use: verified("wayland-cua"),
+            browser_suite: verified("genesis-browser"),
+            computer_use: verified("genesis-cua"),
         }
     }
 }
@@ -710,7 +710,7 @@ impl OutputSink for ProtocolSink {
     /// unconditionally — always-on additive variant (same rationale as
     /// `BudgetExceeded` / `ToolPanicked`): the event only ever fires when
     /// the host itself opted in by spawning the engine with
-    /// `WAYLAND_SEND_MESSAGE_HOST_DELEGATE=1`, and hosts that don't
+    /// `GENESIS_SEND_MESSAGE_HOST_DELEGATE=1`, and hosts that don't
     /// recognise the `type` drop the line per the W0 decoder contract.
     fn emit_host_send_message_request(
         &self,

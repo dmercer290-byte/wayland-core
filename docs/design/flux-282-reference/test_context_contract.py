@@ -1,4 +1,4 @@
-"""Unit tests for the Core<->Flux context-routing contract (Wayland #282, V1).
+"""Unit tests for the Core<->Flux context-routing contract (Genesis #282, V1).
 
 Mirrors the direct-helper style of tests/test_param_sanitizer.py. The contract's
 load-bearing logic is extracted into pure module-level helpers so it can be

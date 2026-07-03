@@ -1,8 +1,8 @@
-//! Transactional commit of a lowered plugin into the Wayland-native store as a
+//! Transactional commit of a lowered plugin into the Genesis-native store as a
 //! **self-contained directory** the runtime discovers unchanged:
 //!
 //! ```text
-//! ~/.wayland/plugins/<plugin>@<marketplace>/
+//! ~/.genesis/plugins/<plugin>@<marketplace>/
 //!   plugin.toml          # declarative manifest (runtime kind = "declarative")
 //!   skills/<name>/SKILL.md
 //!   commands/<name>.md

@@ -51,7 +51,7 @@ fn ijfw_manifest() -> PluginManifest {
     PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-ijfw"
+name = "genesis-ijfw"
 version = "1.0.0"
 description = "test"
 entry = "builtin:ijfw"
@@ -111,7 +111,7 @@ fn scoped_tool_rejects_name_already_namespaced() {
 
 #[test]
 fn scoped_tool_registry_cannot_be_constructed_without_permission() {
-    let m_no_tools = empty_manifest("wayland-readonly");
+    let m_no_tools = empty_manifest("genesis-readonly");
     let mut host = CaptureRegistrar {
         registered: Vec::new(),
     };
@@ -147,10 +147,10 @@ fn scoped_tool_registry_rejects_duplicate() {
 fn namespace_ledger_rejects_second_claim() {
     let mut ledger = NamespaceLedger::default();
     ledger
-        .claim("Browser", "wayland-browser")
+        .claim("Browser", "genesis-browser")
         .expect("first claim");
     let err = ledger
-        .claim("Browser", "wayland-browser-fork")
+        .claim("Browser", "genesis-browser-fork")
         .expect_err("second claim must fail");
     assert!(matches!(err, PluginError::NamespaceCollision { .. }));
 }
@@ -158,8 +158,8 @@ fn namespace_ledger_rejects_second_claim() {
 #[test]
 fn namespace_ledger_allows_same_plugin_repeated() {
     let mut ledger = NamespaceLedger::default();
-    ledger.claim("ijfw", "wayland-ijfw").unwrap();
-    ledger.claim("ijfw", "wayland-ijfw").unwrap();
+    ledger.claim("ijfw", "genesis-ijfw").unwrap();
+    ledger.claim("ijfw", "genesis-ijfw").unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ fn hooks_manifest() -> PluginManifest {
     PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-hooked"
+name = "genesis-hooked"
 version = "1.0.0"
 description = "t"
 entry = "builtin:h"
@@ -212,7 +212,7 @@ fn scoped_hooks_with_permission_registers() {
 
 #[test]
 fn scoped_hooks_constructor_rejects_without_permission() {
-    let m_no_hooks = empty_manifest("wayland-mute");
+    let m_no_hooks = empty_manifest("genesis-mute");
     let mut host = CaptureHooks {
         registered: Vec::new(),
     };
@@ -259,7 +259,7 @@ fn agents_manifest() -> PluginManifest {
     PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-agentful"
+name = "genesis-agentful"
 version = "1.0.0"
 description = "t"
 entry = "builtin:a"
@@ -296,7 +296,7 @@ fn scoped_agents_with_permission_registers() {
 
 #[test]
 fn scoped_agents_constructor_rejects_without_permission() {
-    let m_no = empty_manifest("wayland-no-agents");
+    let m_no = empty_manifest("genesis-no-agents");
     let mut host = CaptureAgents {
         registered: Vec::new(),
     };
@@ -339,7 +339,7 @@ fn skills_manifest() -> PluginManifest {
     PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-skilled"
+name = "genesis-skilled"
 version = "1.0.0"
 description = "t"
 entry = "builtin:s"
@@ -382,7 +382,7 @@ fn scoped_skills_with_permission_registers() {
 
 #[test]
 fn scoped_skills_constructor_rejects_without_permission() {
-    let m_no = empty_manifest("wayland-no-skills");
+    let m_no = empty_manifest("genesis-no-skills");
     let mut host = CaptureSkills {
         registered: Vec::new(),
     };
@@ -425,7 +425,7 @@ fn rules_manifest() -> PluginManifest {
     PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-ruled"
+name = "genesis-ruled"
 version = "1.0.0"
 description = "t"
 entry = "builtin:r"
@@ -459,7 +459,7 @@ fn scoped_rules_with_permission_registers() {
 
 #[test]
 fn scoped_rules_constructor_rejects_without_permission() {
-    let m_no = empty_manifest("wayland-no-rules");
+    let m_no = empty_manifest("genesis-no-rules");
     let mut host = CaptureRules {
         registered: Vec::new(),
     };
@@ -502,7 +502,7 @@ fn mcp_manifest() -> PluginManifest {
     PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-mcper"
+name = "genesis-mcper"
 version = "1.0.0"
 description = "t"
 entry = "builtin:m"
@@ -539,7 +539,7 @@ fn scoped_mcp_with_permission_registers() {
 
 #[test]
 fn scoped_mcp_constructor_rejects_without_permission() {
-    let m_no = empty_manifest("wayland-no-mcp");
+    let m_no = empty_manifest("genesis-no-mcp");
     let mut host = CaptureMcp {
         registered: Vec::new(),
     };
@@ -596,7 +596,7 @@ fn providers_manifest() -> PluginManifest {
     PluginManifest::from_toml_str(
         r#"
 [plugin]
-name = "wayland-provider"
+name = "genesis-provider"
 version = "1.0.0"
 description = "t"
 entry = "builtin:p"
@@ -626,7 +626,7 @@ fn scoped_providers_with_permission_registers() {
 
 #[test]
 fn scoped_providers_constructor_rejects_without_permission() {
-    let m_no = empty_manifest("wayland-no-providers");
+    let m_no = empty_manifest("genesis-no-providers");
     let mut host = CaptureProviders {
         registered: Vec::new(),
     };

@@ -1,6 +1,6 @@
 [package]
 name = "wcore-dispatch"
-description = "Internal decision router for Wayland-Core: pick a template, agent, or skill given task context. Thompson-sampling-backed scorer with observation feedback. Not a model router (that's Flux)."
+description = "Internal decision router for Genesis-Core: pick a template, agent, or skill given task context. Thompson-sampling-backed scorer with observation feedback. Not a model router (that's Flux)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

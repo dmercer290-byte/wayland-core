@@ -881,10 +881,10 @@ impl EngineA2aHandler {
 
     /// Test/embedding seam: build the handler over a pre-constructed
     /// [`EngineTurnEngine`] (e.g. one backed by an injected provider). The
-    /// agent id defaults to `"wayland-core"`.
+    /// agent id defaults to `"genesis-core"`.
     pub fn with_engine(inner: EngineTurnEngine) -> Self {
         Self {
-            agent_id: "wayland-core".to_string(),
+            agent_id: "genesis-core".to_string(),
             inner,
         }
     }
@@ -908,7 +908,7 @@ impl A2aHandler for EngineA2aHandler {
         if h.agent_id.is_empty() {
             return Ok(A2aHandshake {
                 agent_id: String::new(),
-                agent_kind: "wayland-core".to_string(),
+                agent_kind: "genesis-core".to_string(),
                 version: String::new(),
                 capabilities: A2aCapabilities::default(),
             });
@@ -921,7 +921,7 @@ impl A2aHandler for EngineA2aHandler {
         };
         Ok(A2aHandshake {
             agent_id: self.agent_id.clone(),
-            agent_kind: "wayland-core".to_string(),
+            agent_kind: "genesis-core".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             capabilities: caps,
         })
@@ -1268,7 +1268,7 @@ mod tests {
             capabilities: A2aCapabilities::default(),
         };
         let reply = handler.on_handshake(incoming).await.unwrap();
-        assert_eq!(reply.agent_kind, "wayland-core");
+        assert_eq!(reply.agent_kind, "genesis-core");
         assert!(reply.agent_id.is_empty(), "anonymous: no agent_id");
         assert!(reply.version.is_empty(), "anonymous: no version");
         assert!(reply.capabilities.tools.is_empty());

@@ -325,8 +325,8 @@ fn tc_10_17_extract_dir_path_format() {
     let path = get_bundled_skill_extract_dir("my-skill");
     let s = path.to_string_lossy();
     assert!(
-        s.contains("wayland-core-bundled-skills"),
-        "path should contain wayland-core-bundled-skills"
+        s.contains("genesis-core-bundled-skills"),
+        "path should contain genesis-core-bundled-skills"
     );
     assert!(s.contains("my-skill"), "path should contain skill name");
 }
@@ -493,7 +493,7 @@ async fn tc_10_29_windows_bundled_skill_extract_succeeds() {
     // Verify the directory path is under the expected temp prefix.
     let path_str = dir.to_string_lossy();
     assert!(
-        path_str.contains("wayland-core-bundled-skills"),
+        path_str.contains("genesis-core-bundled-skills"),
         "extract dir must use the standard bundled-skill temp prefix, got: {path_str}"
     );
 

@@ -2,10 +2,10 @@
 //! `send_message` tool.
 //!
 //! Under the desktop the engine's channel table is empty (the desktop writes
-//! no channel `.toml` into `$WAYLAND_HOME/channels`), so every agent
+//! no channel `.toml` into `$GENESIS_HOME/channels`), so every agent
 //! `send_message` failed with "unknown channel: email". Per the Overwatch
-//! decision on wayland#537 (Option 1, host-send-transport-hook variant A),
-//! when the host spawns the engine with `WAYLAND_SEND_MESSAGE_HOST_DELEGATE=1`
+//! decision on genesis#537 (Option 1, host-send-transport-hook variant A),
+//! when the host spawns the engine with `GENESIS_SEND_MESSAGE_HOST_DELEGATE=1`
 //! the tool keeps its schema but the transport routes every send to the HOST:
 //! it emits a `host_send_message_request` protocol event and awaits the
 //! host's `host_send_message_result` command, correlated by `call_id`. The
@@ -16,7 +16,7 @@
 //! transport and standalone/CLI engines with hand-authored channel toml are
 //! byte-identical to before.
 //!
-//! **SECURITY (wayland#543 audit finding 4):** the desktop performs the send
+//! **SECURITY (genesis#543 audit finding 4):** the desktop performs the send
 //! WITHOUT re-gating, trusting that the engine already gated the tool call.
 //! That holds structurally: this transport only runs inside
 //! `SendMessageTool::execute`, which orchestration's approval gate fronts
@@ -48,11 +48,11 @@ use wcore_tools::send_message::{MessageTransport, ParsedTarget, SendOutcome};
 pub const HOST_SEND_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Activation check for host-delegated `send_message`. The desktop sets
-/// `WAYLAND_SEND_MESSAGE_HOST_DELEGATE=1` in the engine child's environment
+/// `GENESIS_SEND_MESSAGE_HOST_DELEGATE=1` in the engine child's environment
 /// (`envBuilder.buildEngineSpawnEnv`); anything other than exactly `"1"`
 /// leaves the engine's behavior byte-identical to today.
 pub fn host_delegated_send_enabled() -> bool {
-    std::env::var("WAYLAND_SEND_MESSAGE_HOST_DELEGATE").as_deref() == Ok("1")
+    std::env::var("GENESIS_SEND_MESSAGE_HOST_DELEGATE").as_deref() == Ok("1")
 }
 
 /// #141 audit item 3 — upper bound on host-supplied result strings
@@ -392,19 +392,19 @@ mod tests {
         // SAFETY (Rust 2024 set_var): single-threaded test context for this
         // env var; no concurrent readers of this name.
         unsafe {
-            std::env::remove_var("WAYLAND_SEND_MESSAGE_HOST_DELEGATE");
+            std::env::remove_var("GENESIS_SEND_MESSAGE_HOST_DELEGATE");
         }
         assert!(!host_delegated_send_enabled());
         unsafe {
-            std::env::set_var("WAYLAND_SEND_MESSAGE_HOST_DELEGATE", "0");
+            std::env::set_var("GENESIS_SEND_MESSAGE_HOST_DELEGATE", "0");
         }
         assert!(!host_delegated_send_enabled());
         unsafe {
-            std::env::set_var("WAYLAND_SEND_MESSAGE_HOST_DELEGATE", "1");
+            std::env::set_var("GENESIS_SEND_MESSAGE_HOST_DELEGATE", "1");
         }
         assert!(host_delegated_send_enabled());
         unsafe {
-            std::env::remove_var("WAYLAND_SEND_MESSAGE_HOST_DELEGATE");
+            std::env::remove_var("GENESIS_SEND_MESSAGE_HOST_DELEGATE");
         }
     }
 

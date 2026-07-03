@@ -1,7 +1,7 @@
 //! End-to-end skill tests using real files on disk.
 //!
 //! Each test creates skill files in a temporary directory that mirrors the
-//! `.wayland-core/skills/` and `.wayland-core/commands/` layout, then exercises the full
+//! `.genesis-core/skills/` and `.genesis-core/commands/` layout, then exercises the full
 //! pipeline: discovery -> loading -> system prompt injection -> SkillTool execution.
 //!
 //! Tests use `load_all_skills` with `add_dirs` or a temp cwd to avoid depending
@@ -28,7 +28,7 @@ fn find_skill<'a>(skills: &'a [SkillMetadata], name: &str) -> Option<&'a SkillMe
     skills.iter().find(|s| s.name == name)
 }
 
-/// Create a project-like temp directory with `.git` marker and `.wayland-core/skills/` + `.wayland-core/commands/`.
+/// Create a project-like temp directory with `.git` marker and `.genesis-core/skills/` + `.genesis-core/commands/`.
 /// Returns (TempDir guard, root path).
 fn make_project() -> (TempDir, PathBuf) {
     let tmp = TempDir::new().unwrap();
@@ -38,11 +38,11 @@ fn make_project() -> (TempDir, PathBuf) {
     fs::create_dir(root.join(".git")).unwrap();
 
     // Skills directory
-    let skills_dir = root.join(".wayland-core").join("skills");
+    let skills_dir = root.join(".genesis-core").join("skills");
     fs::create_dir_all(&skills_dir).unwrap();
 
     // Commands directory (legacy)
-    let commands_dir = root.join(".wayland-core").join("commands");
+    let commands_dir = root.join(".genesis-core").join("commands");
     fs::create_dir_all(&commands_dir).unwrap();
 
     // --- greet skill ---
@@ -80,7 +80,7 @@ fn make_project() -> (TempDir, PathBuf) {
     // --- legacy command (flat .md in commands/) ---
     fs::write(
         commands_dir.join("legacy-cmd.md"),
-        "---\nname: legacy-cmd\ndescription: A legacy command for backward compatibility testing\n---\n\nThis is a legacy command loaded from .wayland-core/commands/\nArguments: $ARGUMENTS\n",
+        "---\nname: legacy-cmd\ndescription: A legacy command for backward compatibility testing\n---\n\nThis is a legacy command loaded from .genesis-core/commands/\nArguments: $ARGUMENTS\n",
     ).unwrap();
 
     (tmp, root)
@@ -120,7 +120,7 @@ async fn e2_legacy_commands_discovered() {
 
     let legacy = find_skill(&skills, "legacy-cmd");
     assert!(legacy.is_some(), "E2 FAIL: 'legacy-cmd' not discovered");
-    println!("E2 PASS: legacy command 'legacy-cmd' discovered from .wayland-core/commands/");
+    println!("E2 PASS: legacy command 'legacy-cmd' discovered from .genesis-core/commands/");
 }
 
 // ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@
 //! (hw.targettype, hw.osenvironment) at shell init that Claude Code's
 //! profile didn't whitelist. The deny-default profile killed zsh startup.
 //!
-//! Wayland's bash usage (BashTool calls sh/bash) doesn't hit the zsh
+//! Genesis's bash usage (BashTool calls sh/bash) doesn't hit the zsh
 //! issue, but we still bake the fix into every profile for safety AND
 //! because future tools may invoke zsh.
 //!

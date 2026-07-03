@@ -219,7 +219,7 @@ impl CommandRegistry {
             Command::new(
                 "/memory",
                 ContextMemory,
-                "what Wayland remembers about you",
+                "what Genesis remembers about you",
                 false,
             ),
             Command::new(

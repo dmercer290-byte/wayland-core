@@ -29,7 +29,7 @@
 //! This module walks the final tool schema tree and fixes the broader set of
 //! known-hostile constructs on a deep copy of the input.
 //!
-//! Ported from the prior Wayland Python engine.
+//! Ported from the prior Genesis Python engine.
 
 use serde_json::{Map, Value, json};
 

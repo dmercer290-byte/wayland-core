@@ -12,7 +12,7 @@
 //!    so a forgotten "start" never grows without bound. On `stop()` the
 //!    ring is flushed to a `tempfile::NamedTempFile` via
 //!    [`hound::WavWriter::create`], then atomically renamed under
-//!    `$TMPDIR/wayland-voice-*.wav`.
+//!    `$TMPDIR/genesis-voice-*.wav`.
 //!
 //! 2. [`CpalAudioPlayer`] — output stream via the same host (primary
 //!    path) with a shell fallback (`afplay` on macOS, `aplay` on Linux,
@@ -36,7 +36,7 @@
 //! * Path-traversal (S-H5): every WAV write goes through
 //!   [`validate_voice_path`], which canonicalises the parent and
 //!   refuses anything outside the permitted-prefix set
-//!   (`$TMPDIR/wayland-voice-*`, `~/.wayland/voice/`). `..` segments
+//!   (`$TMPDIR/genesis-voice-*`, `~/.genesis/voice/`). `..` segments
 //!   are rejected up-front. Writes use `NamedTempFile` + atomic
 //!   `persist` so a half-written file never appears at the final path.
 //! * R-H6 abort path: the recorder's [`Drop`] impl drops the cpal
@@ -86,11 +86,11 @@ const TRANSCRIBE_TIMEOUT: Duration = Duration::from_secs(60);
 /// Permitted-prefix list for WAV outputs. cpal capture is local-only;
 /// the only writes are the intermediate WAV files the transcriber later
 /// uploads. We keep them under either the system temp dir or
-/// `~/.wayland/voice/`.
+/// `~/.genesis/voice/`.
 fn permitted_prefixes() -> Vec<PathBuf> {
     let mut v = vec![std::env::temp_dir()];
     if let Some(home) = dirs::home_dir() {
-        v.push(home.join(".wayland").join("voice"));
+        v.push(home.join(".genesis").join("voice"));
     }
     v
 }
@@ -132,7 +132,7 @@ fn validate_voice_path(path: &Path) -> Result<PathBuf, String> {
     let canonical_prefixes: Vec<PathBuf> = prefixes
         .into_iter()
         .filter_map(|p| {
-            // Best-effort: missing prefixes are silently skipped (~/.wayland/voice
+            // Best-effort: missing prefixes are silently skipped (~/.genesis/voice
             // may not exist until first use).
             if !p.exists() {
                 let _ = std::fs::create_dir_all(&p);
@@ -145,21 +145,21 @@ fn validate_voice_path(path: &Path) -> Result<PathBuf, String> {
         .any(|prefix| canonical_parent.starts_with(prefix));
     if !allowed {
         return Err(format!(
-            "voice WAV path '{}' is outside permitted prefixes ($TMPDIR/wayland-voice-*, ~/.wayland/voice/)",
+            "voice WAV path '{}' is outside permitted prefixes ($TMPDIR/genesis-voice-*, ~/.genesis/voice/)",
             path.display()
         ));
     }
     Ok(canonical_parent)
 }
 
-/// Build a unique WAV path under `$TMPDIR/wayland-voice-<nonce>.wav`.
+/// Build a unique WAV path under `$TMPDIR/genesis-voice-<nonce>.wav`.
 /// The nonce keeps overlapping recordings from racing on the same path.
 fn fresh_wav_path() -> PathBuf {
     let nonce: u64 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("wayland-voice-{nonce}.wav"))
+    std::env::temp_dir().join(format!("genesis-voice-{nonce}.wav"))
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +305,7 @@ impl CpalAudioRecorder {
         let (ready_tx, ready_rx) = std_mpsc::channel::<Result<(), String>>();
 
         let handle = thread::Builder::new()
-            .name("wayland-voice-audio".to_string())
+            .name("genesis-voice-audio".to_string())
             .spawn(move || {
                 // Re-acquire host + device + config inside the thread
                 // because cpal types are not Send on some platforms.
@@ -784,13 +784,13 @@ mod tests {
 
     #[test]
     fn wav_path_under_permitted_prefix_only() {
-        // /tmp/wayland-voice-*.wav under $TMPDIR is OK.
-        let ok = std::env::temp_dir().join("wayland-voice-test-b10.wav");
+        // /tmp/genesis-voice-*.wav under $TMPDIR is OK.
+        let ok = std::env::temp_dir().join("genesis-voice-test-b10.wav");
         let _ = std::fs::remove_file(&ok);
         assert!(validate_voice_path(&ok).is_ok());
 
         // /etc is outside permitted prefixes — rejected.
-        let bad = PathBuf::from("/etc/wayland-voice-evil.wav");
+        let bad = PathBuf::from("/etc/genesis-voice-evil.wav");
         let err = validate_voice_path(&bad).unwrap_err();
         assert!(
             err.contains("outside permitted prefixes") || err.contains("canonicalise"),
@@ -861,7 +861,7 @@ mod tests {
                 filtered: false,
             },
         ));
-        let path = PathBuf::from("/tmp/wayland_voice_b10_test_capture.wav");
+        let path = PathBuf::from("/tmp/genesis_voice_b10_test_capture.wav");
         let out =
             transcribe_with_timeout(backend.as_ref(), &path, Some("whisper-large-v3-turbo")).await;
         match out {
@@ -887,7 +887,7 @@ mod tests {
         let recorder = StdArc::new(CapturingAudioRecorder::new());
         let transcriber = StdArc::new(NullTranscriptionBackend);
         let vm = VoiceMode::new(recorder, transcriber, player.clone(), probe);
-        let p = PathBuf::from("/tmp/wayland_voice_test_b10_tts.wav");
+        let p = PathBuf::from("/tmp/genesis_voice_test_b10_tts.wav");
         assert!(vm.play(&p).await);
         assert_eq!(player.play_count(), 1);
     }
@@ -943,7 +943,7 @@ mod tests {
     #[tokio::test]
     async fn cpal_player_returns_false_on_missing_file() {
         let player = CpalAudioPlayer::new();
-        let bogus = PathBuf::from("/nonexistent/wayland-voice-doesnt-exist.wav");
+        let bogus = PathBuf::from("/nonexistent/genesis-voice-doesnt-exist.wav");
         assert!(
             !player.play(&bogus).await,
             "play should return false when the OS player can't read the file"

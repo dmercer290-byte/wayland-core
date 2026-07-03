@@ -1,19 +1,19 @@
 //! USER-FLOW HARNESS — Layer 1: CLI surface.
 //!
 //! Every other test in the workspace drives `AgentEngine` in-process at
-//! the library level. This layer drives the **compiled `wayland-core`
+//! the library level. This layer drives the **compiled `genesis-core`
 //! binary** as a subprocess the way a user's shell does: it asserts on
 //! exit codes, stdout, and stderr for the non-interactive subcommands.
 //! No PTY is needed — these subcommands never open the TUI.
 //!
 //! Reference pattern: `release_binary_smoke.rs` (spawns the binary,
 //! captures output). Unlike that test, Layer 1 targets the **debug**
-//! binary Cargo wires through `CARGO_BIN_EXE_wayland-core`, so it runs in
+//! binary Cargo wires through `CARGO_BIN_EXE_genesis-core`, so it runs in
 //! the default `cargo test` pass without a pre-built release artifact.
 //!
 //! Every test that touches config points `HOME` at a fresh tempdir, so
-//! the real `~/Library/Application Support/wayland-core/config.toml`
-//! (macOS) / `~/.config/wayland-core/config.toml` (Linux) is never read
+//! the real `~/Library/Application Support/genesis-core/config.toml`
+//! (macOS) / `~/.config/genesis-core/config.toml` (Linux) is never read
 //! or written. `wcore-config`'s `app_config_dir()` derives the path from
 //! `dirs::config_dir()`, which is rooted at `$HOME` on both platforms.
 
@@ -25,30 +25,30 @@ use tempfile::TempDir;
 /// Path to the debug binary under test. Cargo guarantees this is built
 /// before the integration test runs.
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_wayland-core")
+    env!("CARGO_BIN_EXE_genesis-core")
 }
 
 /// Run the binary with `args` and a tempdir `HOME`, so config CRUD is
 /// fully isolated from the developer's real environment. Returns the
 /// completed `Output` (status + stdout + stderr).
 ///
-/// `WAYLAND_HOME` is the F-010 hermetic-sandbox env in `wcore-config`'s
-/// `wayland_config_dir()` resolver — it overrides every config/auth path
+/// `GENESIS_HOME` is the F-010 hermetic-sandbox env in `wcore-config`'s
+/// `genesis_config_dir()` resolver — it overrides every config/auth path
 /// on all three platforms in one shot. `HOME` alone is *not* enough on
 /// Windows, where `dirs::config_dir()` resolves via `%APPDATA%`, not
-/// `HOME` — so tests would write to the real `%APPDATA%\wayland-core\`
+/// `HOME` — so tests would write to the real `%APPDATA%\genesis-core\`
 /// and pick up leaked state across nextest retries (round 11 caught
 /// `auth add` reporting "Updated" instead of "Added" on retry, because
 /// the first try left the key behind in the real APPDATA).
 fn run_isolated(args: &[&str], home: &Path) -> Output {
     Command::new(binary())
         .args(args)
-        // A scratch cwd too: `wayland-core` reads `.wayland-core.toml`
+        // A scratch cwd too: `genesis-core` reads `.genesis-core.toml`
         // from cwd, and the repo root has none — but pointing cwd at the
         // tempdir removes any doubt.
         .current_dir(home)
         .env("HOME", home)
-        .env("WAYLAND_HOME", home)
+        .env("GENESIS_HOME", home)
         // Keep the run hermetic: never pick up an ambient provider key.
         .env_remove("API_KEY")
         .env_remove("ANTHROPIC_API_KEY")
@@ -92,7 +92,7 @@ fn version_reports_the_pinned_release() {
     // the crate's own `CARGO_PKG_VERSION` (workspace-inherited) rather than a
     // hardcoded literal, so a routine version bump can't silently rot this
     // test the way `0.8.1` did long after the workspace moved to 0.9.x.
-    let expected = format!("wayland-core {}", env!("CARGO_PKG_VERSION"));
+    let expected = format!("genesis-core {}", env!("CARGO_PKG_VERSION"));
     assert!(
         stdout.contains(&expected),
         "--version must contain `{expected}`; got: {stdout:?}"
@@ -121,7 +121,7 @@ fn help_lists_the_setup_and_auth_subcommands() {
     );
     // Sanity: the usage line is present so a user knows the invocation.
     assert!(
-        stdout.contains("Usage: wayland-core"),
+        stdout.contains("Usage: genesis-core"),
         "--help must print a usage line; got: {stdout}"
     );
 }
@@ -238,7 +238,7 @@ fn list_agents_prints_a_non_empty_roster() {
 
 #[test]
 fn an_unrecognized_argument_fails_with_a_usage_message() {
-    // NOTE: a bare unknown WORD (e.g. `wayland-core notacommand`) is NOT
+    // NOTE: a bare unknown WORD (e.g. `genesis-core notacommand`) is NOT
     // a clap error — the top-level `prompt` field is `trailing_var_arg`,
     // so an unknown word is swallowed as a prompt and the agent path is
     // entered. The genuine "unrecognized input" surface is an unknown
@@ -259,7 +259,7 @@ fn an_unrecognized_argument_fails_with_a_usage_message() {
     );
     let stderr = stderr_of(&out);
     assert!(
-        stderr.contains("error:") && stderr.contains("Usage: wayland-core"),
+        stderr.contains("error:") && stderr.contains("Usage: genesis-core"),
         "an unknown flag must print an error + usage line; got stderr: {stderr}"
     );
 }
@@ -282,9 +282,9 @@ fn an_unrecognized_subcommand_under_auth_fails_with_usage() {
         out.status.code()
     );
     let stderr = stderr_of(&out);
-    // Windows runs the binary as `wayland-core.exe`, so clap's usage
-    // line reads `Usage: wayland-core.exe auth ...` — the exact-substring
-    // `Usage: wayland-core auth` doesn't match (CI run 26405564483 job
+    // Windows runs the binary as `genesis-core.exe`, so clap's usage
+    // line reads `Usage: genesis-core.exe auth ...` — the exact-substring
+    // `Usage: genesis-core auth` doesn't match (CI run 26405564483 job
     // 77727955376 — caught the only red on a 10-green ship). Check
     // each invariant separately to stay platform-agnostic.
     assert!(

@@ -1,6 +1,6 @@
 //! The single shared animation clock (v0.9.2 W1).
 //!
-//! SPEC §1A: Wayland has exactly ONE render loop (`mod.rs:run_loop`,
+//! SPEC §1A: Genesis has exactly ONE render loop (`mod.rs:run_loop`,
 //! `TICK = 33ms`) and one monotonic `App::frame_tick`. The win here is
 //! narrow: make that one loop stop ticking when nothing needs animating,
 //! and pause on terminal blur / resize-to-zero. `wants_tick()` is the

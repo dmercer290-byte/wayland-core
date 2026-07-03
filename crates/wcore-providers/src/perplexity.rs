@@ -90,7 +90,7 @@ pub fn register_perplexity_in<R: ProviderRegistry>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::WaylandProviderRegistry;
+    use crate::registry::GenesisProviderRegistry;
 
     fn compat_with_max_tokens_field(field: &str) -> ProviderCompat {
         ProviderCompat {
@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn register_uses_lowercase_id() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         register_perplexity_in(
             &mut r,
             "pplx-test".into(),
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn register_rejects_duplicate() {
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         register_perplexity_in(
             &mut r,
             "pplx-test".into(),
@@ -201,7 +201,7 @@ mod tests {
         // The wrapper must forward ProviderCompat to OpenAIProvider. We can't
         // peek inside, but constructing with a non-default compat must not
         // panic and the registered factory must return a usable provider.
-        let mut r = WaylandProviderRegistry::new();
+        let mut r = GenesisProviderRegistry::new();
         register_perplexity_in(
             &mut r,
             "pplx-test".into(),

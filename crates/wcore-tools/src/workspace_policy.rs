@@ -13,7 +13,7 @@
 //!     the deferred OS-sandbox secret-read-deny work.)
 //!
 //! Network is ALWAYS seeded from `default_bash_network_policy()` so the
-//! `WAYLAND_BASH_ALLOW_NETWORK` opt-in survives; it is never hardcoded.
+//! `GENESIS_BASH_ALLOW_NETWORK` opt-in survives; it is never hardcoded.
 
 use std::path::{Path, PathBuf};
 use wcore_sandbox::manifest::NetworkPolicy;
@@ -308,18 +308,18 @@ fn compute_secret_deny(
         }
     }
 
-    // Wayland's OWN per-profile credential + OAuth stores (both modes). The
+    // Genesis's OWN per-profile credential + OAuth stores (both modes). The
     // active profile home is often inside $HOME, so it is mountable into a
     // Trusted sandbox — and an LLM-driven bash command must not be able to
     // `cat` the profile's secrets. Covers the plaintext-0600 fallback
     // (credentials.toml), the encrypted vault blob + KDF params
     // (credentials.enc / credentials.kdf.json — the passphrase is never
     // forwarded, but deny the blob so it cannot be exfiltrated for offline
-    // attack), and the OAuth token dir. Resolves via the same WAYLAND_HOME-aware
+    // attack), and the OAuth token dir. Resolves via the same GENESIS_HOME-aware
     // helpers the credential store itself uses, so non-default profile homes are
     // covered too. `under_mounted` keeps homes outside readable roots out of the
     // list (they are not reachable from the sandbox anyway).
-    let cred_dir = wcore_config::config::wayland_config_dir();
+    let cred_dir = wcore_config::config::genesis_config_dir();
     for name in [
         "credentials.toml",
         "credentials.enc",
@@ -583,7 +583,7 @@ mod tests {
     /// profile home sits inside a mounted root.
     #[test]
     #[serial_test::serial]
-    fn trusted_denies_wayland_profile_credentials() {
+    fn trusted_denies_genesis_profile_credentials() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         // Profile home inside the (readable) workspace root → mounted.
@@ -592,14 +592,14 @@ mod tests {
         std::fs::write(wh.join("credentials.toml"), b"secrets = {}").unwrap();
         std::fs::write(wh.join("oauth/chatgpt.json"), b"{}").unwrap();
 
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: serial test; single-threaded env mutation.
-        unsafe { std::env::set_var("WAYLAND_HOME", &wh) };
+        unsafe { std::env::set_var("GENESIS_HOME", &wh) };
         let p = WorkspacePolicy::trusted_local(root);
         // SAFETY: serial test; restore prior value (deny is already computed).
         match &prev {
-            Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-            None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+            Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+            None => unsafe { std::env::remove_var("GENESIS_HOME") },
         }
         let deny = p.secret_deny_paths();
 

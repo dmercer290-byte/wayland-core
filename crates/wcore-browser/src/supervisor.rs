@@ -52,7 +52,7 @@ impl Default for SupervisorConfig {
 
 fn home_pid_dir() -> PathBuf {
     // isolation: route through profile_home() so browser PID tracking follows
-    // WAYLAND_HOME. PIDs are ephemeral; stale entries at the old location are
+    // GENESIS_HOME. PIDs are ephemeral; stale entries at the old location are
     // harmless (the reaper only acts on PIDs it registered this session).
     wcore_config::config::profile_home()
         .join("browser")
@@ -431,15 +431,15 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn pid_dir_roots_under_wayland_home() {
+    fn pid_dir_roots_under_genesis_home() {
         let tmp = tempfile::tempdir().unwrap();
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: serialized via serial_test; env restored below.
-        unsafe { std::env::set_var("WAYLAND_HOME", tmp.path()) };
+        unsafe { std::env::set_var("GENESIS_HOME", tmp.path()) };
         let dir = super::home_pid_dir();
         match prev {
-            Some(v) => unsafe { std::env::set_var("WAYLAND_HOME", v) },
-            None => unsafe { std::env::remove_var("WAYLAND_HOME") },
+            Some(v) => unsafe { std::env::set_var("GENESIS_HOME", v) },
+            None => unsafe { std::env::remove_var("GENESIS_HOME") },
         }
         assert_eq!(dir, tmp.path().join("browser").join("pids"));
     }

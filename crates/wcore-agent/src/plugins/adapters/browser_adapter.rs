@@ -1,7 +1,7 @@
 //! Wave BR — host browser-tool adapter.
 //!
 //! `HostBrowserRegistrar` implements `wcore_plugin_api::registry::browser::BrowserToolRegistrar`.
-//! When the `wayland-browser` plugin calls `register_browser_tool(spec)` in
+//! When the `genesis-browser` plugin calls `register_browser_tool(spec)` in
 //! its `initialize()`, the host captures the `BrowserToolSpec` here, then
 //! AFTER `PluginRunner::initialize_all` returns, the host calls
 //! [`HostBrowserRegistrar::reify_all`] which translates each captured spec
@@ -24,7 +24,7 @@ use wcore_browser::tool::BrowserTool;
 use wcore_plugin_api::browser_spec::{BrowserProviderHint, BrowserToolSpec};
 use wcore_plugin_api::registry::browser::BrowserToolRegistrar;
 
-/// Captures every `BrowserToolSpec` registered by a `wayland-browser` plugin.
+/// Captures every `BrowserToolSpec` registered by a `genesis-browser` plugin.
 /// The runner installs one per session; `reify_all` is called after plugin
 /// initialization to build the real `BrowserTool` set.
 #[derive(Debug, Default)]

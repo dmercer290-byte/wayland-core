@@ -8,9 +8,9 @@
 //! [`budget_linked_with_callback`] return a [`BudgetGuard`] RAII handle
 //! that aborts the spawned 50ms-poll task on drop. Previously the
 //! watcher task was self-documented as leaking for the lifetime of the
-//! session; at the dozen-tasks scale of a single wayland-core process
+//! session; at the dozen-tasks scale of a single genesis-core process
 //! that was tolerable, but a host that recycles sessions thousands of
-//! times per hour (e.g. wayland Electron running many short-lived
+//! times per hour (e.g. genesis Electron running many short-lived
 //! protocol streams) would accumulate idle pollers. The guard makes
 //! the lifetime explicit: when the caller drops the guard, the watcher
 //! is aborted and the underlying token reference is released.

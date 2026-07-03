@@ -1,4 +1,4 @@
-//! M5.2 — session trace replay + diff for wayland-core.
+//! M5.2 — session trace replay + diff for genesis-core.
 //!
 //! Three primitives that close the "what did the session actually do?"
 //! debugging loop:

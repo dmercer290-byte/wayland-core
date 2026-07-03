@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn read_title_uses_basename_of_the_path() {
         let t = Theme::hearth();
-        let c = card("Read", "/Users/sean/dev/wayland/src/lib.rs");
+        let c = card("Read", "/Users/sean/dev/genesis/src/lib.rs");
         let comp = FilesystemComponent;
         assert_eq!(line_text(&comp.title(&ctx(&c, &t))), "Read lib.rs");
     }

@@ -4,7 +4,7 @@
 //! `CapturedUserModel` entries, `apply_initialize_outcome` returns an
 //! `AppliedPluginCapabilities` whose `plugin_user_models` field carries those
 //! captures forward verbatim. The carrier is consumed by Task 2.3
-//! (`wayland-honcho` reifies it into a live `UserModel` client during
+//! (`genesis-honcho` reifies it into a live `UserModel` client during
 //! bootstrap).
 //!
 //! No live HTTP / network — pure in-memory data shuttling.
@@ -40,7 +40,7 @@ fn captured_user_model_survives_apply() {
     let mut outcome = InitializeOutcome::default();
     outcome
         .user_models
-        .push(captured("wayland-honcho", "honcho"));
+        .push(captured("genesis-honcho", "honcho"));
 
     let mut registry = ToolRegistry::new();
     let applied = apply_initialize_outcome(
@@ -56,7 +56,7 @@ fn captured_user_model_survives_apply() {
         "exactly one CapturedUserModel must reach applied.plugin_user_models"
     );
     let got = &applied.plugin_user_models[0];
-    assert_eq!(got.plugin, "wayland-honcho");
+    assert_eq!(got.plugin, "genesis-honcho");
     assert_eq!(got.spec.name, "honcho");
     assert_eq!(got.spec.backend, "honcho");
     assert_eq!(got.spec.description, "honcho user-model");
@@ -134,7 +134,7 @@ fn honcho_spec_with_env(env_var: &str) -> UserModelSpec {
 /// collide with concurrent tests.
 #[test]
 fn honcho_user_model_reifies() {
-    let key_var = "WAYLAND_TASK_1_5_HONCHO_KEY";
+    let key_var = "GENESIS_TASK_1_5_HONCHO_KEY";
     // SAFETY: process-global env mutation. Test uses a unique key name
     // so concurrent tests cannot collide on it.
     unsafe {
@@ -143,7 +143,7 @@ fn honcho_user_model_reifies() {
 
     let mut outcome = InitializeOutcome::default();
     outcome.user_models.push(CapturedUserModel {
-        plugin: "wayland-honcho".to_string(),
+        plugin: "genesis-honcho".to_string(),
         spec: honcho_spec_with_env(key_var),
     });
 
@@ -170,7 +170,7 @@ fn honcho_user_model_reifies() {
         applied.user_model_errors
     );
     let reified = &applied.plugin_reified_user_models[0];
-    assert_eq!(reified.plugin, "wayland-honcho");
+    assert_eq!(reified.plugin, "genesis-honcho");
     assert_eq!(reified.name, "honcho-prod");
     assert!(matches!(
         reified.backend,
@@ -225,7 +225,7 @@ fn unknown_backend_typed_error() {
 /// bootstrap covers the actual user-model context.
 #[test]
 fn honcho_missing_api_key_degrades_silently() {
-    let key_var = "WAYLAND_TASK_1_5_DEFINITELY_UNSET_KEY";
+    let key_var = "GENESIS_TASK_1_5_DEFINITELY_UNSET_KEY";
     // Make extra sure it's not set from a prior test.
     // SAFETY: unique env-var name, safe to remove.
     unsafe {
@@ -234,7 +234,7 @@ fn honcho_missing_api_key_degrades_silently() {
 
     let mut outcome = InitializeOutcome::default();
     outcome.user_models.push(CapturedUserModel {
-        plugin: "wayland-honcho".to_string(),
+        plugin: "genesis-honcho".to_string(),
         spec: honcho_spec_with_env(key_var),
     });
 

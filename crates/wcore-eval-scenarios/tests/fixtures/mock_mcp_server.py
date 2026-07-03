@@ -2,11 +2,11 @@
 """Minimal mock stdio MCP server for the wcore-eval-scenarios D6 round-trip.
 
 Speaks MCP JSON-RPC 2.0 over stdin/stdout (one JSON object per line, the
-"line-delimited" framing wayland-core's stdio transport expects). It is
+"line-delimited" framing genesis-core's stdio transport expects). It is
 deliberately tiny and dependency-free (stdlib only) so it runs anywhere
 `python3` resolves on PATH.
 
-Protocol surface implemented (enough for the wayland-core handshake):
+Protocol surface implemented (enough for the genesis-core handshake):
   - `initialize`            → advertise protocolVersion + serverInfo + capabilities
   - `notifications/initialized` (notification, no id) → ignored
   - `tools/list`            → advertise ONE tool: `mcp_echo({text}) -> text`

@@ -1,5 +1,5 @@
 //! T3-3.4 (sub-wave 4): environment variable passthrough registry
-//! ported from the prior Wayland Python engine.
+//! ported from the prior Genesis Python engine.
 //!
 //! Skills that declare `required_environment_variables` in their
 //! frontmatter need those vars available in sandboxed execution
@@ -23,7 +23,7 @@
 //! ## Differences from the Python original
 //!
 //! The Python port used a `ContextVar` so each gateway request had its
-//! own allowlist. Wayland runs as a single-tenant CLI / library, so we
+//! own allowlist. Genesis runs as a single-tenant CLI / library, so we
 //! use a process-global `RwLock<HashSet<String>>` instead. Tests use
 //! [`clear_env_passthrough`] to reset state between cases.
 //!
@@ -44,7 +44,7 @@ use parking_lot::RwLock;
 /// per-user config lookups, etc.).
 ///
 /// Deliberately excludes anything that can carry credentials —
-/// `*_API_KEY`, `*_TOKEN`, `*_SECRET`, `WAYLAND_VAULT_*`, etc. are never
+/// `*_API_KEY`, `*_TOKEN`, `*_SECRET`, `GENESIS_VAULT_*`, etc. are never
 /// in this list and are filtered out by [`is_sensitive_env_var`].
 const BASE_SANDBOX_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
@@ -69,12 +69,12 @@ const BASE_SANDBOX_ENV_ALLOWLIST: &[&str] = &[
     "XDG_CONFIG_HOME",
     "XDG_DATA_HOME",
     // C3: the isolated-profile home, so a sandboxed command that itself invokes
-    // `wayland-core` (or reads its config) resolves the SAME profile as the
-    // parent rather than the default ~/.wayland. A non-secret path — exactly
+    // `genesis-core` (or reads its config) resolves the SAME profile as the
+    // parent rather than the default ~/.genesis. A non-secret path — exactly
     // like HOME / XDG_*_HOME already forwarded above, from which the default
     // home path is already inferable, so this exposes nothing new. The vault
-    // passphrase (`WAYLAND_VAULT_*`) is still dropped by `is_sensitive_env_var`.
-    "WAYLAND_HOME",
+    // passphrase (`GENESIS_VAULT_*`) is still dropped by `is_sensitive_env_var`.
+    "GENESIS_HOME",
     // SSL trust-store discovery — needed by curl / git / CLIs to verify
     // TLS; the file *paths*, never a secret.
     "SSL_CERT_FILE",
@@ -89,9 +89,9 @@ const BASE_SANDBOX_ENV_ALLOWLIST: &[&str] = &[
 /// secrets win over convenience.
 fn is_sensitive_env_var(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
-    // Wayland's own vault unlock secret — the single most dangerous var
+    // Genesis's own vault unlock secret — the single most dangerous var
     // to leak into a tool child.
-    if upper.starts_with("WAYLAND_VAULT") {
+    if upper.starts_with("GENESIS_VAULT") {
         return true;
     }
     const SECRET_MARKERS: &[&str] = &[
@@ -122,7 +122,7 @@ fn is_sensitive_env_var(name: &str) -> bool {
 ///    allowlist ([`is_env_passthrough`] — skill / config declared); and
 /// 2. it does NOT match [`is_sensitive_env_var`] — secret-bearing names
 ///    are dropped unconditionally, so a misconfigured passthrough entry
-///    cannot leak `*_API_KEY` / `WAYLAND_VAULT_PASSPHRASE` into a tool
+///    cannot leak `*_API_KEY` / `GENESIS_VAULT_PASSPHRASE` into a tool
 ///    child (and thence into the model context).
 ///
 /// This replaces the historical blanket `std::env::vars().collect()`
@@ -461,7 +461,7 @@ mod tests {
             "AWS_SECRET_ACCESS_KEY",
             "AWS_SESSION_TOKEN",
             "DB_PASSWORD",
-            "WAYLAND_VAULT_PASSPHRASE",
+            "GENESIS_VAULT_PASSPHRASE",
             "MY_PRIVATE_KEY",
             "SOME_CREDENTIAL",
             "service_apikey",
@@ -501,24 +501,24 @@ mod tests {
 
     #[test]
     #[serial]
-    fn build_sandboxed_env_forwards_wayland_home_not_vault() {
+    fn build_sandboxed_env_forwards_genesis_home_not_vault() {
         let _g = guard();
-        // C3: WAYLAND_HOME must reach a sandboxed child so a nested wayland-core
+        // C3: GENESIS_HOME must reach a sandboxed child so a nested genesis-core
         // invocation resolves the ACTIVE profile, not the default home. The
         // vault passphrase must still be dropped by the secret filter.
         unsafe {
-            std::env::set_var("WAYLAND_HOME", "/tmp/isolated-profile");
-            std::env::set_var("WAYLAND_VAULT_PASSPHRASE", "supersecret");
+            std::env::set_var("GENESIS_HOME", "/tmp/isolated-profile");
+            std::env::set_var("GENESIS_VAULT_PASSPHRASE", "supersecret");
         }
         let env = build_sandboxed_env(&[]);
         assert!(
             env.iter()
-                .any(|(k, v)| k == "WAYLAND_HOME" && v == "/tmp/isolated-profile"),
-            "WAYLAND_HOME must be forwarded into the sandbox (C3 profile propagation)"
+                .any(|(k, v)| k == "GENESIS_HOME" && v == "/tmp/isolated-profile"),
+            "GENESIS_HOME must be forwarded into the sandbox (C3 profile propagation)"
         );
         assert!(
             !env.iter()
-                .any(|(k, _)| k.eq_ignore_ascii_case("WAYLAND_VAULT_PASSPHRASE")),
+                .any(|(k, _)| k.eq_ignore_ascii_case("GENESIS_VAULT_PASSPHRASE")),
             "the vault passphrase must never reach a sandboxed child"
         );
     }

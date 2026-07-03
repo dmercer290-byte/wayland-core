@@ -19,7 +19,7 @@
 //! a missing arg_pattern matches the tool with no argument matching at
 //! all (most permissive). Specific patterns beat wildcard patterns.
 //!
-//! Persistence is TOML at `~/.wayland/permissions.toml` (path is
+//! Persistence is TOML at `~/.genesis/permissions.toml` (path is
 //! injectable for tests).
 
 use std::collections::HashMap;
@@ -95,10 +95,10 @@ impl LearnedPolicy {
         Self::default()
     }
 
-    /// Resolve the default on-disk path (`~/.wayland/permissions.toml`).
+    /// Resolve the default on-disk path (`~/.genesis/permissions.toml`).
     pub fn default_path() -> Result<PathBuf, LearningError> {
         dirs::home_dir()
-            .map(|h| h.join(".wayland").join("permissions.toml"))
+            .map(|h| h.join(".genesis").join("permissions.toml"))
             .ok_or(LearningError::NoHomeDir)
     }
 

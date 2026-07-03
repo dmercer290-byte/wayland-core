@@ -40,7 +40,7 @@ x11 = ["dep:x11rb"]
 # (input) + `grim` (screenshot) subprocesses through
 # `wcore_config::shell::shell_command_argv` — no extra Rust deps.
 wayland = []
-# Real CUA e2e test (loads the wayland-cua plugin spec through the host
+# Real CUA e2e test (loads the genesis-cua plugin spec through the host
 # adapter, exercises a SAFE op). Off by default; opt-in for runners that
 # allow plugin discovery.
 cua-e2e = []

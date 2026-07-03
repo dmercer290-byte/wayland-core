@@ -1,6 +1,6 @@
 //! Live filesystem-ACL verification for R61 (Windows AppContainer DACL grants).
 //!
-//! Proves, on real Windows hardware (gated behind `WAYLAND_SANDBOX_LIVE_WINDOWS`,
+//! Proves, on real Windows hardware (gated behind `GENESIS_SANDBOX_LIVE_WINDOWS`,
 //! which the CI Windows runner sets), that `fs_read_allow`/`fs_write_allow` are
 //! actually wired to AppContainer DACLs:
 //!   1. WITHOUT a grant, a sandboxed `cmd /c type <file>` is DENIED.
@@ -24,7 +24,7 @@ use wcore_sandbox::{SandboxCommand, SandboxManifest};
 const MARKER: &str = "HEADROOM_R61_GRANT_OK";
 
 fn live() -> bool {
-    std::env::var("WAYLAND_SANDBOX_LIVE_WINDOWS").is_ok()
+    std::env::var("GENESIS_SANDBOX_LIVE_WINDOWS").is_ok()
 }
 
 /// Seed a unique test dir under `%PUBLIC%` holding a file containing [`MARKER`].

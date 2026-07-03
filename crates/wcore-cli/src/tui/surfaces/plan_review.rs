@@ -465,7 +465,7 @@ impl PlanReviewSurface {
         // match the lowercase keymap labels the `?` overlay renders.
         let (label, hotkey) = match choice {
             PlanChoice::Run => ("Approve & run — exit plan mode, execute the plan", "a"),
-            PlanChoice::KeepPlanning => ("Keep planning — tell Wayland what to adjust", "r"),
+            PlanChoice::KeepPlanning => ("Keep planning — tell Genesis what to adjust", "r"),
             PlanChoice::Discard => ("Discard — exit plan mode, write nothing", "esc"),
         };
         let marker = if selected { "▸ " } else { "  " };
@@ -498,7 +498,7 @@ fn render_banner(frame: &mut Frame, area: Rect, theme: &Theme) {
         ),
         Span::raw(" "),
         Span::styled(
-            "read-only — Wayland writes nothing until you approve",
+            "read-only — Genesis writes nothing until you approve",
             Style::default().fg(theme.text_dim),
         ),
         Span::raw("  "),

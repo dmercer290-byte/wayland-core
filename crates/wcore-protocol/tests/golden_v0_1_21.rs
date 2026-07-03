@@ -4,7 +4,7 @@
 //! and asserts the resulting JSON `Value` matches an inline expected
 //! value. The point is regression-guarding: if a future PR drifts a field
 //! name, ordering, or serialization semantics, the matching golden test
-//! fails and surfaces the schema drift before it can break the Wayland
+//! fails and surfaces the schema drift before it can break the Genesis
 //! Desktop host.
 //!
 //! Adding a new event variant in a future wave: add a new golden test

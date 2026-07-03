@@ -8,7 +8,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// Logical provider id — passed to `wayland-core --provider <id>` and
+/// Logical provider id — passed to `genesis-core --provider <id>` and
 /// used to look up env-var names + default model strings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ProviderId {
@@ -74,7 +74,7 @@ pub struct ProviderConfig {
     /// `"deepseek-chat"`, `"claude-sonnet-4-6"`, `"gpt-4o"`).
     pub model: String,
     /// API key — the runner writes this into the seeded
-    /// `<tempdir>/.wayland-core/config.toml` under
+    /// `<tempdir>/.genesis-core/config.toml` under
     /// `[provider.<id>] api_key = "..."`. If `None`, the runner reads
     /// `id.env_var()` at spawn time.
     pub api_key: Option<String>,

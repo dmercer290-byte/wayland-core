@@ -61,7 +61,7 @@ impl MemoryHandler {
             Self::Stub => Ok(SlashOutcome::Handled {
                 output: Some(
                     "/memory show: not yet routed to wcore_memory in v0.7.0; use \
-                     `wayland-core --memory-show <session-id>` from the CLI."
+                     `genesis-core --memory-show <session-id>` from the CLI."
                         .to_string(),
                 ),
             }),

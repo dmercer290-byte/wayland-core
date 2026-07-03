@@ -1,5 +1,5 @@
 //! T3-3.3.3 — Tool-result persistence helper ported from the prior
-//! Wayland Python engine.
+//! Genesis Python engine.
 //!
 //! Defense against context-window overflow operates at three layers:
 //!
@@ -8,7 +8,7 @@
 //! 2. **Per-result persistence** ([`maybe_persist_tool_result`]) — after a
 //!    tool returns, if its output exceeds the registered threshold the
 //!    full output is written to a tempdir-backed file
-//!    (`$TMPDIR/wayland-results/<tool_use_id>.txt`) and the in-context
+//!    (`$TMPDIR/genesis-results/<tool_use_id>.txt`) and the in-context
 //!    content is replaced by a `<persisted-output>` preview + path
 //!    reference. The model can then `Read` the file to access the full
 //!    output on demand.
@@ -24,9 +24,9 @@
 //!   spill file lands inside the active sandbox (Docker / SSH / Modal).
 //!   wcore-tools doesn't yet have a uniform sandbox-env abstraction —
 //!   we write through the standard library to a real tempdir
-//!   (`std::env::temp_dir().join("wayland-results")`) which matches the
-//!   default Python branch (`STORAGE_DIR = "/tmp/wayland-results"`) on
-//!   Linux/macOS and uses `%TEMP%\\wayland-results` on Windows. A
+//!   (`std::env::temp_dir().join("genesis-results")`) which matches the
+//!   default Python branch (`STORAGE_DIR = "/tmp/genesis-results"`) on
+//!   Linux/macOS and uses `%TEMP%\\genesis-results` on Windows. A
 //!   future sandbox integration can re-route writes by passing an
 //!   alternate [`StorageDir`] override.
 //! * The Python `BudgetConfig` is a separate module; here we keep the
@@ -66,7 +66,7 @@ pub const PERSISTED_OUTPUT_CLOSING_TAG: &str = "</persisted-output>";
 pub const BUDGET_TOOL_NAME: &str = "__budget_enforcement__";
 
 /// Subdirectory under the OS temp dir where spill files live.
-pub const STORAGE_SUBDIR: &str = "wayland-results";
+pub const STORAGE_SUBDIR: &str = "genesis-results";
 
 /// Threshold sentinel meaning "never persist this tool's output".
 pub const THRESHOLD_DISABLED: usize = usize::MAX;
@@ -151,13 +151,13 @@ impl BudgetConfig {
 }
 
 /// Where spill files are written. Defaults to
-/// `std::env::temp_dir().join("wayland-results")`; tests inject a
+/// `std::env::temp_dir().join("genesis-results")`; tests inject a
 /// tempdir-rooted override.
 #[derive(Debug, Clone)]
 pub struct StorageDir(pub PathBuf);
 
 impl StorageDir {
-    /// OS default — `$TMPDIR/wayland-results` (or `/tmp/wayland-results`
+    /// OS default — `$TMPDIR/genesis-results` (or `/tmp/genesis-results`
     /// on Unix when `TMPDIR` is unset).
     pub fn os_default() -> Self {
         Self(std::env::temp_dir().join(STORAGE_SUBDIR))
@@ -486,7 +486,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn make_storage(tmp: &TempDir) -> StorageDir {
-        StorageDir(tmp.path().join("wayland-results"))
+        StorageDir(tmp.path().join("genesis-results"))
     }
 
     #[test]

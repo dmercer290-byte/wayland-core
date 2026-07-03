@@ -1,16 +1,16 @@
 //! Isolated-profile control plane (Phase 1, Task 1.1).
 //!
-//! An *isolated profile* is a self-contained `WAYLAND_HOME`-rooted home (its own
+//! An *isolated profile* is a self-contained `GENESIS_HOME`-rooted home (its own
 //! config, credentials, OAuth, memory, skills). This module owns the
 //! control-plane resolvers that LIST and LOCATE profiles — distinct from a
 //! single profile's home (`config::profile_home()`), which resolves state
 //! *inside* one profile.
 //!
-//! Load-bearing invariant (C2): [`profiles_root`] must NEVER read `WAYLAND_HOME`.
-//! A profile home is a *child* of the profiles root, so reading `WAYLAND_HOME`
+//! Load-bearing invariant (C2): [`profiles_root`] must NEVER read `GENESIS_HOME`.
+//! A profile home is a *child* of the profiles root, so reading `GENESIS_HOME`
 //! here would make the root resolve inside one of the very homes it enumerates.
 //! Activation (Task 1.2) reads the `active` pointer ONCE at process entry and
-//! materializes it into `WAYLAND_HOME`; nothing here is consulted again at
+//! materializes it into `GENESIS_HOME`; nothing here is consulted again at
 //! runtime.
 
 use std::path::{Path, PathBuf};
@@ -116,12 +116,12 @@ pub fn validate_profile_name(name: &str) -> Result<(), ProfileError> {
 /// The control-plane root that LISTS profiles.
 ///
 /// Resolution order:
-///   1. `WAYLAND_PROFILES_ROOT` env var (explicit escape hatch / sandbox);
-///   2. `<os-native config dir>/wayland-core-profiles/` — a SIBLING of the
+///   1. `GENESIS_PROFILES_ROOT` env var (explicit escape hatch / sandbox);
+///   2. `<os-native config dir>/genesis-core-profiles/` — a SIBLING of the
 ///      legacy home, so the existing single home stays untouched as the implicit
 ///      `default` profile.
 ///
-/// NEVER reads `WAYLAND_HOME` (C2). The override must be an ABSOLUTE,
+/// NEVER reads `GENESIS_HOME` (C2). The override must be an ABSOLUTE,
 /// control-char-free path — a relative override would make the profiles root
 /// (and thus every profile home) depend on the process CWD, so it is ignored
 /// and resolution falls through to the default. The last-resort fallback
@@ -129,7 +129,7 @@ pub fn validate_profile_name(name: &str) -> Result<(), ProfileError> {
 /// resolved at all.
 #[must_use]
 pub fn profiles_root() -> PathBuf {
-    if let Ok(custom) = std::env::var("WAYLAND_PROFILES_ROOT")
+    if let Ok(custom) = std::env::var("GENESIS_PROFILES_ROOT")
         && !custom.is_empty()
         && !custom.chars().any(|c| c.is_control())
         && Path::new(&custom).is_absolute()
@@ -139,7 +139,7 @@ pub fn profiles_root() -> PathBuf {
     crate::config::os_native_config_root()
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("wayland-core-profiles")
+        .join("genesis-core-profiles")
 }
 
 /// The on-disk directory for a named profile, under [`profiles_root`].
@@ -156,7 +156,7 @@ pub fn profile_dir(name: &str) -> Result<PathBuf, ProfileError> {
 }
 
 /// Path of the `active` pointer file — a tiny file under [`profiles_root`]
-/// holding the name of the profile to activate when neither `WAYLAND_HOME` nor
+/// holding the name of the profile to activate when neither `GENESIS_HOME` nor
 /// `--profile` is supplied. Read ONCE at process entry by activation (Task 1.2)
 /// and never again (C2). Living at the control-plane root (not inside any home)
 /// keeps it outside every profile's isolation boundary.
@@ -204,25 +204,25 @@ fn profile_flag_from_args(args: impl Iterator<Item = String>) -> Option<String> 
 }
 
 /// THE single source-of-truth resolver (C2). Resolve the active profile ONCE, at
-/// process entry, and materialize it into `WAYLAND_HOME`. After this returns,
-/// `WAYLAND_HOME` is the only thing any code (or child process) consults; the
+/// process entry, and materialize it into `GENESIS_HOME`. After this returns,
+/// `GENESIS_HOME` is the only thing any code (or child process) consults; the
 /// `active` pointer is never read again — the precise failure that corrupts
 /// that corruption bug, where a sticky pointer and the env var can disagree deep in
 /// the stack.
 ///
 /// Resolution order:
-///   1. `WAYLAND_HOME` already set → an explicit override always wins; return.
+///   1. `GENESIS_HOME` already set → an explicit override always wins; return.
 ///   2. `--profile <name>` / `--profile=<name>` on argv.
 ///   3. else the `active` pointer file.
 ///
-/// A resolved name whose [`profile_dir`] exists is set as `WAYLAND_HOME`. An
+/// A resolved name whose [`profile_dir`] exists is set as `GENESIS_HOME`. An
 /// invalid name, or a name whose directory does not exist, warns to stderr and
 /// falls through to the legacy default home (NEVER aborts — `--help` must run).
 ///
 /// # Panics / threading
 /// Calls [`std::env::set_var`], which is sound ONLY while the process is
 /// single-threaded. The sole caller is `wcore-cli`'s `main()`, immediately
-/// before `load_wayland_env_file()` and before any thread (or the Tokio
+/// before `load_genesis_env_file()` and before any thread (or the Tokio
 /// runtime) is spawned.
 pub fn activate_for_launch() {
     activate_for_launch_impl(std::env::args());
@@ -231,8 +231,8 @@ pub fn activate_for_launch() {
 /// Testable core of [`activate_for_launch`] — argv is injected so tests can
 /// exercise the `--profile` path without mutating the real process arguments.
 fn activate_for_launch_impl(args: impl Iterator<Item = String>) {
-    // 1. Explicit WAYLAND_HOME wins — never override it.
-    if std::env::var_os("WAYLAND_HOME").is_some() {
+    // 1. Explicit GENESIS_HOME wins — never override it.
+    if std::env::var_os("GENESIS_HOME").is_some() {
         return;
     }
 
@@ -245,7 +245,7 @@ fn activate_for_launch_impl(args: impl Iterator<Item = String>) {
         Ok(dir) if dir.is_dir() => {
             // SAFETY: single-threaded at process entry (see the doc comment and
             // the `main()` call site). No other thread can observe the env race.
-            unsafe { std::env::set_var("WAYLAND_HOME", &dir) };
+            unsafe { std::env::set_var("GENESIS_HOME", &dir) };
         }
         Ok(dir) => {
             eprintln!(
@@ -319,7 +319,7 @@ const SECRET_FILE_PREFIX: &str = "credentials";
 /// `credentials.kdf.json`) are secrets.
 ///
 /// Assumption: secrets live at the profile-home ROOT (true today —
-/// `credentials*` resolves under `wayland_config_dir()` == `WAYLAND_HOME` and
+/// `credentials*` resolves under `genesis_config_dir()` == `GENESIS_HOME` and
 /// `oauth/` under `profile_home()` when a profile is active). The export filter
 /// only special-cases the top level; if the credential/oauth layout ever nests
 /// (e.g. `providers/<x>/credentials.toml`), update this set AND the copy depth
@@ -775,18 +775,18 @@ mod tests {
 
     #[test]
     #[serial]
-    fn profiles_root_ignores_wayland_home() {
-        // profiles_root() must resolve identically whether or not WAYLAND_HOME
+    fn profiles_root_ignores_genesis_home() {
+        // profiles_root() must resolve identically whether or not GENESIS_HOME
         // is set, and must NEVER be a child of it (C2).
-        let _g = EnvGuard::set(&[("WAYLAND_HOME", None), ("WAYLAND_PROFILES_ROOT", None)]);
+        let _g = EnvGuard::set(&[("GENESIS_HOME", None), ("GENESIS_PROFILES_ROOT", None)]);
         let without = profiles_root();
 
-        let _g2 = EnvGuard::set(&[("WAYLAND_HOME", Some("/tmp/some-isolated-home"))]);
+        let _g2 = EnvGuard::set(&[("GENESIS_HOME", Some("/tmp/some-isolated-home"))]);
         let with = profiles_root();
 
         assert_eq!(
             without, with,
-            "profiles_root must not depend on WAYLAND_HOME"
+            "profiles_root must not depend on GENESIS_HOME"
         );
         assert!(
             !with.starts_with("/tmp/some-isolated-home"),
@@ -811,20 +811,20 @@ mod tests {
     #[serial]
     fn profiles_root_honors_explicit_override() {
         let root = abs_root("custom-profiles");
-        let _g = EnvGuard::set(&[("WAYLAND_PROFILES_ROOT", Some(root.as_str()))]);
+        let _g = EnvGuard::set(&[("GENESIS_PROFILES_ROOT", Some(root.as_str()))]);
         assert_eq!(profiles_root(), PathBuf::from(&root));
 
         // A control-char-bearing override is ignored (falls through to default).
         let bad = format!("{}\nroot", abs_root("bad"));
-        let _g2 = EnvGuard::set(&[("WAYLAND_PROFILES_ROOT", Some(bad.as_str()))]);
+        let _g2 = EnvGuard::set(&[("GENESIS_PROFILES_ROOT", Some(bad.as_str()))]);
         assert_ne!(profiles_root(), PathBuf::from(&bad));
 
         // A RELATIVE override is ignored — would make every home CWD-dependent.
-        let _g3 = EnvGuard::set(&[("WAYLAND_PROFILES_ROOT", Some("relative/profiles"))]);
+        let _g3 = EnvGuard::set(&[("GENESIS_PROFILES_ROOT", Some("relative/profiles"))]);
         let r = profiles_root();
         assert_ne!(r, PathBuf::from("relative/profiles"));
         assert!(
-            r.is_absolute() || r == PathBuf::from(".").join("wayland-core-profiles"),
+            r.is_absolute() || r == PathBuf::from(".").join("genesis-core-profiles"),
             "default profiles_root should be absolute (or the cwd-less fallback)"
         );
     }
@@ -833,7 +833,7 @@ mod tests {
     #[serial]
     fn profile_dir_case_folds_to_same_path() {
         let root = abs_root("p");
-        let _g = EnvGuard::set(&[("WAYLAND_PROFILES_ROOT", Some(root.as_str()))]);
+        let _g = EnvGuard::set(&[("GENESIS_PROFILES_ROOT", Some(root.as_str()))]);
         let upper = profile_dir("Work").unwrap();
         let lower = profile_dir("work").unwrap();
         assert_eq!(upper, lower, "Work and work must map to the same directory");
@@ -844,7 +844,7 @@ mod tests {
     #[serial]
     fn profile_dir_rejects_invalid_name() {
         let root = abs_root("p");
-        let _g = EnvGuard::set(&[("WAYLAND_PROFILES_ROOT", Some(root.as_str()))]);
+        let _g = EnvGuard::set(&[("GENESIS_PROFILES_ROOT", Some(root.as_str()))]);
         assert!(profile_dir("../escape").is_err());
         assert!(profile_dir("a/b").is_err());
     }
@@ -855,8 +855,8 @@ mod tests {
         let root = abs_root("p");
         let home = abs_root("some-home");
         let _g = EnvGuard::set(&[
-            ("WAYLAND_PROFILES_ROOT", Some(root.as_str())),
-            ("WAYLAND_HOME", Some(home.as_str())),
+            ("GENESIS_PROFILES_ROOT", Some(root.as_str())),
+            ("GENESIS_HOME", Some(home.as_str())),
         ]);
         let ptr = active_pointer_path();
         assert_eq!(ptr, PathBuf::from(&root).join("active"));
@@ -900,16 +900,16 @@ mod tests {
 
     #[test]
     #[serial]
-    fn activate_respects_existing_wayland_home() {
+    fn activate_respects_existing_genesis_home() {
         let root = tempdir().unwrap();
         std::fs::create_dir_all(root.path().join("work")).unwrap();
         let _g = EnvGuard::set(&[
-            ("WAYLAND_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
-            ("WAYLAND_HOME", Some("/explicit/home")),
+            ("GENESIS_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
+            ("GENESIS_HOME", Some("/explicit/home")),
         ]);
         activate_for_launch_impl(argv(&["wcore", "--profile", "work"]));
-        // Explicit WAYLAND_HOME must win — never overridden by --profile.
-        assert_eq!(std::env::var("WAYLAND_HOME").unwrap(), "/explicit/home");
+        // Explicit GENESIS_HOME must win — never overridden by --profile.
+        assert_eq!(std::env::var("GENESIS_HOME").unwrap(), "/explicit/home");
     }
 
     #[test]
@@ -919,12 +919,12 @@ mod tests {
         let work = root.path().join("work");
         std::fs::create_dir_all(&work).unwrap();
         let _g = EnvGuard::set(&[
-            ("WAYLAND_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
-            ("WAYLAND_HOME", None),
+            ("GENESIS_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
+            ("GENESIS_HOME", None),
         ]);
         activate_for_launch_impl(argv(&["wcore", "--profile", "Work"])); // case-folds
         assert_eq!(
-            std::env::var_os("WAYLAND_HOME"),
+            std::env::var_os("GENESIS_HOME"),
             Some(work.into_os_string())
         );
     }
@@ -937,12 +937,12 @@ mod tests {
         std::fs::create_dir_all(&work).unwrap();
         std::fs::write(root.path().join("active"), "work\n").unwrap();
         let _g = EnvGuard::set(&[
-            ("WAYLAND_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
-            ("WAYLAND_HOME", None),
+            ("GENESIS_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
+            ("GENESIS_HOME", None),
         ]);
         activate_for_launch_impl(argv(&["wcore"]));
         assert_eq!(
-            std::env::var_os("WAYLAND_HOME"),
+            std::env::var_os("GENESIS_HOME"),
             Some(work.into_os_string())
         );
     }
@@ -955,12 +955,12 @@ mod tests {
         std::fs::create_dir_all(root.path().join("pointed")).unwrap();
         std::fs::write(root.path().join("active"), "pointed").unwrap();
         let _g = EnvGuard::set(&[
-            ("WAYLAND_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
-            ("WAYLAND_HOME", None),
+            ("GENESIS_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
+            ("GENESIS_HOME", None),
         ]);
         activate_for_launch_impl(argv(&["wcore", "--profile", "flagged"]));
         assert_eq!(
-            std::env::var_os("WAYLAND_HOME"),
+            std::env::var_os("GENESIS_HOME"),
             Some(root.path().join("flagged").into_os_string())
         );
     }
@@ -970,12 +970,12 @@ mod tests {
     fn activate_falls_through_on_missing_dir() {
         let root = tempdir().unwrap();
         let _g = EnvGuard::set(&[
-            ("WAYLAND_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
-            ("WAYLAND_HOME", None),
+            ("GENESIS_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
+            ("GENESIS_HOME", None),
         ]);
         activate_for_launch_impl(argv(&["wcore", "--profile", "ghost"]));
-        // Missing profile dir → warn + fall through; WAYLAND_HOME stays unset.
-        assert_eq!(std::env::var_os("WAYLAND_HOME"), None);
+        // Missing profile dir → warn + fall through; GENESIS_HOME stays unset.
+        assert_eq!(std::env::var_os("GENESIS_HOME"), None);
     }
 
     #[test]
@@ -983,22 +983,22 @@ mod tests {
     fn activate_falls_through_on_invalid_name() {
         let root = tempdir().unwrap();
         let _g = EnvGuard::set(&[
-            ("WAYLAND_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
-            ("WAYLAND_HOME", None),
+            ("GENESIS_PROFILES_ROOT", Some(root.path().to_str().unwrap())),
+            ("GENESIS_HOME", None),
         ]);
         activate_for_launch_impl(argv(&["wcore", "--profile", "../escape"]));
-        assert_eq!(std::env::var_os("WAYLAND_HOME"), None);
+        assert_eq!(std::env::var_os("GENESIS_HOME"), None);
     }
 
     // --- Phase 2 management helpers ----------------------------------------
 
-    /// Set WAYLAND_PROFILES_ROOT to a fresh tempdir and return (guard, dir).
+    /// Set GENESIS_PROFILES_ROOT to a fresh tempdir and return (guard, dir).
     /// All Phase-2 tests run serial because they mutate the process env.
     fn rooted() -> (EnvGuard, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let g = EnvGuard::set(&[
-            ("WAYLAND_PROFILES_ROOT", Some(dir.path().to_str().unwrap())),
-            ("WAYLAND_HOME", None),
+            ("GENESIS_PROFILES_ROOT", Some(dir.path().to_str().unwrap())),
+            ("GENESIS_HOME", None),
         ]);
         (g, dir)
     }

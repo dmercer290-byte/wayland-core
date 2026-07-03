@@ -29,7 +29,7 @@ members = [
     "crates/wcore-user-model",
     # v0.8.0 Task H: Honcho adapter for the user-model backend trait —
     # bridges `wcore-user-model::UserModelBackend` to
-    # `wayland-honcho::HonchoClient` so production deploys can run with
+    # `genesis-honcho::HonchoClient` so production deploys can run with
     # Honcho as the persistent-across-devices substrate.
     "crates/wcore-honcho-adapter",
     "crates/wcore-acp",
@@ -37,7 +37,7 @@ members = [
     "crates/wcore-skills",
     "crates/wcore-eval",
     # T1+T2 (2026-05-23): scenario-level eval harness — drives the real
-    # wayland-core binary against real LLM APIs in --json-stream mode and
+    # genesis-core binary against real LLM APIs in --json-stream mode and
     # asserts the OUTCOME. Plan: .blackboard/EVAL-HARNESS-PLAN-2026-05-23.md.
     "crates/wcore-eval-scenarios",
     "crates/wcore-evolve",
@@ -95,7 +95,7 @@ members = [
     "crates/wcore-channel-matrix",
     "crates/wcore-channel-msteams",
     # v0.8.1 Task U5: per-platform factory dispatch + on-disk
-    # auto-registration that scans `~/.wayland/channels/*.toml` and
+    # auto-registration that scans `~/.genesis/channels/*.toml` and
     # registers each adapter into ChannelManager at engine boot.
     "crates/wcore-channels-registry",
     "crates/wcore-cli",
@@ -104,21 +104,21 @@ members = [
     # W8c.2: multi-platform computer-use (CUA) tool family — design §5.18.
     "crates/wcore-cua",
     # W8a B.1: first reference plugin — Ollama provider registration via W2.5 plugin-api.
-    "crates/wayland-ollama",
-    # W8c.1 E.13: wayland-browser plugin shell — registers BrowserToolSpec via the
+    "crates/genesis-ollama",
+    # W8c.1 E.13: genesis-browser plugin shell — registers BrowserToolSpec via the
     # wcore-plugin-api mirror (no wcore-browser dep, per audit F2).
-    "crates/wayland-browser",
-    # W8c.2 F.8: wayland-cua plugin shell — registers CuaToolSpec via the
+    "crates/genesis-browser",
+    # W8c.2 F.8: genesis-cua plugin shell — registers CuaToolSpec via the
     # wcore-plugin-api mirror (no wcore-cua dep, per audit F2).
-    "crates/wayland-cua",
-    # W8c.3 G.1: wayland-ijfw anchor plugin — exercises every register_*
+    "crates/genesis-cua",
+    # W8c.3 G.1: genesis-ijfw anchor plugin — exercises every register_*
     # surface through wcore-plugin-api mirrors (no wcore-skills /
     # wcore-mcp / wcore-memory deps, per audit F2).
-    "crates/wayland-ijfw",
+    "crates/genesis-ijfw",
     # Wave B4: Honcho user-model plugin shell — mock-by-default, live HTTP
     # behind `live-honcho` feature (no wcore-browser / wcore-cua deps,
     # per audit F2).
-    "crates/wayland-honcho",
+    "crates/genesis-honcho",
     # M5.5: productized worktree-isolated multi-agent dispatch foundation.
     "crates/wcore-swarm",
     # v0.8.1 U7: cron scheduler — memory-resident scheduled triggers with
@@ -147,7 +147,7 @@ version = "0.12.20"
 edition = "2024"
 rust-version = "1.95"
 license = "Apache-2.0"
-repository = "https://github.com/FerroxLabs/wayland-core"
+repository = "https://github.com/dmercer290-byte/wayland-core"
 
 [workspace.dependencies]
 # Internal crates
@@ -198,7 +198,7 @@ wcore-channel-imessage = { path = "crates/wcore-channel-imessage" }
 wcore-channel-matrix   = { path = "crates/wcore-channel-matrix" }
 wcore-channel-msteams  = { path = "crates/wcore-channel-msteams" }
 # v0.8.1 U5: factory dispatch + boot-time auto-registration that
-# scans `~/.wayland/channels/*.toml` and registers each adapter into
+# scans `~/.genesis/channels/*.toml` and registers each adapter into
 # ChannelManager — closes the v0.8.0 gap where every deploy had to
 # hand-wire the 7 channel crates.
 wcore-channels-registry = { path = "crates/wcore-channels-registry" }
@@ -206,7 +206,7 @@ wcore-cron             = { path = "crates/wcore-cron" }
 wcore-safety        = { path = "crates/wcore-safety" }
 # v0.6.5 Task 1.5 — wcore-agent host-side adapter reifies the user-model
 # plugin shell. Same host↑plugin dep asymmetry as wcore-browser/wcore-cua.
-wayland-honcho      = { path = "crates/wayland-honcho" }
+genesis-honcho      = { path = "crates/genesis-honcho" }
 
 # Async runtime
 tokio   = { version = "1", features = ["full"] }
@@ -430,7 +430,7 @@ chacha20poly1305  = "=0.10.1"
 zeroize           = "=1.8.2"
 
 # S11: interactive passphrase prompt for the EncryptedFile credentials backend.
-# Used when WAYLAND_VAULT_PASSPHRASE is unset and a TTY is attached.
+# Used when GENESIS_VAULT_PASSPHRASE is unset and a TTY is attached.
 # v0.7.0 1.D.2: exact-pinned (TTY-secret input — trust-boundary).
 rpassword         = "=7.5.2"
 

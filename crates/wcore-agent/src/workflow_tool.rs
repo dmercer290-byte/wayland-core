@@ -12,7 +12,7 @@
 //! constructs a fresh [`WorkflowRunner`] per `execute`.
 //!
 //! Scope (B1): inline RON only. Saved-by-name resolution (a `name` parameter
-//! resolving against `.wayland/workflows/*.ron`) is B2 and is intentionally
+//! resolving against `.genesis/workflows/*.ron`) is B2 and is intentionally
 //! absent here.
 
 use std::sync::Arc;

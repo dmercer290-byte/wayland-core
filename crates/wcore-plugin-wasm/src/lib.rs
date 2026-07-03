@@ -1,4 +1,4 @@
-//! v0.6.5 — WASM plugin host for Wayland-Core.
+//! v0.6.5 — WASM plugin host for Genesis-Core.
 //! Built on wasmtime + Component Model. See `.blackboard/v0.6.5-PLUGIN-SDK-PLAN.md`.
 
 pub mod bindings; // Task 2.2 + 2.3 — WIT world bindings

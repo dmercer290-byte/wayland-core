@@ -29,8 +29,8 @@ pub mod agent_cmd;
 // the binary crate.
 pub mod crash_sentinel;
 
-// v0.7.0 Task 1.B.2: `wayland-core init` scaffolds `.wayland/config.toml`
-// + a `WAYLAND.md` template in the current project. Non-interactive;
+// v0.7.0 Task 1.B.2: `genesis-core init` scaffolds `.genesis/config.toml`
+// + a `GENESIS.md` template in the current project. Non-interactive;
 // idempotent unless `--force` is set.
 pub mod init;
 
@@ -59,7 +59,7 @@ pub mod swarm;
 // Dynamic Workflows B2: `workflow` subcommand (validate / list / run)
 // wrapping the public `wcore_agent::orchestration::workflow` API. Module
 // lives in the lib so the file-discovery + validate logic is unit-testable
-// against tempdir-backed `.wayland/workflows/` trees without a provider.
+// against tempdir-backed `.genesis/workflows/` trees without a provider.
 pub mod workflow;
 
 // v0.8.1 U7: `cron` subcommand wiring `wcore-cron` into the user-facing
@@ -69,18 +69,18 @@ pub mod workflow;
 // touching the user's home dir.
 pub mod cron;
 
-// Crucible (Mixture-of-Providers): `wayland-core crucible "<task>"` runs the
+// Crucible (Mixture-of-Providers): `genesis-core crucible "<task>"` runs the
 // cross-provider council — N pinned-provider proposers fused by a fenced,
 // read-only aggregator. Self-contained one-shot handler.
 pub mod crucible;
-// v0.8.1 U9: `wayland-core self-update` — pulls the latest signed
+// v0.8.1 U9: `genesis-core self-update` — pulls the latest signed
 // release artifact from GitHub Releases, verifies the .sig against the
 // pinned marketplace pubkey, and atomically swaps the running binary.
 // Module lives in the lib so the ed25519 verify + mockito-backed
 // release-fetch round-trip run under `cargo test -p wcore-cli --lib`.
 pub mod self_update;
 
-// The `wayland-core --doctor` system-dependency probe. Lives in the lib
+// The `genesis-core --doctor` system-dependency probe. Lives in the lib
 // (not the binary) so the TUI diagnostics surface can call
 // `doctor::collect()` for its `/doctor` screen; `main.rs` calls
 // `doctor::run()` through the lib for the `--doctor` CLI flag.
@@ -97,24 +97,24 @@ pub mod tui;
 // per-provider validation endpoints).
 pub mod provider_keys;
 
-// CLI surface: `wayland-core auth` — add / list / remove provider API
+// CLI surface: `genesis-core auth` — add / list / remove provider API
 // keys directly in the global `config.toml` without the full onboarding
 // flow. Lives in the lib so the TOML CRUD is unit-testable against a
 // tempdir-backed config path.
 pub mod auth;
 
-// CLI surface: `wayland-core profile` — create / use / list / show / rename /
+// CLI surface: `genesis-core profile` — create / use / list / show / rename /
 // delete / export / import isolated profiles. Lives in the lib so every verb is
-// unit-testable against a tempdir-backed `WAYLAND_PROFILES_ROOT`. All
+// unit-testable against a tempdir-backed `GENESIS_PROFILES_ROOT`. All
 // active-pointer access stays in `wcore_config::profile` (D2 single-reader lint).
 pub mod profile;
 
-// CLI surface: `wayland-core image` — FluxRouter image generation
+// CLI surface: `genesis-core image` — FluxRouter image generation
 // (`POST /v1/images/generations`). Lives in the lib so credential
 // resolution + path numbering are unit-testable.
 pub mod image;
 
-// CLI surface: `wayland-core fetch` — FluxRouter web_fetch
+// CLI surface: `genesis-core fetch` — FluxRouter web_fetch
 // (`POST /v1/fetch`). Lives in the lib so credential resolution is
 // unit-testable; reuses the same Flux key/base resolution as `image`.
 pub mod fetch;

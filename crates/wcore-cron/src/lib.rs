@@ -3,7 +3,7 @@
 //! Cron-expression parsing (via the `cron` crate) + three target types
 //! (slash command, channel message, skill invocation) + a 30s tick
 //! background runner. Persists jobs via [`CronStore`], with a JSON-file
-//! implementation that lives under `~/.wayland/cron/jobs.json` by
+//! implementation that lives under `~/.genesis/cron/jobs.json` by
 //! default.
 //!
 //! ## Persistence choice

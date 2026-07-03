@@ -1,4 +1,4 @@
-//! W8a A.5 — `BudgetConfig` TOML schema for `~/.wayland-core/config.toml`.
+//! W8a A.5 — `BudgetConfig` TOML schema for `~/.genesis-core/config.toml`.
 //!
 //! Every cap is optional. The runtime `ExecutionBudget` is constructed from
 //! this struct via `From` (defined in `execution.rs`). All fields default

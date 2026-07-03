@@ -5,7 +5,7 @@
 //!
 //! - **Doctor** — system dependency + environment health. Runs the real
 //!   [`crate::doctor::collect`] probe on `on_enter` and the `r` re-run
-//!   key; the same data that `wayland-core --doctor` prints.
+//!   key; the same data that `genesis-core --doctor` prints.
 //! - **Cost** — session token usage and spend, read live from
 //!   [`App::cost`] (populated by the protocol bridge from
 //!   [`ProtocolEvent::SessionCost`] events).
@@ -65,8 +65,8 @@ impl NotifyKind {
     /// The human-readable notification body for this kind.
     fn message(self) -> &'static str {
         match self {
-            NotifyKind::ApprovalNeeded => "wayland-core: approval needed",
-            NotifyKind::TaskFinished => "wayland-core: task finished",
+            NotifyKind::ApprovalNeeded => "genesis-core: approval needed",
+            NotifyKind::TaskFinished => "genesis-core: task finished",
         }
     }
 }
@@ -238,7 +238,7 @@ const TOOL_GATES: &[ToolGate] = &[
     },
     ToolGate {
         name: "web_fetch",
-        env_var: "WAYLAND_FETCH_ALLOWED",
+        env_var: "GENESIS_FETCH_ALLOWED",
     },
     ToolGate {
         name: "transcribe_audio",
@@ -521,7 +521,7 @@ pub struct Discovery {
 /// The Claude Desktop config path on this platform
 /// (`<config-dir>/Claude/claude_desktop_config.json`). Uses the real OS config
 /// dir — Claude Desktop is an external app, so this deliberately does NOT honor
-/// `WAYLAND_HOME` (we are discovering the actual machine).
+/// `GENESIS_HOME` (we are discovering the actual machine).
 fn claude_desktop_config_path() -> std::path::PathBuf {
     dirs::config_dir()
         .unwrap_or_default()
@@ -538,7 +538,7 @@ fn count_mcp_servers_in(path: &std::path::Path) -> Option<usize> {
     Some(json.get("mcpServers")?.as_object()?.len())
 }
 
-/// S11: probe the machine for latent capabilities Wayland could use. Reuses the
+/// S11: probe the machine for latent capabilities Genesis could use. Reuses the
 /// single-source-of-truth ambient/OAuth detection in
 /// [`wcore_config::config::provider_connected`] and the already-collected
 /// Ollama doctor signal; the only fresh probe is the Claude Desktop config scan.
@@ -589,7 +589,7 @@ fn scan_environment(ollama_available: bool) -> Vec<Discovery> {
         detail: if chatgpt {
             "stored ChatGPT login detected".to_string()
         } else {
-            "not signed in — run `wayland auth login chatgpt`".to_string()
+            "not signed in — run `genesis auth login chatgpt`".to_string()
         },
         connect_name: None,
     });
@@ -1662,7 +1662,7 @@ impl DiagnosticsSurface {
         }
 
         // ── 6. Channels / integrations (S10) ────────────────────────
-        // The on-disk channel configs (`~/.wayland/channels/*.toml`) are
+        // The on-disk channel configs (`~/.genesis/channels/*.toml`) are
         // otherwise invisible to the schema-driven `/config` TUI — this is the
         // "ghost subsystem" made visible. Secret-free: only key names show.
         lines.push(Line::from(""));
@@ -3320,7 +3320,7 @@ mod tests {
                     id: "user_role.md".into(),
                     path: std::path::PathBuf::from("user_role.md"),
                     category: "user".into(),
-                    summary: "user role — Rust engineer on wayland-core".into(),
+                    summary: "user role — Rust engineer on genesis-core".into(),
                 },
                 MemoryItem {
                     id: "project_context.md".into(),

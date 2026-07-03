@@ -3,9 +3,9 @@
 //! Every backend is constructed DIRECTLY (`NoSandboxBackend::new()`,
 //! `BubblewrapBackend::new()`, `SandboxExecBackend::new()`,
 //! `AppContainerBackend::new()`) — bypassing `default_for_platform()` and its
-//! env-based (`WAYLAND_SANDBOX`) selection. The point is to exercise each
+//! env-based (`GENESIS_SANDBOX`) selection. The point is to exercise each
 //! backend in isolation, not the selection logic, so these tests own their
-//! backend choice and do NOT depend on CI setting `WAYLAND_SANDBOX=none`
+//! backend choice and do NOT depend on CI setting `GENESIS_SANDBOX=none`
 //! (Audit B M2).
 //!
 //! Platform-specific backends are gated with
@@ -306,7 +306,7 @@ fn sandbox_exec_execute_echo_returns_exit_zero() {}
 
 // ===========================================================================
 // AppContainer — Windows only. Skips gracefully when AppContainer is absent
-// OR the host has not opted in via WAYLAND_SANDBOX_LIVE_WINDOWS.
+// OR the host has not opted in via GENESIS_SANDBOX_LIVE_WINDOWS.
 //
 // Why the env-var opt-in (matches the inline `echo_runs_live` gate):
 // `is_available()` is a shallow probe — it just checks that the
@@ -320,7 +320,7 @@ fn sandbox_exec_execute_echo_returns_exit_zero() {}
 // `echo_runs_live` with full manifest limits fail the same way).
 //
 // CI environments that have actually provisioned AppContainer (custom
-// runner image, group policy unlock, etc.) set `WAYLAND_SANDBOX_LIVE_WINDOWS=1`
+// runner image, group policy unlock, etc.) set `GENESIS_SANDBOX_LIVE_WINDOWS=1`
 // to exercise this path. The bare `is_available()` check is kept as a
 // secondary guard so this test still skips cleanly if the API is missing
 // entirely (older Windows or non-Windows hosts).
@@ -329,9 +329,9 @@ fn sandbox_exec_execute_echo_returns_exit_zero() {}
 #[tokio::test]
 #[cfg_attr(not(target_os = "windows"), ignore = "AppContainer is Windows-only")]
 async fn appcontainer_execute_trivial_command_returns_exit_zero() {
-    if std::env::var("WAYLAND_SANDBOX_LIVE_WINDOWS").is_err() {
+    if std::env::var("GENESIS_SANDBOX_LIVE_WINDOWS").is_err() {
         eprintln!(
-            "skip: WAYLAND_SANDBOX_LIVE_WINDOWS not set \
+            "skip: GENESIS_SANDBOX_LIVE_WINDOWS not set \
              (host has not opted into live AppContainer execution)"
         );
         return;

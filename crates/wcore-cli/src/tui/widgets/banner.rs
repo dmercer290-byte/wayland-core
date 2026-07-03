@@ -1,8 +1,8 @@
-//! WAYLAND figlet banner — the full ASCII wordmark hero.
+//! GENESIS figlet banner — the full ASCII wordmark hero.
 //!
 //! The hybrid-branding decision: a compact one-row `header` while working,
 //! this full banner on the surfaces with room for it — the onboarding
-//! intro and the idle/empty workspace state. Both call [`wayland_banner`]
+//! intro and the idle/empty workspace state. Both call [`genesis_banner`]
 //! so the wordmark, tagline, and command hint stay identical everywhere.
 //!
 //! The banner is themed via [`Theme`] (accent for the wordmark, muted for
@@ -18,7 +18,7 @@ use ratatui::widgets::Paragraph;
 
 use crate::tui::theme::Theme;
 
-/// The WAYLAND wordmark in figlet ASCII. Six rows, each padded with
+/// The GENESIS wordmark in figlet ASCII. Six rows, each padded with
 /// trailing spaces to the SAME width ([`BANNER_WIDTH`] columns) so that
 /// `Alignment::Center` aligns every row at the same X coordinate — without
 /// the padding the rows drift relative to one another because Paragraph
@@ -42,13 +42,13 @@ const BANNER_WIDTH: u16 = 69;
 /// The product tagline shown directly under the wordmark.
 const TAGLINE: &str = "the autonomous AI agent";
 
-/// Render the full WAYLAND banner centered inside `area`.
+/// Render the full GENESIS banner centered inside `area`.
 ///
 /// Lays out the wordmark and the tagline as a single centered block.
 /// When `area` cannot fit the full ASCII art (too narrow or too short)
 /// only the tagline renders — a clipped wordmark would read as a
 /// rendering bug, the degraded form reads as deliberate.
-pub fn wayland_banner(f: &mut Frame, area: Rect, t: &Theme) {
+pub fn genesis_banner(f: &mut Frame, area: Rect, t: &Theme) {
     if area.height == 0 || area.width == 0 {
         return;
     }
@@ -67,9 +67,9 @@ pub fn wayland_banner(f: &mut Frame, area: Rect, t: &Theme) {
         }
         lines.push(Line::from(""));
     } else {
-        // Degraded hero: a bold "WAYLAND" word stands in for the art.
+        // Degraded hero: a bold "GENESIS" word stands in for the art.
         lines.push(Line::from(Span::styled(
-            "WAYLAND",
+            "GENESIS",
             Style::default().fg(t.orange).add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(""));
@@ -111,7 +111,7 @@ mod tests {
         let t = Theme::hearth();
         let mut terminal = Terminal::new(TestBackend::new(w, h)).expect("test terminal");
         terminal
-            .draw(|f| wayland_banner(f, f.area(), &t))
+            .draw(|f| genesis_banner(f, f.area(), &t))
             .expect("render banner");
         let buf = terminal.backend().buffer();
         let mut out = String::new();
@@ -144,10 +144,10 @@ mod tests {
 
     #[test]
     fn banner_degrades_to_a_word_on_a_narrow_area() {
-        // Too narrow for the 69-column art — the bold WAYLAND word stands
+        // Too narrow for the 69-column art — the bold GENESIS word stands
         // in, and the tagline still renders.
         let out = render(40, 12);
-        assert!(out.contains("WAYLAND"), "degraded wordmark missing:\n{out}");
+        assert!(out.contains("GENESIS"), "degraded wordmark missing:\n{out}");
         assert!(
             out.contains("the autonomous AI agent"),
             "tagline missing on narrow area:\n{out}"
@@ -186,7 +186,7 @@ mod tests {
         let t = Theme::no_color();
         let mut terminal = Terminal::new(TestBackend::new(90, 16)).expect("test terminal");
         terminal
-            .draw(|f| wayland_banner(f, f.area(), &t))
+            .draw(|f| genesis_banner(f, f.area(), &t))
             .expect("render banner uncolored");
         let buf = terminal.backend().buffer();
         let mut out = String::new();

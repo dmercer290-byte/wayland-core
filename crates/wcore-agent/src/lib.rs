@@ -55,7 +55,7 @@ pub mod file_history;
 pub mod health;
 pub mod hooks;
 // #537/#141 — host-delegated `send_message` transport: when the host
-// spawns the engine with `WAYLAND_SEND_MESSAGE_HOST_DELEGATE=1`, sends are
+// spawns the engine with `GENESIS_SEND_MESSAGE_HOST_DELEGATE=1`, sends are
 // fulfilled by the host over the json-stream protocol
 // (`host_send_message_request` event / `host_send_message_result` command)
 // instead of the engine's own channel table.
@@ -69,7 +69,7 @@ pub mod orchestration;
 pub mod output;
 pub mod plan;
 pub mod plugins;
-// v0.7.0 Task 1.C.1 — WAYLAND.md / AGENTS.md / .wayland/context.md /
+// v0.7.0 Task 1.C.1 — GENESIS.md / AGENTS.md / .genesis/context.md /
 // CLAUDE.md auto-detection.
 pub mod project_context;
 pub mod user_context;
@@ -81,8 +81,8 @@ pub mod resilient_reporter;
 // W8b C.7: RollbackTool — consumes FileHistory to restore prior states.
 pub mod rollback_tool;
 pub mod session;
-// v0.9.0 W1 B7 — in-process live state surfaces for wayland_status +
-// wayland_telemetry_query tools (introspection backend reads from this).
+// v0.9.0 W1 B7 — in-process live state surfaces for genesis_status +
+// genesis_telemetry_query tools (introspection backend reads from this).
 pub mod session_state;
 pub mod skill_tool;
 // v0.7.0 Task 3.C.1 — slash-command parser + dispatcher (stub handlers

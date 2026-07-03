@@ -66,7 +66,7 @@ fn bash_call(id: &str, command: &str) -> ContentBlock {
 /// backend can spawn — e.g. bwrap can't create user namespaces in an
 /// unprivileged CI container, so the command is refused and no chunks are
 /// emitted. These are chunk-delivery tests, not isolation tests, so the
-/// documented `WAYLAND_ALLOW_NO_SANDBOX=1` opt-in is the intended way to
+/// documented `GENESIS_ALLOW_NO_SANDBOX=1` opt-in is the intended way to
 /// exercise the streaming path. Mirrors `wcore-tools`'
 /// `bash_sandbox_routing_test::force_no_sandbox`. Every test that calls this
 /// is `#[serial]` because the env vars are process-global.
@@ -74,8 +74,8 @@ fn force_no_sandbox() {
     // SAFETY: test-only env mutation; every caller is `#[serial]` so no
     // other thread races this write.
     unsafe {
-        std::env::set_var("WAYLAND_SANDBOX", "none");
-        std::env::set_var("WAYLAND_ALLOW_NO_SANDBOX", "1");
+        std::env::set_var("GENESIS_SANDBOX", "none");
+        std::env::set_var("GENESIS_ALLOW_NO_SANDBOX", "1");
     }
 }
 

@@ -3,7 +3,7 @@ name = "wcore-channel-msteams"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Microsoft Teams channel adapter for Wayland-Core — Bot Framework OAuth2 + Connector REST (send-only MVP; inbound webhook deferred to v0.8.3)"
+description = "Microsoft Teams channel adapter for Genesis-Core — Bot Framework OAuth2 + Connector REST (send-only MVP; inbound webhook deferred to v0.8.3)"
 
 [dependencies]
 async-trait = { workspace = true }

@@ -1,7 +1,7 @@
 //! User-selectable reducer modes over a collected `Vec<SwarmResult>`.
 //!
 //! The subprocess swarm ([`crate::Swarm::dispatch`] + [`crate::Swarm::collect`])
-//! produces a flat `Vec<SwarmResult>`. Callers (the `wayland swarm` CLI, the
+//! produces a flat `Vec<SwarmResult>`. Callers (the `genesis swarm` CLI, the
 //! orchestrator) historically printed those raw. This module adds a single
 //! selector — [`ReduceMode`] — that routes the same `Vec<SwarmResult>` through
 //! one of four reducers:

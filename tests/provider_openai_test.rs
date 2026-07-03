@@ -1,9 +1,9 @@
-use wayland-core::provider::LlmProvider;
-use wayland-core::provider::compat::ProviderCompat;
-use wayland-core::provider::debug::DebugConfig;
-use wayland-core::provider::openai::OpenAIProvider;
-use wayland-core::types::llm::{LlmEvent, LlmRequest};
-use wayland-core::types::message::{ContentBlock, Message, Role, StopReason};
+use genesis-core::provider::LlmProvider;
+use genesis-core::provider::compat::ProviderCompat;
+use genesis-core::provider::debug::DebugConfig;
+use genesis-core::provider::openai::OpenAIProvider;
+use genesis-core::types::llm::{LlmEvent, LlmRequest};
+use genesis-core::types::message::{ContentBlock, Message, Role, StopReason};
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -469,7 +469,7 @@ async fn test_openai_api_error_non_success_status() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        wayland-core::provider::ProviderError::Api { status, .. } => {
+        genesis-core::provider::ProviderError::Api { status, .. } => {
             assert_eq!(status, 401);
         }
         e => panic!("expected Api error, got: {:?}", e),
@@ -496,7 +496,7 @@ async fn test_openai_rate_limited() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        wayland-core::provider::ProviderError::RateLimited { retry_after_ms } => {
+        genesis-core::provider::ProviderError::RateLimited { retry_after_ms } => {
             assert_eq!(retry_after_ms, 5000);
         }
         e => panic!("expected RateLimited error, got: {:?}", e),

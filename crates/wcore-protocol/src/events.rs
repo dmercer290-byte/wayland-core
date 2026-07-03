@@ -160,7 +160,7 @@ pub enum ProtocolEvent {
     },
     /// ForgeFlows-Live: a workflow (ForgeFlows / Dynamic Workflows) run
     /// started. Emitted once, before the first node dispatches, so hosts
-    /// (the TUI Workflows tab and the external `wayland` desktop app) get a
+    /// (the TUI Workflows tab and the external `genesis` desktop app) get a
     /// clean lifecycle signal instead of inferring the run from the first
     /// `workflow:<node_id>`-prefixed `SubAgentEvent`. `workflow_id` is a
     /// stable correlation handle for the run; `name` is the author's display
@@ -362,7 +362,7 @@ pub enum ProtocolEvent {
     /// completed browser op (Navigate, Snapshot, Click, ...) so the host
     /// can render a compact tool-call trail. Gated by the W0-reserved
     /// `capabilities.browser_suite` flag — engine advertises the flag
-    /// when the wayland-browser plugin is loaded. Hosts that don't
+    /// when the genesis-browser plugin is loaded. Hosts that don't
     /// recognise `browser_event` MUST drop it silently per the W0 host
     /// decoder contract.
     BrowserEvent {
@@ -392,7 +392,7 @@ pub enum ProtocolEvent {
     /// completed CUA op (LeftClick, Type, Screenshot, ...) so the host
     /// can render a compact action trail. Gated by the W0-reserved
     /// `capabilities.computer_use` flag — engine advertises the flag
-    /// when the wayland-cua plugin is loaded. Hosts that don't
+    /// when the genesis-cua plugin is loaded. Hosts that don't
     /// recognise `cua_event` MUST drop it silently per the W0 host
     /// decoder contract.
     CuaEvent {
@@ -423,7 +423,7 @@ pub enum ProtocolEvent {
         reason: String,
     },
     /// #537/#141 host-send-transport hook: the engine runs host-delegated
-    /// (`WAYLAND_SEND_MESSAGE_HOST_DELEGATE=1` at spawn) and an approved
+    /// (`GENESIS_SEND_MESSAGE_HOST_DELEGATE=1` at spawn) and an approved
     /// `send_message` tool call is asking the HOST to perform the actual
     /// delivery through its own outbound channel plugins (the engine's
     /// channel table is empty under the desktop). The host fulfils the send
@@ -431,7 +431,7 @@ pub enum ProtocolEvent {
     /// by `call_id`. `platform` / `chat_id` / `thread_id` mirror the
     /// engine's `ParsedTarget`; `body` is the message text.
     ///
-    /// SECURITY (wayland#543 audit finding 4): the host performs the send
+    /// SECURITY (genesis#543 audit finding 4): the host performs the send
     /// WITHOUT re-gating — it trusts that the engine's tool-approval flow
     /// (`tool_request` / allow-list / mode gate) already ran. This event is
     /// only ever emitted from inside `SendMessageTool::execute`, which the
@@ -806,7 +806,7 @@ mod tests {
     /// names the desktop's `protocol.ts` union declares
     /// (`host_send_message_request` / call_id / platform / chat_id /
     /// thread_id / body / subject / conversation_id) — the desktop half
-    /// (wayland PR #543) is already shipped against this spelling.
+    /// (genesis PR #543) is already shipped against this spelling.
     #[test]
     fn test_host_send_message_request_full_serialization() {
         let event = ProtocolEvent::HostSendMessageRequest {

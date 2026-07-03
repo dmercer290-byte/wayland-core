@@ -57,11 +57,11 @@ mod tests {
     fn capture_stamps_plugin_name() {
         let mut reg = HostToolRegistrar::default();
         {
-            let mut cap = reg.capture_for_plugin("wayland-ijfw");
+            let mut cap = reg.capture_for_plugin("genesis-ijfw");
             cap.host_register("ijfw::run".into(), tool("run")).unwrap();
         }
         assert_eq!(reg.registered.len(), 1);
-        assert_eq!(reg.registered[0].0, "wayland-ijfw");
+        assert_eq!(reg.registered[0].0, "genesis-ijfw");
         assert_eq!(reg.registered[0].1, "ijfw::run");
         assert_eq!(reg.registered[0].2.name, "run");
     }

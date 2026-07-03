@@ -8,7 +8,7 @@
 //! Offline tests use wiremock to fake the OpenRouter endpoint. The single live
 //! test is #[ignore]'d so CI doesn't depend on network availability.
 //!
-//! Rollback flag: WAYLAND_PRICING_AUTO_REFRESH=off keeps the bundled catalog
+//! Rollback flag: GENESIS_PRICING_AUTO_REFRESH=off keeps the bundled catalog
 //! static (no live fetch). Callers are responsible for checking this env var
 //! before invoking PricingRefresher::fetch_live.
 
@@ -252,12 +252,12 @@ fn openrouter_to_catalog(raw: OpenRouterResponse) -> PricingCatalog {
     PricingCatalog { providers }
 }
 
-/// Suggested on-disk cache path (~/.wayland/pricing-cache.json).
+/// Suggested on-disk cache path (~/.genesis/pricing-cache.json).
 pub fn default_cache_path() -> PathBuf {
-    let home = std::env::var_os("WAYLAND_HOME")
+    let home = std::env::var_os("GENESIS_HOME")
         .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".wayland")))
-        .unwrap_or_else(|| PathBuf::from("./.wayland"));
+        .or_else(|| dirs::home_dir().map(|h| h.join(".genesis")))
+        .unwrap_or_else(|| PathBuf::from("./.genesis"));
     home.join("pricing-cache.json")
 }
 

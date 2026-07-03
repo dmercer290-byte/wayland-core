@@ -422,7 +422,7 @@ impl ChatGptTokenManager {
     /// the caller can surface login guidance rather than an opaque error.
     ///
     /// The Codex-CLI fallback is the non-interactive desktop contract (#293):
-    /// "Sign in with ChatGPT" in the Wayland app writes a valid login to
+    /// "Sign in with ChatGPT" in the Genesis app writes a valid login to
     /// `~/.codex/auth.json` but does not populate the engine store, and there is
     /// no `auth login chatgpt` subcommand to trigger an import — so a present,
     /// valid Codex auth doc must authenticate `--provider openai-chatgpt` on its
@@ -458,7 +458,7 @@ impl ChatGptTokenManager {
     /// Return `(access_token, account_id)`, refreshing if near expiry.
     pub async fn get(&self) -> Result<(String, String), String> {
         let tokens = self.load_cached().await?.ok_or_else(|| {
-            "not signed in to ChatGPT — run `wayland auth login chatgpt`".to_string()
+            "not signed in to ChatGPT — run `genesis auth login chatgpt`".to_string()
         })?;
         let tokens = if Self::token_is_fresh(&tokens) {
             tokens
@@ -478,7 +478,7 @@ impl ChatGptTokenManager {
         let refresh_token = current
             .refresh_token
             .clone()
-            .ok_or("no refresh_token — run `wayland auth login chatgpt`")?;
+            .ok_or("no refresh_token — run `genesis auth login chatgpt`")?;
         let client = self.client.clone();
         let token_url = self.flow.token_url.clone();
         let client_id = self.flow.client_id.clone();
@@ -592,7 +592,7 @@ impl ChatGptTokenManager {
                 // rather than hitting a dead token next process start.
                 return Err(format!(
                     "ChatGPT refresh rotated the refresh token but persisting it failed \
-                     ({e}); run `wayland auth login chatgpt` to re-authenticate"
+                     ({e}); run `genesis auth login chatgpt` to re-authenticate"
                 ));
             }
             // Non-rotation: the on-disk token is unchanged and still valid;
@@ -846,7 +846,7 @@ mod tests {
         let (url, _state, _pkce) = flow.build_authorize_url("http://localhost:1455/auth/callback");
         assert!(url.contains("id_token_add_organizations=true"), "url={url}");
         assert!(url.contains("codex_cli_simplified_flow=true"), "url={url}");
-        assert!(url.contains("originator=wayland"), "url={url}");
+        assert!(url.contains("originator=genesis"), "url={url}");
     }
 
     // ── Task 2.3: token manager — fresh / rotate / errors / 429 ──────

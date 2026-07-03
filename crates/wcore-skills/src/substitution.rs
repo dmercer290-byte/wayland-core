@@ -12,7 +12,7 @@ use regex::Regex;
 /// 7. Fallback: if content is unchanged and args is non-empty, append `\n\nARGUMENTS: {args}`
 ///
 /// The `AIONRS_*` tokens are backward-compat aliases retained so existing
-/// user-authored skills continue to work after the wayland-core rebrand.
+/// user-authored skills continue to work after the genesis-core rebrand.
 /// New skills should use the `WCORE_*` form.
 ///
 /// When `args` is `None`, the content is returned unchanged (no placeholders replaced).
@@ -487,10 +487,10 @@ mod supplemental_tests {
             "cd ${WCORE_SKILL_DIR}",
             None,
             &[],
-            Some("/home/user/.wayland-core/skills/my-skill"),
+            Some("/home/user/.genesis-core/skills/my-skill"),
             None,
         );
-        assert_eq!(r, "cd /home/user/.wayland-core/skills/my-skill");
+        assert_eq!(r, "cd /home/user/.genesis-core/skills/my-skill");
     }
 
     #[test]

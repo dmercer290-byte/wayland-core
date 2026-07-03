@@ -57,7 +57,7 @@ impl WebBackend for DuckDuckGoWebBackend {
             // identifier suffix.
             .header(
                 reqwest::header::USER_AGENT,
-                "Mozilla/5.0 (compatible; wayland-core/WebSearch; https://github.com/FerroxLabs/wayland-core)",
+                "Mozilla/5.0 (compatible; genesis-core/WebSearch; https://github.com/dmercer290-byte/wayland-core)",
             )
             .header(
                 reqwest::header::ACCEPT,

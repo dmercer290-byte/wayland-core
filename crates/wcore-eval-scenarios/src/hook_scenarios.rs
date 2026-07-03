@@ -1,6 +1,6 @@
 //! D7 — hook-fixture scenarios.
 //!
-//! These exercise wayland-core's **lifecycle hooks** (the `[[hooks.*]]`
+//! These exercise genesis-core's **lifecycle hooks** (the `[[hooks.*]]`
 //! config surface in `wcore-config::hooks`) through the real binary, end to
 //! end. Two guarantees are covered:
 //!
@@ -58,13 +58,13 @@
 //!
 //! ## (B) The hook config must land in the file tempenv ALREADY wrote.
 //!
-//! `tempenv::build` writes `<cwd>/.wayland-core/config.toml` (DIR form) with
+//! `tempenv::build` writes `<cwd>/.genesis-core/config.toml` (DIR form) with
 //! the absolute `[session].directory` + provider key. `config.rs`
-//! `project_config_path()` PREFERS `.wayland-core.toml` (FILE form) when BOTH
+//! `project_config_path()` PREFERS `.genesis-core.toml` (FILE form) when BOTH
 //! exist (F-011). Therefore `setup()` must **append** the `[[hooks.*]]` blocks
 //! to the EXISTING dir-form file — creating the file form would shadow it and
 //! drop the session dir + key. The `append_hooks_config` helper below does
-//! exactly that (open-append `<cwd>/.wayland-core/config.toml`).
+//! exactly that (open-append `<cwd>/.genesis-core/config.toml`).
 //!
 //! No `tempenv.rs` change is needed: the project-level config in cwd is read
 //! by the engine's normal cwd-walk, and `merge_config` concatenates
@@ -84,7 +84,7 @@ use crate::scenario::{Category, Scenario, Turn};
 
 /// Relative path (under the scenario cwd) of the config file tempenv seeds and
 /// that the engine reads via its cwd-walk. `setup()` appends hook blocks here.
-const CONFIG_REL: &str = ".wayland-core/config.toml";
+const CONFIG_REL: &str = ".genesis-core/config.toml";
 
 /// Append `[[hooks.*]]` TOML to the tempenv-seeded `config.toml` in `cwd`.
 ///

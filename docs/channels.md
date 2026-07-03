@@ -1,6 +1,6 @@
 # Channels — inbound security model
 
-wayland-core can receive messages from chat platforms (Telegram, Discord,
+genesis-core can receive messages from chat platforms (Telegram, Discord,
 Slack, Signal, …) and answer them with an agent turn. Because a channel
 sender is **remote** — and, depending on your access policy, possibly
 untrusted — inbound traffic passes through two independent security gates
@@ -11,7 +11,7 @@ before and around the agent turn:
    or shell by default).
 
 Both are configured per channel in that channel's config file under
-`~/.wayland/channels/<name>.toml`, in the `[inbound]` table.
+`~/.genesis/channels/<name>.toml`, in the `[inbound]` table.
 
 > If `[inbound]` is absent, the channel is **fail-closed**: every inbound
 > message is denied. Inbound dispatch does nothing until you opt in.
@@ -21,7 +21,7 @@ Both are configured per channel in that channel's config file under
 ## Access policy — who may drive the agent
 
 ```toml
-# ~/.wayland/channels/tg.toml
+# ~/.genesis/channels/tg.toml
 platform = "telegram"
 
 [inbound]

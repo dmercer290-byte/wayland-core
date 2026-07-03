@@ -4,7 +4,7 @@
 //! `unsupported_api_for_model`; it is served ONLY by the Responses API, which
 //! uses a different request body and a different streaming event shape than
 //! Chat Completions. This module mirrors that surface and translates it back
-//! into wayland-core's provider-neutral [`LlmRequest`] / [`LlmEvent`] types so
+//! into genesis-core's provider-neutral [`LlmRequest`] / [`LlmEvent`] types so
 //! the engine is unchanged.
 //!
 //! The chat-vs-responses routing decision lives in
@@ -90,7 +90,7 @@ pub(crate) fn build_responses_body(request: &LlmRequest, compat: &ProviderCompat
         "input": build_input(&request.messages),
         "stream": true,
         // `store: false` keeps OpenAI from persisting the response server-side;
-        // wayland-core manages its own history. Mirrors OpenClaw's default.
+        // genesis-core manages its own history. Mirrors OpenClaw's default.
         "store": false,
     });
 
@@ -186,7 +186,7 @@ fn clean_orphaned_function_call_outputs(input: &mut Vec<Value>) {
 }
 
 /// A user message becomes either a `message` item with `input_text` content,
-/// or — when it carries tool results (wayland-core threads tool results as
+/// or — when it carries tool results (genesis-core threads tool results as
 /// user-role `ToolResult` blocks) — one `function_call_output` item per result.
 fn push_user_items(input: &mut Vec<Value>, msg: &Message) {
     let has_tool_results = msg
@@ -814,7 +814,7 @@ fn update_usage(state: &mut ResponsesStreamState, response: Option<&Value>) {
         .unwrap_or(state.output_tokens);
 }
 
-/// Map a `response.completed` status to a wayland-core [`StopReason`].
+/// Map a `response.completed` status to a genesis-core [`StopReason`].
 /// Mirrors `mapStopReason` in `openai-responses-shared.ts`, then upgrades a
 /// clean `stop` to `ToolUse` when tool calls were emitted (so the agent loop
 /// continues), matching the chat path.

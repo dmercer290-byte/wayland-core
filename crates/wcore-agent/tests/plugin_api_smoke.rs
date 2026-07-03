@@ -14,7 +14,7 @@ struct SmokePlugin;
 
 static MANIFEST_TOML: &str = r#"
 [plugin]
-name = "wayland-smoke"
+name = "genesis-smoke"
 version = "0.0.1"
 description = "exercises every register_* surface"
 entry = "builtin:smoke"
@@ -104,7 +104,7 @@ impl Plugin for SmokePlugin {
 struct SmokeFactory;
 impl PluginFactory for SmokeFactory {
     fn name(&self) -> &'static str {
-        "wayland-smoke"
+        "genesis-smoke"
     }
     fn build(&self) -> Box<dyn Plugin> {
         Box::new(SmokePlugin)
@@ -117,7 +117,7 @@ async fn smoke_plugin_registers_all_six_surfaces() {
     let cfg = PluginsConfig::default();
     let mut loader = PluginLoader::discover(&cfg);
     let captured = loader.validate_all().expect("validate");
-    assert!(captured.iter().any(|p| p.name() == "wayland-smoke"));
+    assert!(captured.iter().any(|p| p.name() == "genesis-smoke"));
 
     let mut runner = PluginRunner::new();
     let outcome = runner.initialize_all(&captured).await.expect("init ok");
@@ -195,7 +195,7 @@ async fn permission_denied_plugin_rejected_at_parse() {
     // error rather than panicking is the point of this test.
     let bad = r#"
 [plugin]
-name = "wayland-bad"
+name = "genesis-bad"
 version = "0.0.1"
 description = "bad"
 entry = "builtin:bad"

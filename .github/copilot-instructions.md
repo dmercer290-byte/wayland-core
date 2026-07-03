@@ -57,4 +57,4 @@ the extension's declared permissions on every MCP tool call (memory, run,
 prompt-check, metrics). **Built-in platform tools (Edit, Write, Bash) are
 NOT gated here -- only Claude Code's tier-2 hook gates those.** If your
 workflow requires built-in-tool gating, prefer Claude Code, Codex, Gemini,
-Hermes, or Wayland for v1.4.x.
+Hermes, or Genesis for v1.4.x.

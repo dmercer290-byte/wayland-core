@@ -1,4 +1,4 @@
-//! v0.6.5 — Wasmtime component bindings for Wayland's WIT worlds.
+//! v0.6.5 — Wasmtime component bindings for Genesis's WIT worlds.
 //!
 //! Split per-world so Task 2.2 (tool) and Task 2.3 (hook) can land
 //! independently without git conflicts.

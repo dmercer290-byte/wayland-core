@@ -32,7 +32,7 @@ use wcore_types::tool::ToolResult;
 
 static MANIFEST_TOML: &str = r#"
 [plugin]
-name = "wayland-e2e-fixture"
+name = "genesis-e2e-fixture"
 version = "0.0.1"
 description = "Task 1.8 e2e fixture — registers echo_fixture"
 entry = "builtin:e2e"
@@ -99,7 +99,7 @@ impl Plugin for E2eFixturePlugin {
 struct E2eFixtureFactory;
 impl PluginFactory for E2eFixtureFactory {
     fn name(&self) -> &'static str {
-        "wayland-e2e-fixture"
+        "genesis-e2e-fixture"
     }
     fn build(&self) -> Box<dyn Plugin> {
         Box::new(E2eFixturePlugin)
@@ -118,7 +118,7 @@ async fn registered_plugin_tool_is_invocable_through_the_full_pipeline() {
     let mut loader = PluginLoader::discover(&cfg);
     let discovered = loader.validate_all().expect("validate");
     assert!(
-        discovered.iter().any(|p| p.name() == "wayland-e2e-fixture"),
+        discovered.iter().any(|p| p.name() == "genesis-e2e-fixture"),
         "the e2e fixture plugin must be discovered via inventory"
     );
 
@@ -138,7 +138,7 @@ async fn registered_plugin_tool_is_invocable_through_the_full_pipeline() {
         outcome
             .tools
             .iter()
-            .any(|t| t.tool.name == "echo_fixture" && t.plugin == "wayland-e2e-fixture"),
+            .any(|t| t.tool.name == "echo_fixture" && t.plugin == "genesis-e2e-fixture"),
         "the captured tool list must include the e2e fixture's echo_fixture"
     );
 
@@ -159,11 +159,11 @@ async fn registered_plugin_tool_is_invocable_through_the_full_pipeline() {
     assert_eq!(tool.name(), "echo_fixture");
 
     let result = tool
-        .execute(serde_json::json!({ "text": "wayland-e2e" }))
+        .execute(serde_json::json!({ "text": "genesis-e2e" }))
         .await;
     assert!(!result.is_error, "tool execution must succeed: {result:?}");
     assert_eq!(
-        result.content, "wayland-e2e",
+        result.content, "genesis-e2e",
         "the plugin closure ran end-to-end and echoed its input"
     );
 }

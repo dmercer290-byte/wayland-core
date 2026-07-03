@@ -1,6 +1,6 @@
 //! T3-3.3.3: Configurable tool-output truncation limits.
 //!
-//! Ported from the prior Wayland Python engine (which in turn ports
+//! Ported from the prior Genesis Python engine (which in turn ports
 //! `anomalyco/opencode` PR #23770 — *"feat(truncate): allow configuring tool
 //! output truncation limits"*).
 //!
@@ -21,7 +21,7 @@
 //!   (default 2000)
 //!
 //! The prior Python module reads `tool_output` directly from
-//! `wayland_cli.config.load_config()`. To avoid a circular `wcore-tools ↔
+//! `genesis_cli.config.load_config()`. To avoid a circular `wcore-tools ↔
 //! wcore-config` dependency (and to keep this helper trivially testable),
 //! the Rust port accepts a `&serde_json::Value` config section pointer
 //! supplied by the caller. Callers in `wcore-agent` / `wcore-cli` extract

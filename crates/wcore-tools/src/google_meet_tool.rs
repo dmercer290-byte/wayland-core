@@ -1,16 +1,16 @@
 //! T3-3.7 (sub-wave 7): `meet_*` tools — Google Meet integration via a
 //! pluggable [`GoogleMeetBackend`].
 //!
-//! Ported from the prior Wayland Python engine (754 LOC).
+//! Ported from the prior Genesis Python engine (754 LOC).
 //!
 //! The Python original spawns a detached Playwright + headless-Chromium
 //! subprocess that joins a Google Meet URL, scrapes live captions into a
 //! transcript file on disk, and optionally streams TTS audio into the
 //! call via a virtual audio device (PulseAudio null-sink on Linux,
-//! BlackHole on macOS). Wayland's engine deliberately does **not** embed
+//! BlackHole on macOS). Genesis's engine deliberately does **not** embed
 //! a browser-automation stack, a per-meeting state directory under
-//! `$WAYLAND_HOME/workspace/meetings/`, or a virtual-mic bridge — these
-//! belong to the host (`wcore-browser` / `wayland-browser` / a wcore-cua
+//! `$GENESIS_HOME/workspace/meetings/`, or a virtual-mic bridge — these
+//! belong to the host (`wcore-browser` / `genesis-browser` / a wcore-cua
 //! audio bridge wired by the agent crate or a plugin).
 //!
 //! This port collapses **all five operations behind a single trait**:
@@ -50,7 +50,7 @@
 //! * **No embedded Playwright / Chromium spawn path.** The Python
 //!   `_start_bot` shells out to `python -m tools.google_meet_bot` with
 //!   `start_new_session=True`, writes a `.active.json` pointer file
-//!   under `$WAYLAND_HOME/workspace/meetings/`, and polls `kill(pid, 0)`
+//!   under `$GENESIS_HOME/workspace/meetings/`, and polls `kill(pid, 0)`
 //!   for liveness. None of that lives in the engine — the host backend
 //!   owns process lifecycle, state directory layout, and PID
 //!   bookkeeping. The engine port is a pure dispatch + validation surface.
@@ -139,8 +139,8 @@ impl MeetMode {
 }
 
 /// Default display name when the caller omits `guest_name`. Matches
-/// Python `'Wayland Agent'`.
-pub const DEFAULT_GUEST_NAME: &str = "Wayland Agent";
+/// Python `'Genesis Agent'`.
+pub const DEFAULT_GUEST_NAME: &str = "Genesis Agent";
 
 // ---------------------------------------------------------------------
 // Request / response types (the backend seam payloads)
@@ -556,7 +556,7 @@ impl Tool for MeetJoinTool {
                 },
                 "guest_name": {
                     "type": "string",
-                    "description": "Display name to use when joining as guest. Defaults to 'Wayland Agent'."
+                    "description": "Display name to use when joining as guest. Defaults to 'Genesis Agent'."
                 },
                 "duration": {
                     "type": "string",

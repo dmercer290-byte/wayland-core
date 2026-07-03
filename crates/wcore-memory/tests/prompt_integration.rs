@@ -205,7 +205,7 @@ fn tc_6_5_no_bb_brand_in_type_descriptions() {
 }
 
 // ---------------------------------------------------------------------------
-// TC-6.6: Paths use wayland-core brand, not hardcoded platform paths
+// TC-6.6: Paths use genesis-core brand, not hardcoded platform paths
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -215,7 +215,7 @@ fn tc_6_6_no_hardcoded_platform_paths() {
 
     // Should not contain hardcoded Unix-specific config paths
     assert!(
-        !joined.contains("~/.config/wayland-core"),
+        !joined.contains("~/.config/genesis-core"),
         "should not hardcode platform-specific config path"
     );
 

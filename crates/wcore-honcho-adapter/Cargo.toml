@@ -1,6 +1,6 @@
 [package]
 name = "wcore-honcho-adapter"
-description = "Adapter bridging wcore-user-model::UserModelBackend to wayland-honcho::HonchoClient"
+description = "Adapter bridging wcore-user-model::UserModelBackend to genesis-honcho::HonchoClient"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,7 +16,7 @@ tokio.workspace            = true
 tracing.workspace          = true
 
 wcore-user-model.workspace = true
-wayland-honcho.workspace   = true
+genesis-honcho.workspace   = true
 
 workspace-hack.workspace   = true
 

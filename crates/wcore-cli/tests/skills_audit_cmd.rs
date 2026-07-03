@@ -1,4 +1,4 @@
-//! CLI integration: `wayland-core --skills-audit` against a fixture project.
+//! CLI integration: `genesis-core --skills-audit` against a fixture project.
 
 use std::fs;
 
@@ -7,7 +7,7 @@ use tempfile::TempDir;
 fn fixture_project() -> TempDir {
     let tmp = TempDir::new().unwrap();
     fs::create_dir(tmp.path().join(".git")).unwrap();
-    let dir = tmp.path().join(".wayland-core").join("skills").join("ok");
+    let dir = tmp.path().join(".genesis-core").join("skills").join("ok");
     fs::create_dir_all(&dir).unwrap();
     fs::write(
         dir.join("SKILL.md"),
@@ -20,7 +20,7 @@ fn fixture_project() -> TempDir {
 #[test]
 fn skills_audit_writes_json_and_renders_markdown() {
     let tmp = fixture_project();
-    let bin = env!("CARGO_BIN_EXE_wayland-core");
+    let bin = env!("CARGO_BIN_EXE_genesis-core");
     let out = std::process::Command::new(bin)
         .args(["--skills-audit"])
         .current_dir(tmp.path())
@@ -37,7 +37,7 @@ fn skills_audit_writes_json_and_renders_markdown() {
         "stdout missing Markdown header: {stdout}"
     );
 
-    let json_path = tmp.path().join(".wayland-core").join("skills-audit.json");
+    let json_path = tmp.path().join(".genesis-core").join("skills-audit.json");
     assert!(json_path.exists(), "expected JSON report at {json_path:?}");
     let json = std::fs::read_to_string(&json_path).unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();

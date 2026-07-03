@@ -1,9 +1,9 @@
 //! Tiny demo MCP server. Speaks Model Context Protocol JSON-RPC 2.0 over
 //! stdio (newline-delimited frames). Exposes a single tool `get_time`.
 //!
-//! Wayland's `wcore-plugin-subprocess::mcp_bridge::McpBridgePluginRunner`
+//! Genesis's `wcore-plugin-subprocess::mcp_bridge::McpBridgePluginRunner`
 //! wraps any conformant MCP server like this one and auto-synthesizes
-//! Wayland plugin tools from its `tools/list` response — no per-server
+//! Genesis plugin tools from its `tools/list` response — no per-server
 //! adapter code required.
 //!
 //! Protocol surface implemented:

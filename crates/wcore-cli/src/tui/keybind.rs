@@ -87,7 +87,7 @@ impl Keymap {
             ),
             (
                 KeyContext::Global,
-                binding(ctrl(KeyCode::Char('c')), "quit", "quit Wayland"),
+                binding(ctrl(KeyCode::Char('c')), "quit", "quit Genesis"),
             ),
             (
                 KeyContext::Global,

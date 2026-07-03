@@ -6,7 +6,7 @@
 //! behind it. The depth is folded into three tiers:
 //!
 //! - **Tier 1 — overview.** The eight high-value settings a normal user
-//!   actually touches, grouped into four intent sections ("How Wayland
+//!   actually touches, grouped into four intent sections ("How Genesis
 //!   acts", "Memory & context", ...). Always visible.
 //! - **Tier 2 — section detail.** `⏎` on a section opens a per-section
 //!   detail pane; for radio settings that pane is where the choice is
@@ -199,7 +199,7 @@ struct SettingsModel {
     model: String,
     /// Whether a provider API key is set.
     key_set: bool,
-    // HOW WAYLAND ACTS ----------------------------------------------------
+    // HOW GENESIS ACTS ----------------------------------------------------
     /// The approval mode radio.
     approval: ApprovalMode,
     /// Whether plan-first is enabled for big changes.
@@ -316,13 +316,13 @@ enum Row {
     Provider,
     /// CONNECTION · Model.
     Model,
-    /// HOW WAYLAND ACTS · Approval mode.
+    /// HOW GENESIS ACTS · Approval mode.
     Approval,
-    /// HOW WAYLAND ACTS · Plan first.
+    /// HOW GENESIS ACTS · Plan first.
     PlanFirst,
-    /// HOW WAYLAND ACTS · Tool auto-approval (`[tools]`).
+    /// HOW GENESIS ACTS · Tool auto-approval (`[tools]`).
     Tools,
-    /// HOW WAYLAND ACTS · Stop after N turns.
+    /// HOW GENESIS ACTS · Stop after N turns.
     StopAfter,
     /// MEMORY & CONTEXT · Compaction level.
     Compaction,
@@ -372,7 +372,7 @@ impl Row {
         match self {
             Row::Provider | Row::Model => Some("CONNECTION"),
             Row::Approval | Row::PlanFirst | Row::Tools | Row::StopAfter => {
-                Some("HOW WAYLAND ACTS")
+                Some("HOW GENESIS ACTS")
             }
             Row::Compaction | Row::LongTerm => Some("MEMORY & CONTEXT"),
             Row::Wallet => Some("SPENDING"),
@@ -482,7 +482,7 @@ impl AdvField {
         match self {
             AdvField::Traces => "Emit structured trace spans for observability tooling.",
             AdvField::OnlineEvolution => {
-                "Let Wayland evolve its own prompts in the background (GEPA)."
+                "Let Genesis evolve its own prompts in the background (GEPA)."
             }
             AdvField::WorkflowLive => "Stream live workflow progress you can drill into.",
             AdvField::CredentialBackend => {
@@ -1548,7 +1548,7 @@ pub(crate) fn resolve_provider_status(entry: &ProviderEntry) -> ProviderStatus {
         // connected" (D030). Decoding is a plain serde_json read of a single
         // field — no `wcore-agent` dependency is needed.
         let tokens_path =
-            dirs::home_dir().map(|h| h.join(".wayland").join("oauth").join("google_meet.json"));
+            dirs::home_dir().map(|h| h.join(".genesis").join("oauth").join("google_meet.json"));
         let token_status = tokens_path
             .as_ref()
             .map(|p| google_meet_token_status(p))
@@ -1642,7 +1642,7 @@ impl CredentialsModal {
         self.entry().env_vars.get(self.var_idx).copied()
     }
 
-    /// Attempt to save the buffer to `~/.wayland/.env`. Sets `status`
+    /// Attempt to save the buffer to `~/.genesis/.env`. Sets `status`
     /// + `last_ok` for the render path. Returns whether a write happened.
     pub fn save(&mut self) -> bool {
         let Some(key) = self.var_name() else {
@@ -1657,7 +1657,7 @@ impl CredentialsModal {
             return false;
         }
         let env_path = match dirs::home_dir() {
-            Some(h) => h.join(".wayland").join(".env"),
+            Some(h) => h.join(".genesis").join(".env"),
             None => {
                 self.status = "Cannot find home directory; aborting save.".into();
                 self.last_ok = false;
@@ -1670,7 +1670,7 @@ impl CredentialsModal {
                 // never the `.env` file, so a key written here is invisible until
                 // a restart reloads `.env` into the process env. The status must
                 // not claim a live application that does not happen.
-                self.status = "Saved to ~/.wayland/.env · applies on next launch".into();
+                self.status = "Saved to ~/.genesis/.env · applies on next launch".into();
                 self.last_ok = true;
                 true
             }
@@ -1956,7 +1956,7 @@ impl ConfigSurface {
         apply_failed: bool,
         spent_usd: Option<f64>,
     ) {
-        let block = panel("Wayland · Settings", t);
+        let block = panel("Genesis · Settings", t);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if inner.height < 3 || inner.width < 10 {
@@ -2325,13 +2325,13 @@ impl ConfigSurface {
             Row::PlanFirst => {
                 lines.push(detail_choice(
                     "on for big changes",
-                    "Wayland drafts a plan and waits for review first.",
+                    "Genesis drafts a plan and waits for review first.",
                     self.current.plan_first,
                     t,
                 ));
                 lines.push(detail_choice(
                     "off",
-                    "Wayland acts immediately, no plan step.",
+                    "Genesis acts immediately, no plan step.",
                     !self.current.plan_first,
                     t,
                 ));
@@ -2520,7 +2520,7 @@ impl ConfigSurface {
     /// Draw the Tier-A Advanced pane: observability / storage / security
     /// editors grouped by section, plus the link into the Expert cost pane.
     fn render_advanced(&self, frame: &mut Frame, area: Rect, t: &Theme) {
-        let block = panel("Wayland · Advanced", t);
+        let block = panel("Genesis · Advanced", t);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if inner.height < 3 || inner.width < 10 {
@@ -2743,7 +2743,7 @@ impl ConfigSurface {
     /// Draw the Tier-L list editor: the collection's entries with a focus
     /// marker, an inline buffer when adding/editing, and the key hints.
     fn render_list(&self, frame: &mut Frame, area: Rect, t: &Theme, kind: ListKind) {
-        let block = panel(&format!("Wayland · {}", kind.title()), t);
+        let block = panel(&format!("Genesis · {}", kind.title()), t);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if inner.height < 3 || inner.width < 10 {
@@ -2968,7 +2968,7 @@ impl ConfigSurface {
             match key.code {
                 KeyCode::Enter => {
                     if let Some(modal) = self.credentials_modal.as_mut() {
-                        // F21: this writes the key to `~/.wayland/.env`, which
+                        // F21: this writes the key to `~/.genesis/.env`, which
                         // `resolve_api_key` does not read until a restart — so
                         // there is intentionally no live rebind here. The modal
                         // status reflects "applies on next launch".
@@ -3060,7 +3060,7 @@ impl ConfigSurface {
         frame.render_widget(
             Paragraph::new(vec![
                 Line::from(Span::styled(
-                    "Every tool and provider Wayland can use, with its current status.",
+                    "Every tool and provider Genesis can use, with its current status.",
                     Style::default().fg(t.text_dim),
                 )),
                 Line::from(vec![
@@ -3255,14 +3255,14 @@ fn row_label(row: Row) -> &'static str {
 /// The one-line intro shown at the top of a row's Tier-2 detail pane.
 fn detail_intro(row: Row) -> &'static str {
     match row {
-        Row::Approval => "How much Wayland does before it asks you:",
-        Row::Compaction => "How Wayland keeps the conversation inside the context window:",
-        Row::PlanFirst => "Whether Wayland plans before it touches your code:",
-        Row::LongTerm => "Whether Wayland remembers you between sessions:",
-        Row::Provider => "The LLM provider Wayland connects to:",
-        Row::Model => "The model Wayland uses for this provider:",
-        Row::StopAfter => "The runaway guard — how many turns before Wayland halts:",
-        Row::Tools => "What tools Wayland may run without asking:",
+        Row::Approval => "How much Genesis does before it asks you:",
+        Row::Compaction => "How Genesis keeps the conversation inside the context window:",
+        Row::PlanFirst => "Whether Genesis plans before it touches your code:",
+        Row::LongTerm => "Whether Genesis remembers you between sessions:",
+        Row::Provider => "The LLM provider Genesis connects to:",
+        Row::Model => "The model Genesis uses for this provider:",
+        Row::StopAfter => "The runaway guard — how many turns before Genesis halts:",
+        Row::Tools => "What tools Genesis may run without asking:",
         Row::Wallet => "The per-session spend ceiling:",
         Row::Expert => "",
     }
@@ -3638,8 +3638,8 @@ mod tests {
         // The four intent section headings.
         assert!(text.contains("CONNECTION"), "missing CONNECTION:\n{text}");
         assert!(
-            text.contains("HOW WAYLAND ACTS"),
-            "missing HOW WAYLAND ACTS:\n{text}"
+            text.contains("HOW GENESIS ACTS"),
+            "missing HOW GENESIS ACTS:\n{text}"
         );
         assert!(
             text.contains("MEMORY & CONTEXT"),
@@ -3855,7 +3855,7 @@ mod tests {
 
     // ── FIX 3: openai-chatgpt OAuth status row ───────────────────────────
 
-    /// Seed (or omit) `$HOME/.wayland/oauth/chatgpt.json` under a tempdir HOME,
+    /// Seed (or omit) `$HOME/.genesis/oauth/chatgpt.json` under a tempdir HOME,
     /// run `resolve_chatgpt_status`, and restore HOME. The `token` arg:
     /// - `None` → write NO token file (not signed in).
     /// - `Some(None)` → write a token with no `expires_at_unix_secs` field.
@@ -3864,7 +3864,7 @@ mod tests {
     fn chatgpt_status_with_home(token: Option<Option<u64>>) -> ProviderStatus {
         let tmp = tempfile::tempdir().expect("tempdir");
         if let Some(expires_at) = token {
-            let oauth_dir = tmp.path().join(".wayland").join("oauth");
+            let oauth_dir = tmp.path().join(".genesis").join("oauth");
             std::fs::create_dir_all(&oauth_dir).expect("mkdir");
             // A JWT-less access_token is fine: the plan decode just yields None,
             // and the status row only reads expiry. The struct must round-trip
@@ -3968,13 +3968,13 @@ mod tests {
         // `esc` over a dirty overview SAVES the edit and stays on the surface
         // (the footer's "saves & closes" contract). Reverting on esc was the
         // bug Sean hit — "I hit Escape to save and close, it didn't do shit".
-        // Hermetic via WAYLAND_HOME so the save writes a throwaway config.toml.
+        // Hermetic via GENESIS_HOME so the save writes a throwaway config.toml.
         let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: process-global env mutation is serialised by EXPERT_ENV_LOCK;
         // the previous value is restored before the lock is released.
-        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+        unsafe { std::env::set_var("GENESIS_HOME", dir.path()) };
 
         let mut app = App::new();
         let mut surface = ConfigSurface::new();
@@ -4007,8 +4007,8 @@ mod tests {
         // SAFETY: restore the prior env under the same lock.
         unsafe {
             match prev {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
         }
     }
@@ -4168,7 +4168,7 @@ mod tests {
     // value, footer) — not just an internal flag — to guard against a
     // phantom-affordance regression.
 
-    /// Process-global env guard: `WAYLAND_HOME` / `set_var` are process-wide,
+    /// Process-global env guard: `GENESIS_HOME` / `set_var` are process-wide,
     /// so the persisting test serialises through this lock (the same pattern
     /// the theme tests use) to stay hermetic under the concurrent runner.
     static EXPERT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -4257,13 +4257,13 @@ mod tests {
     #[test]
     fn expert_commit_renders_new_value_and_persists() {
         // `⏎` commits: the new value must render (buffer gone) AND land in
-        // `[providers.<active>].compat` on disk. Hermetic via WAYLAND_HOME.
+        // `[providers.<active>].compat` on disk. Hermetic via GENESIS_HOME.
         let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: process-global env mutation is serialised by EXPERT_ENV_LOCK;
         // the previous value is restored before the lock is released.
-        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+        unsafe { std::env::set_var("GENESIS_HOME", dir.path()) };
 
         let mut app = App::new();
         app.config.provider = "anthropic".into();
@@ -4295,8 +4295,8 @@ mod tests {
         // SAFETY: restore the prior env under the same lock.
         unsafe {
             match prev {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
         }
     }
@@ -4326,13 +4326,13 @@ mod tests {
         // Regression: toggling Long-term memory then pressing `esc` must SAVE
         // the edit (persist + advance baseline + signal a live rebind) and
         // stay on the surface — not silently revert it. Hermetic via
-        // WAYLAND_HOME under the shared env lock (the save writes config.toml).
+        // GENESIS_HOME under the shared env lock (the save writes config.toml).
         let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: process-global env mutation is serialised by EXPERT_ENV_LOCK;
         // the previous value is restored before the lock is released.
-        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+        unsafe { std::env::set_var("GENESIS_HOME", dir.path()) };
 
         let mut app = App::new();
         app.config.memory_enabled = false; // start with long-term memory off
@@ -4384,8 +4384,8 @@ mod tests {
         // SAFETY: restore the prior env under the same lock.
         unsafe {
             match prev {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
         }
     }
@@ -4430,12 +4430,12 @@ mod tests {
     #[test]
     fn tools_row_space_toggles_and_persists_auto_approve() {
         // S5: the Tools row's `space` flips `[tools] auto_approve`; `esc` saves
-        // it to disk. Hermetic via WAYLAND_HOME under the shared env lock.
+        // it to disk. Hermetic via GENESIS_HOME under the shared env lock.
         let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: serialised by EXPERT_ENV_LOCK; restored before unlock.
-        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+        unsafe { std::env::set_var("GENESIS_HOME", dir.path()) };
 
         let mut app = App::new();
         app.config.tools_auto_approve = false;
@@ -4465,8 +4465,8 @@ mod tests {
         // SAFETY: restore the prior env under the same lock.
         unsafe {
             match prev {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
         }
     }
@@ -4477,9 +4477,9 @@ mod tests {
         // saving persists `[budget] max_cost_usd`.
         let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: serialised by EXPERT_ENV_LOCK; restored before unlock.
-        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+        unsafe { std::env::set_var("GENESIS_HOME", dir.path()) };
 
         let mut app = App::new();
         let mut surface = ConfigSurface::new();
@@ -4512,8 +4512,8 @@ mod tests {
         // SAFETY: restore the prior env under the same lock.
         unsafe {
             match prev {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
         }
     }
@@ -4606,12 +4606,12 @@ mod tests {
     #[test]
     fn egress_allowlist_add_persists_to_security() {
         // Add an entry, then `esc` saves the collection to `[security]
-        // egress_allow` on disk. Hermetic via WAYLAND_HOME under the env lock.
+        // egress_allow` on disk. Hermetic via GENESIS_HOME under the env lock.
         let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: serialised by EXPERT_ENV_LOCK; restored before unlock.
-        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+        unsafe { std::env::set_var("GENESIS_HOME", dir.path()) };
 
         let mut app = App::new();
         let mut surface = ConfigSurface::new();
@@ -4635,8 +4635,8 @@ mod tests {
         // SAFETY: restore the prior env under the same lock.
         unsafe {
             match prev {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
         }
     }
@@ -4647,9 +4647,9 @@ mod tests {
         // `[provider_chain] enabled` and `fallback_models` on a single save.
         let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: serialised by EXPERT_ENV_LOCK; restored before unlock.
-        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+        unsafe { std::env::set_var("GENESIS_HOME", dir.path()) };
 
         let mut app = App::new();
         let mut surface = ConfigSurface::new();
@@ -4696,8 +4696,8 @@ mod tests {
         // SAFETY: restore the prior env under the same lock.
         unsafe {
             match prev {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
         }
     }
@@ -4834,12 +4834,12 @@ mod tests {
     #[test]
     fn advanced_traces_toggle_persists_to_observability() {
         // S6: the Advanced Structured-traces toggle flips `[observability]`
-        // and `esc` saves it. Hermetic via WAYLAND_HOME under the env lock.
+        // and `esc` saves it. Hermetic via GENESIS_HOME under the env lock.
         let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: serialised by EXPERT_ENV_LOCK; restored before unlock.
-        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+        unsafe { std::env::set_var("GENESIS_HOME", dir.path()) };
 
         let mut app = App::new();
         app.config.obs_structured_traces = false;
@@ -4865,8 +4865,8 @@ mod tests {
         // SAFETY: restore the prior env under the same lock.
         unsafe {
             match prev {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
         }
     }
@@ -4877,9 +4877,9 @@ mod tests {
         // to `[storage.credentials] backend`.
         let _guard = EXPERT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().expect("tempdir");
-        let prev = std::env::var_os("WAYLAND_HOME");
+        let prev = std::env::var_os("GENESIS_HOME");
         // SAFETY: serialised by EXPERT_ENV_LOCK; restored before unlock.
-        unsafe { std::env::set_var("WAYLAND_HOME", dir.path()) };
+        unsafe { std::env::set_var("GENESIS_HOME", dir.path()) };
 
         let mut app = App::new();
         app.config.storage_backend = "plaintext".into();
@@ -4903,8 +4903,8 @@ mod tests {
         // SAFETY: restore the prior env under the same lock.
         unsafe {
             match prev {
-                Some(v) => std::env::set_var("WAYLAND_HOME", v),
-                None => std::env::remove_var("WAYLAND_HOME"),
+                Some(v) => std::env::set_var("GENESIS_HOME", v),
+                None => std::env::remove_var("GENESIS_HOME"),
             }
         }
     }

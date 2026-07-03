@@ -37,9 +37,9 @@ headers = { Authorization = "Bearer xxx" }
 
 Forge-suite desktop apps (e.g. Agent Vault) advertise a loopback MCP server by
 writing a shared file at `<OS config dir>/forge/mcp-servers.json` — the *real*
-config dir (`dirs::config_dir()`), NOT `WAYLAND_HOME`, since it is a
+config dir (`dirs::config_dir()`), NOT `GENESIS_HOME`, since it is a
 cross-application convention written by *other* apps about the actual machine.
-Wayland Core auto-detects those entries and surfaces them as **DISCOVERED** rows
+Genesis Core auto-detects those entries and surfaces them as **DISCOVERED** rows
 in `/doctor`. Nothing connects automatically: a discovery entry is a **hint, not
 liveness** (a producer crash leaves a stale entry behind), so you connect a row
 explicitly with `/mcp connect [name]` (or by selecting the row and pressing
@@ -196,15 +196,15 @@ advertise the same name the binding is refused and the hook stays log-only.
 **Kill-switch:** `hooks.dispatch_enabled` (default `true`) disables all hook→
 context dispatch when set to `false`, leaving plugins and MCP otherwise intact.
 
-## Plugin MCP Server Home (`~/.wayland`)
+## Plugin MCP Server Home (`~/.genesis`)
 
-Plugin installers write under `~/.wayland` (the *profile home*), and the host
+Plugin installers write under `~/.genesis` (the *profile home*), and the host
 exposes that same root to launched plugin MCP servers so a server can find its
 installed assets. The resolution order is:
 
-1. `$WAYLAND_PROFILE_HOME` / `$WAYLAND_HOME` when set (sandbox / hermetic
+1. `$GENESIS_PROFILE_HOME` / `$GENESIS_HOME` when set (sandbox / hermetic
    override; ignored if it contains control characters)
-2. `~/.wayland` (the cross-platform default)
+2. `~/.genesis` (the cross-platform default)
 
 This is framework-neutral: any plugin that ships an MCP server uses the same
 handshake.

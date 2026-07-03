@@ -1,4 +1,4 @@
-//! Wave BR E2E — boot the plugin loader, discover wayland-browser, run
+//! Wave BR E2E — boot the plugin loader, discover genesis-browser, run
 //! `PluginRunner::initialize_all`, then reify the captured BrowserToolSpec
 //! into a real `BrowserTool` via the host adapter, then drive a
 //! `BrowserOp::Navigate` op AGAINST a wiremock pretending to be the
@@ -9,12 +9,12 @@
 //! loaded = nothing registered"; this test proves "plugin loaded = real
 //! BrowserTool reachable through the adapter".
 //!
-//! NOTE: wcore-agent doesn't link wayland-browser directly (that would
+//! NOTE: wcore-agent doesn't link genesis-browser directly (that would
 //! pull the plugin shell into every wcore-agent test binary). Instead
 //! we register an in-test `MiniBrowserPlugin` whose `initialize` exercises
-//! the SAME `register_browser_tool` API path that wayland-browser uses.
+//! the SAME `register_browser_tool` API path that genesis-browser uses.
 //! The full discovery + linking-via-inventory smoke test is the existing
-//! `crates/wayland-browser/tests/plugin_load_test.rs` + the wcore-cli
+//! `crates/genesis-browser/tests/plugin_load_test.rs` + the wcore-cli
 //! `plugin_discovery_e2e.rs` test, which together cover the inventory
 //! path. This file is the host-adapter wiring proof.
 
@@ -36,10 +36,10 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 fn fixture_manifest(allowed: &[&str]) -> PluginManifest {
     PluginManifest {
         plugin: PluginInfo {
-            name: "wayland-browser".into(),
+            name: "genesis-browser".into(),
             version: "0.1.0".into(),
             description: "test mirror".into(),
-            entry: Some("builtin:wayland_browser".into()),
+            entry: Some("builtin:genesis_browser".into()),
             authors: vec![],
             license: "MIT".into(),
             deferred: false,
@@ -117,8 +117,8 @@ fn build_tool_pointed_at(server_uri: &str, allowed_host: &str) -> Arc<BrowserToo
 }
 
 #[tokio::test]
-async fn host_registrar_captures_wayland_browser_spec() {
-    // Mirrors the wayland-browser plugin's `initialize()` body: a plugin
+async fn host_registrar_captures_genesis_browser_spec() {
+    // Mirrors the genesis-browser plugin's `initialize()` body: a plugin
     // that holds `ScopedBrowserRegistry` and calls `register_browser_tool`.
     let manifest = fixture_manifest(&[]);
     let mut host = HostBrowserRegistrar::default();

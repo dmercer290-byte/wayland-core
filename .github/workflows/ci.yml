@@ -176,7 +176,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      CI_IMAGE: wayland-core-ci:rust-1.95-slim-bookworm
+      CI_IMAGE: genesis-core-ci:rust-1.95-slim-bookworm
       # Linux runners ship with ~14GB free; the host cleanup step
       # below frees ~50GB more. The workspace's debug test binaries
       # still nearly fill that on link (200+ binaries × ~100MB each).

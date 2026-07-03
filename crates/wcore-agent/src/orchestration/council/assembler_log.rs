@@ -51,7 +51,7 @@ pub fn log_assembly(
     let Some(base) = override_dir.or_else(dirs::config_dir) else {
         return;
     };
-    let dir = base.join("wayland-core");
+    let dir = base.join("genesis-core");
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
@@ -120,7 +120,7 @@ mod tests {
         log_assembly(&plan(), &spend(), &cfg, Some(tmp.path().to_path_buf()));
         let path = tmp
             .path()
-            .join("wayland-core")
+            .join("genesis-core")
             .join("crucible-assembly.jsonl");
         assert!(!path.exists(), "opt-out must write nothing");
     }
@@ -136,7 +136,7 @@ mod tests {
         log_assembly(&plan(), &spend(), &cfg, Some(tmp.path().to_path_buf()));
         let path = tmp
             .path()
-            .join("wayland-core")
+            .join("genesis-core")
             .join("crucible-assembly.jsonl");
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content.lines().count(), 2, "one appended line per call");

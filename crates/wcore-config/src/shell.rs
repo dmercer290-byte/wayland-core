@@ -25,7 +25,7 @@ use tokio::process::Command;
 
 /// Process-global Bash-tool shell override, sourced from `[tools] windows_shell`
 /// in config and set once at boot by the host via [`set_bash_shell_config`].
-/// Read by [`bash_shell_argv_prefix`]; the `WAYLAND_BASH_SHELL` env var takes
+/// Read by [`bash_shell_argv_prefix`]; the `GENESIS_BASH_SHELL` env var takes
 /// precedence over it. A process-global (rather than a `BashTool` field) keeps
 /// the choice in one place: it is the same for every `BashTool` instance and
 /// every spawned sub-agent in the process, and avoids threading config through
@@ -68,7 +68,7 @@ pub fn shell_info() -> ShellInfo {
 /// present) or `pwsh` → the same with `pwsh` (PowerShell 7+, if installed). Any
 /// other value falls back to `cmd /C`.
 ///
-/// The choice resolves with precedence **`WAYLAND_BASH_SHELL` env (runtime
+/// The choice resolves with precedence **`GENESIS_BASH_SHELL` env (runtime
 /// override) > `[tools] windows_shell` config > default `cmd`**. The config key
 /// is the path the desktop app writes; the env var is the runtime escape hatch.
 ///
@@ -79,7 +79,7 @@ pub fn shell_info() -> ShellInfo {
 /// this only chooses which interpreter, and the denylist + sandbox still
 /// apply to the resulting argv. See issue: PowerShell-on-Windows request.
 pub fn bash_shell_argv_prefix() -> Vec<String> {
-    let choice = std::env::var("WAYLAND_BASH_SHELL")
+    let choice = std::env::var("GENESIS_BASH_SHELL")
         .ok()
         .filter(|s| !s.trim().is_empty())
         .or_else(|| BASH_SHELL_CONFIG.get().cloned().flatten());
@@ -107,7 +107,7 @@ fn bash_shell_prefix_for(is_windows: bool, win_shell: Option<&str>) -> Vec<Strin
     }
 }
 
-/// Normalize a `WAYLAND_BASH_SHELL` / `[tools] windows_shell` value to its
+/// Normalize a `GENESIS_BASH_SHELL` / `[tools] windows_shell` value to its
 /// lowercased program stem so the selector accepts not only `pwsh` / `powershell`
 /// but also `pwsh.exe`, `powershell.exe`, and absolute or relative paths such as
 /// `C:\Program Files\PowerShell\7\pwsh.exe` (FerroxLabs/wayland#197 — the selector
