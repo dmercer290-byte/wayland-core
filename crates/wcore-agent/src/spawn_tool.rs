@@ -206,11 +206,26 @@ impl Tool for SpawnTool {
             })
             .collect();
 
-        let all_error = results.iter().all(|r| r.is_error);
+        // #661 — a batch is an error if ANY child failed, not only when EVERY
+        // child failed. `all()` reported "success" for a partial failure, so the
+        // parent LLM read a half-empty batch as fully complete. Surface the
+        // failed count too, so the partial failure is legible, not buried in the
+        // per-child status lines.
+        let failed = results.iter().filter(|r| r.is_error).count();
+        let any_error = failed > 0;
+        let body = output.join("\n\n---\n\n");
+        let content = if any_error {
+            format!(
+                "{failed} of {} sub-agent(s) failed or terminated early.\n\n{body}",
+                results.len()
+            )
+        } else {
+            body
+        };
 
         ToolResult {
-            content: output.join("\n\n---\n\n"),
-            is_error: all_error,
+            content,
+            is_error: any_error,
         }
     }
 
@@ -514,6 +529,108 @@ mod topology_cap_tests {
         assert_eq!(
             effective_cap, 100,
             "W5.5 B-1: non-relay Fleet path must retain cap=100. Got: {effective_cap}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod partial_failure_rollup_tests {
+    //! #661 — a batch is an ERROR when ANY child fails, not only when EVERY
+    //! child fails. Mirrors wcore-tools' `delegate_batch_partial_failure_is_error`
+    //! at the Spawn surface: with exactly one of two forks failing, the old
+    //! `all()` rollup reported success, so the parent LLM read a half-empty
+    //! batch as fully complete. `SpawnTool::execute` must set `is_error: true`
+    //! AND lead its content with the failed-count prefix so the partial failure
+    //! is legible.
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use serde_json::json;
+    use tokio::sync::mpsc;
+    use wcore_config::config::{Config, SessionConfig};
+    use wcore_providers::{LlmProvider, ProviderError};
+    use wcore_types::llm::{LlmEvent, LlmRequest};
+    use wcore_types::message::{FinishReason, StopReason, TokenUsage};
+
+    use super::SpawnTool;
+    use crate::spawner::AgentSpawner;
+    use wcore_tools::Tool;
+
+    /// Marker embedded in exactly one task's prompt. `parse_tasks` folds the
+    /// task prompt into the child's system prompt (`build_child_prompt`), which
+    /// the engine copies verbatim into `LlmRequest::system` — so the provider
+    /// routes each fork deterministically regardless of the nondeterministic
+    /// order in which parallel forks call `stream()`.
+    const FAIL_MARKER: &str = "SPAWN_FORK_MUST_FAIL_661";
+
+    /// A provider where exactly the fork carrying [`FAIL_MARKER`] fails and the
+    /// rest succeed — the partial-failure fixture.
+    struct PartialFailProvider;
+
+    #[async_trait]
+    impl LlmProvider for PartialFailProvider {
+        async fn stream(
+            &self,
+            request: &LlmRequest,
+        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+            if request.system.contains(FAIL_MARKER) {
+                // A non-retryable 4xx fails the turn immediately (no backoff),
+                // so `engine.run` returns `Err` and the spawner records
+                // `SubAgentResult::is_error = true` for this fork.
+                return Err(ProviderError::Api {
+                    status: 400,
+                    message: "sub-agent boom".to_string(),
+                });
+            }
+            // Clean one-turn success: a text delta then an EndTurn Done.
+            let (tx, rx) = mpsc::channel(2);
+            tokio::spawn(async move {
+                let _ = tx.send(LlmEvent::TextDelta("ok".to_string())).await;
+                let _ = tx
+                    .send(LlmEvent::Done {
+                        stop_reason: StopReason::EndTurn,
+                        finish_reason: FinishReason::from_stop_reason(StopReason::EndTurn),
+                        usage: TokenUsage::default(),
+                    })
+                    .await;
+            });
+            Ok(rx)
+        }
+    }
+
+    #[tokio::test]
+    async fn spawn_batch_partial_failure_is_error() {
+        // Session off so the child engines never touch disk; every other
+        // default is fine (matches the end-to-end spawn integration tests).
+        let config = Config {
+            session: SessionConfig {
+                enabled: false,
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        let spawner = Arc::new(AgentSpawner::new(Arc::new(PartialFailProvider), config));
+        let tool = SpawnTool::new(spawner);
+
+        let out = tool
+            .execute(json!({
+                "tasks": [
+                    { "name": "ok-fork", "prompt": "do the ok work" },
+                    { "name": "bad-fork", "prompt": "SPAWN_FORK_MUST_FAIL_661 now" }
+                ]
+            }))
+            .await;
+
+        assert!(
+            out.is_error,
+            "a partial batch failure must be reported as error, got is_error=false: {}",
+            out.content
+        );
+        assert!(
+            out.content
+                .starts_with("1 of 2 sub-agent(s) failed or terminated early."),
+            "partial-failure content must lead with the failed-count prefix; got: {}",
+            out.content
         );
     }
 }
