@@ -309,11 +309,62 @@ impl OpenAIProvider {
                             })
                             .collect::<Vec<_>>()
                             .join("\n");
-                        let text = strip_patterns_from_text(&text, compat);
-                        result.push(json!({
-                            "role": "user",
-                            "content": text
-                        }));
+                        let mut text = strip_patterns_from_text(&text, compat);
+
+                        // #648: vision capability gate. If the turn carries inline
+                        // images, OpenAI Chat requires the multi-part array shape
+                        // with `image_url` parts. But text-only endpoints (deepseek,
+                        // cerebras, perplexity, …) 400 on an `image_url` part, so
+                        // only emit it when `compat.supports_vision()`. Otherwise
+                        // drop the image and append the shared placeholder text —
+                        // the same soft degradation cohere / bedrock (mistral) /
+                        // wayland-ollama already do.
+                        let images: Vec<Value> = if compat.supports_vision() {
+                            msg.content
+                                .iter()
+                                .filter_map(|b| {
+                                    if let ContentBlock::Image { mime, data } = b {
+                                        Some(json!({
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": format!("data:{mime};base64,{data}")
+                                            }
+                                        }))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect()
+                        } else {
+                            if msg
+                                .content
+                                .iter()
+                                .any(|b| matches!(b, ContentBlock::Image { .. }))
+                            {
+                                if !text.is_empty() {
+                                    text.push('\n');
+                                }
+                                text.push_str("[image omitted: model not vision-capable]");
+                            }
+                            Vec::new()
+                        };
+
+                        if images.is_empty() {
+                            result.push(json!({
+                                "role": "user",
+                                "content": text
+                            }));
+                        } else {
+                            let mut parts: Vec<Value> = Vec::new();
+                            if !text.is_empty() {
+                                parts.push(json!({ "type": "text", "text": text }));
+                            }
+                            parts.extend(images);
+                            result.push(json!({
+                                "role": "user",
+                                "content": parts
+                            }));
+                        }
                     }
                 }
                 Role::Assistant => {
@@ -3853,6 +3904,84 @@ mod tests {
         let result = OpenAIProvider::build_messages(&messages, "", &no_compat());
         let assistant_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "assistant").collect();
         assert_eq!(assistant_msgs.len(), 2);
+    }
+
+    #[test]
+    fn test_build_messages_user_image_becomes_multipart() {
+        // A user turn with an inline image lowers to the OpenAI Chat multi-part
+        // array shape: a text part + an image_url data-URI part.
+        let messages = vec![Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text {
+                    text: "describe".into(),
+                },
+                ContentBlock::Image {
+                    mime: "image/png".into(),
+                    data: "QUJD".into(),
+                },
+            ],
+        )];
+        let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
+        let user = result.iter().find(|m| m["role"] == "user").unwrap();
+        let parts = user["content"].as_array().expect("content must be array");
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[0]["text"], "describe");
+        assert_eq!(parts[1]["type"], "image_url");
+        assert_eq!(parts[1]["image_url"]["url"], "data:image/png;base64,QUJD");
+    }
+
+    #[test]
+    fn test_build_messages_user_without_image_stays_string() {
+        // Backwards-compat: no image → plain string content (unchanged wire shape).
+        let messages = vec![Message::new(
+            Role::User,
+            vec![ContentBlock::Text { text: "hi".into() }],
+        )];
+        let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
+        let user = result.iter().find(|m| m["role"] == "user").unwrap();
+        assert_eq!(user["content"], "hi");
+    }
+
+    #[test]
+    fn test_build_messages_non_vision_omits_image_and_emits_placeholder() {
+        // #648: a text-only (non-vision) compat model MUST NOT emit an
+        // `image_url` multipart part — text-only endpoints 400 on it. Instead
+        // the image is dropped and the shared placeholder text is appended, so
+        // the content stays a plain string (soft degradation, no hard reject).
+        let messages = vec![Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text {
+                    text: "describe".into(),
+                },
+                ContentBlock::Image {
+                    mime: "image/png".into(),
+                    data: "QUJD".into(),
+                },
+            ],
+        )];
+        // `no_compat()` is `ProviderCompat::default()` → `supports_vision()` false.
+        let result = OpenAIProvider::build_messages(&messages, "", &no_compat());
+        let user = result.iter().find(|m| m["role"] == "user").unwrap();
+
+        // Content is the plain-string form, NOT a multipart array.
+        assert!(
+            user["content"].is_string(),
+            "non-vision content must stay a plain string, got: {}",
+            user["content"]
+        );
+        let content = user["content"].as_str().unwrap();
+        assert_eq!(
+            content,
+            "describe\n[image omitted: model not vision-capable]"
+        );
+
+        // Belt-and-suspenders: the serialized message must carry no image_url.
+        assert!(
+            !user.to_string().contains("image_url"),
+            "non-vision message must not serialize an image_url part"
+        );
     }
 
     // --- replays_thinking_in_history (finding #174) ---
