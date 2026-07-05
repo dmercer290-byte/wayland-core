@@ -1,0 +1,4 @@
+# Clean-room workspace lint config. Shadows the parent repo's clippy.toml so
+# its egress-chokepoint rule (ban on raw `reqwest::Client::new`) doesn't apply
+# here yet — the single-egress-client discipline lands with the egress crate
+# (see README "Roadmap to parity"). Re-add the disallowed-methods entry then.
