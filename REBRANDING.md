@@ -57,3 +57,30 @@ as-is (the fork has no npm packages yet).
    idempotent re-add path in `wcore-mcp/tool_proxy.rs` + `wcore-cli/main.rs`
    (#135) — check whether upstream shipped its own equivalents before keeping
    ours (upstream did exactly that for two other fixes at 0.12.20).
+
+## Product env vars renamed so far (grow this list each merge)
+
+Every `WAYLAND_*` env var EXCEPT `WAYLAND_DISPLAY` is a product var and
+becomes `GENESIS_*`. Inventory as of the v0.12.24 merge: `GENESIS_HOME`,
+`GENESIS_CONTRADICTION`, `GENESIS_BASH_SHELL`, `GENESIS_BASH_ALLOW_NETWORK`,
+`GENESIS_SANDBOX`, `GENESIS_ALLOW_NO_SANDBOX`, `GENESIS_SANDBOX_LIVE_WINDOWS`,
+`GENESIS_DISABLE_FILE_STATE_GUARD`, `GENESIS_VAULT_PASSPHRASE`,
+`GENESIS_VAULT_PASSPHRASE_FD`, plus any new `WAYLAND_*` upstream introduces.
+
+**Desktop-app pairing caveat**: the upstream Wayland desktop app spawns the
+engine with `WAYLAND_*` vars (e.g. `WAYLAND_VAULT_PASSPHRASE_FD` since app
+v0.11.15). A genesis-core binary swapped into that app will not see them.
+If that pairing is ever needed, add a compat fallback in the engine (read
+`GENESIS_X`, fall back to `WAYLAND_X`) rather than un-renaming — a central
+helper in `wcore-config` is the right place, but note call sites currently
+use `std::env::var` directly throughout the tree, so budget a real pass.
+
+## Merge log
+
+- v0.12.22 → merged by local AI (3ee5943, e4ef716, ba2ad3f).
+- v0.12.24 → merged 2026-07-07 (branch `merge-v0.12.24`): 6 conflicts, all
+  resolved as take-upstream + re-rename; 23 merge-touched files swept with
+  the protect-list; 5 plugin crates renamed in `Cargo.lock`; verified with
+  `cargo check --workspace --all-targets` + contradiction/file_state/bash
+  tests. Upstream's `MAX_TOOL_CALLS = 1024` guard (0.12.22) still supersedes
+  the fork's #136 cap; #135 reconciliation (e4ef716) still intact.
