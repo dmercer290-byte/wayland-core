@@ -728,6 +728,10 @@ impl AgentBootstrap {
         // degrades to an honest error when wcore-tools is built without
         // the default-on `pdf` feature.
         registry.register(Box::new(wcore_tools::pdf_tool::PdfTool::new()));
+        // #650: DocExtractTool — read-only office-doc (docx/xlsx/pptx/csv)
+        // extraction. Always registered; degrades to an honest error when
+        // wcore-tools is built without the default-on `doc-extract` feature.
+        registry.register(Box::new(wcore_tools::doc_tool::DocExtractTool::new()));
 
         // v0.6.3 D.0: wire the remaining catalog tools into the live
         // registry. Until D.0 these shipped as `pub mod` code unreachable
@@ -1628,6 +1632,28 @@ impl AgentBootstrap {
         if let Some(block) = user_ctx_block {
             system_prompt.push_str(&block);
         }
+        // #660 — honest capability availability. Env-gated tools (vision, image
+        // generation, transcription, …) hide themselves from the schema when
+        // unconfigured; without this advisory the model fabricates a cause
+        // instead of naming the missing key. `registry` is the final tool set
+        // here for local (posture `None`) and `Full`-posture engines, so its
+        // absences are accurate.
+        //
+        // Skipped for a restrictive channel posture (Conversational/Workspace):
+        // there the capability tools are stripped by `apply_posture` further
+        // below — governed by posture, not API keys — so a key-naming advisory
+        // read from the still-full registry would be both stale and misleading.
+        // Inbound-media blindness on those channel engines is instead surfaced
+        // honestly by the channel-media degraded notices.
+        let restrictive_channel_posture = self
+            .channel_tool_posture
+            .as_ref()
+            .is_some_and(|s| s.posture != wcore_channels::ChannelToolPosture::Full);
+        if !restrictive_channel_posture
+            && let Some(block) = crate::capability_advisory::render_capability_advisory(&registry)
+        {
+            system_prompt.push_str(&block);
+        }
         self.config.system_prompt = Some(system_prompt);
 
         // W6 — opt the catalog into cross-project skill resolution. The
@@ -2016,7 +2042,17 @@ impl AgentBootstrap {
             self.config.advertised_capabilities.online_evolution = true;
         }
 
-        let tool_defs_snapshot = registry.to_tool_defs();
+        let mut tool_defs_snapshot = registry.to_tool_defs();
+        // Layer D1 (token-opt): mark cold tools deferred in the snapshot so
+        // ToolSearch can find and hydrate them — it only searches defs with
+        // `deferred == true`. Same pure config-driven split the engine
+        // applies to every outbound tools[] array.
+        if self.config.builtin_tools.defer_cold.enabled {
+            wcore_tools::registry::apply_cold_deferral(
+                &mut tool_defs_snapshot,
+                &self.config.builtin_tools.defer_cold.hot_allowlist,
+            );
+        }
         registry.register(Box::new(wcore_tools::tool_search::ToolSearchTool::new(
             tool_defs_snapshot,
         )));
@@ -2104,10 +2140,18 @@ impl AgentBootstrap {
         // channel) install a `Trusted` policy derived from this session's
         // working directory.
         if registry.workspace_policy().is_none() {
+            // #657 (Overwatch ruling, Sean-confirmed): grant Bash network egress
+            // (`Inherit`) only for a genuinely-local session — no channel posture
+            // attached. Any channel path (including `Full`) is a remote sender and
+            // stays on the fail-safe Deny default that `trusted_local` seeds.
+            let network = wcore_tools::workspace_policy::local_bash_network(
+                self.channel_tool_posture.is_some(),
+            );
             let policy = std::sync::Arc::new(
                 wcore_tools::workspace_policy::WorkspacePolicy::trusted_local(
                     std::path::PathBuf::from(&self.workspace),
-                ),
+                )
+                .with_network(network),
             );
             registry.set_workspace_policy(policy);
         }
@@ -2545,22 +2589,23 @@ impl AgentBootstrap {
                 // is built. Bytes are fetched through the originating connector
                 // (auth-aware: the connector uses its own token), then the
                 // host-wired vision/transcription backend derives the text.
-                // Inert (and skipped) when neither backend has an API key.
+                //
+                // #660: installed even when NO backend is configured. With a
+                // backend absent the enricher no longer sits idle — it writes an
+                // honest degraded notice ("no vision backend; cannot see this
+                // image; set a key") into the attachment so the model never
+                // answers an unseen image blind from a bare URL.
                 let media_enricher = {
                     let vision = crate::tool_backends::build_vision_backend();
                     let transcription = crate::tool_backends::build_transcription_backend();
-                    if vision.is_none() && transcription.is_none() {
-                        None
-                    } else {
-                        let source = Arc::new(crate::channel_media::ManagerMediaSource::new(
-                            std::sync::Arc::clone(&lifted),
-                        ));
-                        Some(Arc::new(crate::channel_media::ChannelMediaEnricher::new(
-                            vision,
-                            transcription,
-                            source,
-                        )))
-                    }
+                    let source = Arc::new(crate::channel_media::ManagerMediaSource::new(
+                        std::sync::Arc::clone(&lifted),
+                    ));
+                    Some(Arc::new(crate::channel_media::ChannelMediaEnricher::new(
+                        vision,
+                        transcription,
+                        source,
+                    )))
                 };
 
                 let dispatcher: Arc<dyn crate::channel_inbound::TurnDispatcher> =

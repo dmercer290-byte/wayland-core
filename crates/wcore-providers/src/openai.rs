@@ -309,11 +309,62 @@ impl OpenAIProvider {
                             })
                             .collect::<Vec<_>>()
                             .join("\n");
-                        let text = strip_patterns_from_text(&text, compat);
-                        result.push(json!({
-                            "role": "user",
-                            "content": text
-                        }));
+                        let mut text = strip_patterns_from_text(&text, compat);
+
+                        // #648: vision capability gate. If the turn carries inline
+                        // images, OpenAI Chat requires the multi-part array shape
+                        // with `image_url` parts. But text-only endpoints (deepseek,
+                        // cerebras, perplexity, …) 400 on an `image_url` part, so
+                        // only emit it when `compat.supports_vision()`. Otherwise
+                        // drop the image and append the shared placeholder text —
+                        // the same soft degradation cohere / bedrock (mistral) /
+                        // genesis-ollama already do.
+                        let images: Vec<Value> = if compat.supports_vision() {
+                            msg.content
+                                .iter()
+                                .filter_map(|b| {
+                                    if let ContentBlock::Image { mime, data } = b {
+                                        Some(json!({
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": format!("data:{mime};base64,{data}")
+                                            }
+                                        }))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect()
+                        } else {
+                            if msg
+                                .content
+                                .iter()
+                                .any(|b| matches!(b, ContentBlock::Image { .. }))
+                            {
+                                if !text.is_empty() {
+                                    text.push('\n');
+                                }
+                                text.push_str("[image omitted: model not vision-capable]");
+                            }
+                            Vec::new()
+                        };
+
+                        if images.is_empty() {
+                            result.push(json!({
+                                "role": "user",
+                                "content": text
+                            }));
+                        } else {
+                            let mut parts: Vec<Value> = Vec::new();
+                            if !text.is_empty() {
+                                parts.push(json!({ "type": "text", "text": text }));
+                            }
+                            parts.extend(images);
+                            result.push(json!({
+                                "role": "user",
+                                "content": parts
+                            }));
+                        }
                     }
                 }
                 Role::Assistant => {
@@ -468,7 +519,25 @@ impl OpenAIProvider {
     }
 
     fn build_tools(tools: &[ToolDef]) -> Vec<Value> {
-        tools
+        // Layer E1 (token-opt): serialize in a deterministic order — sorted
+        // by tool name — so the tools[] array is byte-identical across
+        // round-trips of one conversation regardless of registration /
+        // curation order. The array is part of the cached prompt prefix; a
+        // reordered array changes the prefix bytes and silently busts prompt
+        // caching. Schema / description / deferred are the DUPLICATE-NAME
+        // tiebreak: the registry does not forbid duplicate registration, and
+        // a name-only (stable) sort would keep input order for equal names —
+        // byte-unstable again.
+        let mut ordered: Vec<&ToolDef> = tools.iter().collect();
+        ordered.sort_by_cached_key(|t| {
+            (
+                t.name.clone(),
+                serde_json::to_string(&t.input_schema).unwrap_or_default(),
+                t.description.clone(),
+                t.deferred,
+            )
+        });
+        ordered
             .iter()
             .map(|t| {
                 if t.deferred {
@@ -477,9 +546,10 @@ impl OpenAIProvider {
                         "type": "function",
                         "function": {
                             "name": encode_tool_name(&t.name),
-                            "description": format!(
-                                "(Deferred) {short_desc} — Use ToolSearch to load full schema before calling."
-                            ),
+                            // Layer D2: no per-stub "use ToolSearch"
+                            // boilerplate — the system prompt states the
+                            // hydration rule once.
+                            "description": format!("(Deferred) {short_desc}"),
                             "parameters": {
                                 "type": "object",
                                 "properties": {}
@@ -726,6 +796,22 @@ impl OpenAIProvider {
             body["tools"] = json!(Self::build_tools(&request.tools));
         }
 
+        // Flux sticky-session / prefix-cache key. On a Flux tier alias the
+        // conversation id doubles as the OpenAI `prompt_cache_key`: the router
+        // uses it to pin the whole conversation to one backend (a mid-session
+        // backend hop is a cold cache pool, re-billing the full prefix at full
+        // price), and OpenAI-compatible upstreams use it as their documented
+        // cache-routing hint. Gated exactly like the x-wl-* context headers: a
+        // concrete model id (or an absent conversation_id) keeps the body
+        // byte-identical to today, since generic OpenAI-compatible endpoints
+        // can 400 on unknown fields.
+        if is_flux_tier_alias(&request.model)
+            && let Some(id) = request.conversation_id.as_deref()
+            && !id.trim().is_empty()
+        {
+            body["prompt_cache_key"] = json!(id);
+        }
+
         // Gate `reasoning_effort` on the model family. gpt-4o (and other
         // classic chat families) 400 on the field; only o1*/o3*/gpt-5*
         // accept it. This MUST stay per-request: one OpenAIProvider serves
@@ -780,7 +866,7 @@ impl OpenAIProvider {
 /// `Authorization` header, so any non-empty value works. Sending this lets a
 /// keyless local connection succeed instead of failing the turn with
 /// `MissingApiKey` (surfaced in the UI as "OpenAI API key is required").
-const SELF_HOSTED_PLACEHOLDER_KEY: &str = "wayland-local";
+const SELF_HOSTED_PLACEHOLDER_KEY: &str = "genesis-local";
 
 /// True when `base_url`'s host is a self-hosted address that is plausibly
 /// keyless: loopback (`localhost`, `127.0.0.0/8`, `::1`), unspecified
@@ -3254,6 +3340,52 @@ mod tests {
         );
     }
 
+    // --- SPEC-V2 CORE-1: Flux sticky-session prompt_cache_key -------------
+
+    /// On a Flux tier alias with a conversation id, the body carries
+    /// `prompt_cache_key = conversation_id` so the router can pin the
+    /// conversation to one backend (cache affinity) and OpenAI-compatible
+    /// upstreams get their cache-routing hint.
+    #[test]
+    fn build_request_body_stamps_prompt_cache_key_on_tier_alias() {
+        let mut req = stop_req();
+        req.model = "flux-auto".into();
+        req.conversation_id = Some("conv-abc".into());
+        let body = stop_provider().build_request_body(&req);
+        assert_eq!(body["prompt_cache_key"], json!("conv-abc"));
+    }
+
+    /// A concrete model id opts OUT: the body must stay byte-identical to
+    /// today (generic OpenAI-compatible endpoints can 400 on unknown fields).
+    #[test]
+    fn build_request_body_no_prompt_cache_key_for_concrete_model() {
+        let mut req = stop_req();
+        req.model = "gpt-4o".into();
+        req.conversation_id = Some("conv-abc".into());
+        let body = stop_provider().build_request_body(&req);
+        assert!(body.get("prompt_cache_key").is_none());
+    }
+
+    /// Absent (or empty) conversation_id skips the field entirely — never
+    /// emit an empty cache key.
+    #[test]
+    fn build_request_body_no_prompt_cache_key_without_conversation_id() {
+        let mut req = stop_req();
+        req.model = "flux-auto".into();
+        req.conversation_id = None;
+        let body = stop_provider().build_request_body(&req);
+        assert!(body.get("prompt_cache_key").is_none());
+
+        req.conversation_id = Some(String::new());
+        let body = stop_provider().build_request_body(&req);
+        assert!(body.get("prompt_cache_key").is_none());
+
+        // Whitespace-only ids are degenerate cache keys too (GLM-5.2 audit).
+        req.conversation_id = Some("   ".into());
+        let body = stop_provider().build_request_body(&req);
+        assert!(body.get("prompt_cache_key").is_none());
+    }
+
     // --- Crucible #3: per-tier temperature emission -----------------------
 
     #[test]
@@ -3853,6 +3985,84 @@ mod tests {
         let result = OpenAIProvider::build_messages(&messages, "", &no_compat());
         let assistant_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "assistant").collect();
         assert_eq!(assistant_msgs.len(), 2);
+    }
+
+    #[test]
+    fn test_build_messages_user_image_becomes_multipart() {
+        // A user turn with an inline image lowers to the OpenAI Chat multi-part
+        // array shape: a text part + an image_url data-URI part.
+        let messages = vec![Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text {
+                    text: "describe".into(),
+                },
+                ContentBlock::Image {
+                    mime: "image/png".into(),
+                    data: "QUJD".into(),
+                },
+            ],
+        )];
+        let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
+        let user = result.iter().find(|m| m["role"] == "user").unwrap();
+        let parts = user["content"].as_array().expect("content must be array");
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[0]["text"], "describe");
+        assert_eq!(parts[1]["type"], "image_url");
+        assert_eq!(parts[1]["image_url"]["url"], "data:image/png;base64,QUJD");
+    }
+
+    #[test]
+    fn test_build_messages_user_without_image_stays_string() {
+        // Backwards-compat: no image → plain string content (unchanged wire shape).
+        let messages = vec![Message::new(
+            Role::User,
+            vec![ContentBlock::Text { text: "hi".into() }],
+        )];
+        let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
+        let user = result.iter().find(|m| m["role"] == "user").unwrap();
+        assert_eq!(user["content"], "hi");
+    }
+
+    #[test]
+    fn test_build_messages_non_vision_omits_image_and_emits_placeholder() {
+        // #648: a text-only (non-vision) compat model MUST NOT emit an
+        // `image_url` multipart part — text-only endpoints 400 on it. Instead
+        // the image is dropped and the shared placeholder text is appended, so
+        // the content stays a plain string (soft degradation, no hard reject).
+        let messages = vec![Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text {
+                    text: "describe".into(),
+                },
+                ContentBlock::Image {
+                    mime: "image/png".into(),
+                    data: "QUJD".into(),
+                },
+            ],
+        )];
+        // `no_compat()` is `ProviderCompat::default()` → `supports_vision()` false.
+        let result = OpenAIProvider::build_messages(&messages, "", &no_compat());
+        let user = result.iter().find(|m| m["role"] == "user").unwrap();
+
+        // Content is the plain-string form, NOT a multipart array.
+        assert!(
+            user["content"].is_string(),
+            "non-vision content must stay a plain string, got: {}",
+            user["content"]
+        );
+        let content = user["content"].as_str().unwrap();
+        assert_eq!(
+            content,
+            "describe\n[image omitted: model not vision-capable]"
+        );
+
+        // Belt-and-suspenders: the serialized message must carry no image_url.
+        assert!(
+            !user.to_string().contains("image_url"),
+            "non-vision message must not serialize an image_url part"
+        );
     }
 
     // --- replays_thinking_in_history (finding #174) ---
@@ -4495,7 +4705,84 @@ mod tests {
         let spawn_params = &result[1]["function"]["parameters"];
         assert!(spawn_params["properties"].as_object().unwrap().is_empty());
         let spawn_desc = result[1]["function"]["description"].as_str().unwrap();
-        assert!(spawn_desc.contains("ToolSearch"));
+        assert!(spawn_desc.starts_with("(Deferred)"));
+        // Layer D2: the per-stub "use ToolSearch" boilerplate is gone — the
+        // system prompt states the hydration rule once.
+        assert!(!spawn_desc.contains("Use ToolSearch"));
+    }
+
+    /// Layer E1 regression guard: the serialized tools[] array must be
+    /// byte-identical across two consecutive round-trips of one conversation
+    /// — even when the input ToolDef order differs (registration vs curation
+    /// order). The array is part of the cached prompt prefix; any byte drift
+    /// silently busts prompt caching.
+    #[test]
+    fn tools_array_byte_stable_across_roundtrips() {
+        let read = ToolDef {
+            name: "Read".into(),
+            description: "Read a file".into(),
+            input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+            deferred: false,
+            server: None,
+        };
+        let bash = ToolDef {
+            name: "Bash".into(),
+            description: "Run a shell command".into(),
+            input_schema: json!({"type": "object", "properties": {"cmd": {"type": "string"}}}),
+            deferred: false,
+            server: None,
+        };
+        let spawn = ToolDef {
+            name: "SpawnTool".into(),
+            description: "Spawn sub-agents".into(),
+            input_schema: json!({"type": "object", "properties": {"agents": {"type": "array"}}}),
+            deferred: true,
+            server: None,
+        };
+
+        // Two builds from the same input (turn N and turn N+1).
+        let defs = vec![read.clone(), bash.clone(), spawn.clone()];
+        let turn1 = serde_json::to_string(&OpenAIProvider::build_tools(&defs)).unwrap();
+        let turn2 = serde_json::to_string(&OpenAIProvider::build_tools(&defs)).unwrap();
+        assert_eq!(turn1, turn2, "same input must serialize byte-identically");
+
+        // A build from a reordered input (e.g. a curation pass shuffled the
+        // registry order mid-conversation) must STILL be byte-identical.
+        let reordered =
+            serde_json::to_string(&OpenAIProvider::build_tools(&[spawn, bash, read])).unwrap();
+        assert_eq!(
+            turn1, reordered,
+            "reordered input must serialize byte-identically (deterministic name sort)"
+        );
+
+        // DUPLICATE names must not reintroduce input-order dependence: the
+        // registry does not forbid duplicate registration, and a stable
+        // name-only sort keeps input order for equal names. The
+        // schema/description tiebreak makes duplicates order-independent too.
+        let dup_a = ToolDef {
+            name: "Read".into(),
+            description: "Read a file (duplicate registration)".into(),
+            input_schema: serde_json::json!({"type": "object", "properties": {"offset": {"type": "integer"}}}),
+            deferred: false,
+            server: None,
+        };
+        let dup_b = ToolDef {
+            name: "Read".into(),
+            description: "Read a file".into(),
+            input_schema: serde_json::json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+            deferred: false,
+            server: None,
+        };
+        let one = serde_json::to_string(&OpenAIProvider::build_tools(&[
+            dup_a.clone(),
+            dup_b.clone(),
+        ]))
+        .unwrap();
+        let other = serde_json::to_string(&OpenAIProvider::build_tools(&[dup_b, dup_a])).unwrap();
+        assert_eq!(
+            one, other,
+            "duplicate names must serialize byte-identically regardless of input order"
+        );
     }
 
     /// #297: WCore tool ids contain `:` / `::` / `.`, which OpenAI rejects with
@@ -4722,21 +5009,30 @@ mod tests {
         ];
         let result = OpenAIProvider::build_tools(&tools);
 
+        // build_tools serializes in deterministic name order (Layer E1), so
+        // look entries up by name instead of input position.
+        let by_name = |name: &str| -> &Value {
+            result
+                .iter()
+                .find(|t| t["function"]["name"] == name)
+                .unwrap_or_else(|| panic!("tool {name} missing from serialized array"))
+        };
+
         // bare {type:object} -> gains properties:{} and required:[]
-        let exec = &result[0]["function"]["parameters"];
+        let exec = &by_name("execute")["function"]["parameters"];
         assert_eq!(exec["type"], "object");
         assert!(exec["properties"].is_object());
         assert!(exec["properties"].as_object().unwrap().is_empty());
         assert!(exec["required"].is_array());
 
         // additionalProperties is preserved; properties + required still added
-        let ijfw = &result[1]["function"]["parameters"];
+        let ijfw = &by_name("ijfw_run")["function"]["parameters"];
         assert!(ijfw["properties"].is_object());
         assert_eq!(ijfw["additionalProperties"], json!(true));
         assert!(ijfw["required"].is_array());
 
         // a well-formed schema is passed through untouched
-        let read = &result[2]["function"]["parameters"];
+        let read = &by_name("Read")["function"]["parameters"];
         assert!(read["properties"].get("path").is_some());
         assert_eq!(read["required"], json!(["path"]));
     }
