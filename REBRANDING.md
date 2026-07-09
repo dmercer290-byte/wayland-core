@@ -52,8 +52,11 @@ as-is (the fork has no npm packages yet).
    tests, then audit both directions:
    - leftover product "wayland": `grep -rIni wayland . | grep -v <protect-list>` → should be empty
    - wrongly renamed protocol text: `grep -rIn 'Genesis' | grep -iE 'compositor|wlrctl|grim|x11|sway|mutter|xdg'` → should be empty
-5. Fork-added changes to preserve across merges: `MAX_TOOL_CALL_SLOTS` cap in
-   `wcore-providers/src/openai.rs` (#136) and the `replace_single_server_tools`
-   idempotent re-add path in `wcore-mcp/tool_proxy.rs` + `wcore-cli/main.rs`
-   (#135) — check whether upstream shipped its own equivalents before keeping
-   ours (upstream did exactly that for two other fixes at 0.12.20).
+5. Fork-added changes to preserve across merges: the
+   `replace_single_server_tools` idempotent re-add path in
+   `wcore-mcp/tool_proxy.rs` + `wcore-cli/main.rs` (#135) — check whether
+   upstream shipped its own equivalents before keeping ours (upstream did
+   exactly that for two other fixes at 0.12.20, and again for the #136
+   tool-call-slot cap: upstream's `MAX_TOOL_CALLS` in
+   `wcore-providers/src/openai.rs` superseded the fork's
+   `MAX_TOOL_CALL_SLOTS` at the v0.12.22 merge).

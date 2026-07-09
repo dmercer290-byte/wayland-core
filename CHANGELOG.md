@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.12.23](https://github.com/FerroxLabs/wayland-core/compare/v0.12.22...v0.12.23) (2026-07-05)
+
+A capabilities-and-honesty release. The engine now reasons in images across
+every provider, extracts text from office documents, and is candid about what it
+can and cannot do — while three fixes make failures loud, close a web-policy
+bypass, and keep network access bounded to genuinely-local sessions.
+
+
+### Highlights
+
+* **Images as first-class content across all providers** (#648). A new
+  `ContentBlock::Image` is encoded consistently for every OpenAI-compatible
+  model, gated by a real `supports_vision` capability check so vision-blind
+  models fail clearly instead of silently dropping the image.
+* **`vision_analyze` accepts local image files** (#637), not just URLs — point it
+  at a path on disk and it reads the bytes directly.
+* **Office-document extraction** (#650, Phase 1). A new `doc_extract` tool pulls
+  text out of office documents, with an explicit truncation contract so callers
+  know when output was cut.
+* **Honest capability availability** (#660). A boot-time advisory and
+  channel-media notices tell you up front what the running configuration can
+  actually do, instead of discovering a gap mid-task.
+
+
+### Reliability
+
+* **Consecutive tool failures are counted globally, not per-tool** (#160), so a
+  model alternating between two failing tools still trips the runaway-loop cap.
+* **Oversized tool outputs are shed before a context-overflow abort** (#636), and
+  **silently-undersized context windows are corrected with a drift guard**
+  (#165) so long sessions degrade gracefully instead of dying.
+* **Conversation-heavy overflow degrades cleanly** at the second compaction rung
+  (#646).
+* **Per-assistant scoping for config MCP servers** (#111) keeps one assistant's
+  MCP configuration from leaking into another's.
+
+
+### Security & correctness
+
+* **Website policy fails CLOSED** (#662). When a website-access policy cannot be
+  evaluated (present but malformed config), access is denied rather than allowed
+  — closing a bypass at the single chokepoint every caller funnels through.
+* **`network=Inherit` is gated to genuinely-local sessions only** (#657). A
+  channel- or Full-posture session no longer inherits ambient network access;
+  only a session with no channel tool-posture stays local-inherit.
+* **Tools fail loud instead of empty-success** (#661). Swallowed failures that
+  previously returned an empty success now surface as real errors.
+* **Silent operator and feature toggles are logged** (#664) across memory, tools,
+  and browser, so state changes are auditable.
+
 ## [0.12.22](https://github.com/FerroxLabs/wayland-core/compare/v0.12.21...v0.12.22) (2026-07-04)
 
 A reliability release focused on runaway-loop resilience and honest tool-error

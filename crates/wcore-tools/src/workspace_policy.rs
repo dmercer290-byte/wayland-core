@@ -138,6 +138,14 @@ impl WorkspacePolicy {
             trust: WorkspaceTrust::Trusted,
             writable_extra,
             readable_extra,
+            // #657: the bare constructor is fail-safe — network is seeded from
+            // `default_bash_network_policy()` (Deny unless `GENESIS_BASH_ALLOW_NETWORK`).
+            // Network egress is granted only for a GENUINELY-LOCAL session, and
+            // that grant is applied at bootstrap via `with_network(Inherit)` gated
+            // on `channel_tool_posture.is_none()` (see `local_bash_network`). A
+            // channel-attached session — including `Full` posture — is a remote
+            // sender and stays on this Deny default: it must not get a networked
+            // shell by default (Overwatch ruling on #657, Sean-confirmed).
             network: crate::bash::default_bash_network_policy(),
             cache_env: Vec::new(),
             secret_deny,
@@ -178,6 +186,11 @@ impl WorkspacePolicy {
             trust: WorkspaceTrust::Contained,
             writable_extra,
             readable_extra,
+            // #657: a Contained (untrusted / remote `Workspace`) posture runs
+            // potentially attacker-influenced content, so egress stays DENIED to
+            // keep the exfil boundary tight. `GENESIS_BASH_ALLOW_NETWORK=1`
+            // remains the explicit operator escape hatch (via
+            // `default_bash_network_policy`).
             network: crate::bash::default_bash_network_policy(),
             cache_env,
             secret_deny,
@@ -203,6 +216,14 @@ impl WorkspacePolicy {
     }
     pub fn network(&self) -> NetworkPolicy {
         self.network.clone()
+    }
+
+    /// Override the network posture. Used at bootstrap to grant `Inherit` to a
+    /// genuinely-local session (see [`local_bash_network`]); the bare
+    /// constructors stay on the fail-safe Deny default.
+    pub fn with_network(mut self, network: NetworkPolicy) -> Self {
+        self.network = network;
+        self
     }
     pub fn cache_env(&self) -> &[(String, String)] {
         &self.cache_env
@@ -388,6 +409,25 @@ fn scratch_dirs() -> Vec<PathBuf> {
     vec![canon(tmp)]
 }
 
+/// #657 (Overwatch ruling, Sean-confirmed): the Bash network posture for a
+/// `Trusted` workspace is `Inherit` (egress ON — npm/pip/cargo/brew installs,
+/// curl, git fetch just work) ONLY for a GENUINELY-LOCAL session: one with no
+/// channel posture attached (local CLI / TUI / json-stream / ACP / desktop).
+///
+/// A channel-attached session — INCLUDING `Full` posture — is a remote sender.
+/// It stays on the pre-#657 lockdown: `default_bash_network_policy()` (Deny
+/// unless the operator sets `GENESIS_BASH_ALLOW_NETWORK`). A remote-triggered
+/// context does not get a networked shell by default; if a real
+/// remote-networked-shell use case appears, it becomes a deliberate per-channel
+/// opt-in, not the default.
+pub fn local_bash_network(has_channel_posture: bool) -> NetworkPolicy {
+    if has_channel_posture {
+        crate::bash::default_bash_network_policy()
+    } else {
+        NetworkPolicy::Inherit
+    }
+}
+
 /// Minimal read/exec toolchain dirs for a contained shell to run compilers.
 fn minimal_toolchain_read_dirs() -> Vec<PathBuf> {
     let mut v = Vec::new();
@@ -440,12 +480,48 @@ mod tests {
     }
 
     #[test]
-    fn network_preserves_the_opt_in_default_deny() {
-        // Default (no env) => Deny. The opt-in is honored elsewhere; here we
-        // assert the policy does not hardcode Deny independent of the helper.
+    fn network_is_gated_on_trust_posture() {
+        // #657 (Overwatch ruling, Sean-confirmed): the bare `trusted_local`
+        // constructor is fail-safe — it seeds network from the shared helper
+        // (Deny unless `GENESIS_BASH_ALLOW_NETWORK`), NOT unconditional Inherit.
+        // Egress is granted only at bootstrap for a genuinely-local session; see
+        // `local_bash_network` + `with_network`. Contained stays denied too.
         let dir = tempfile::tempdir().unwrap();
-        let p = WorkspacePolicy::contained(dir.path());
-        assert_eq!(p.network(), crate::bash::default_bash_network_policy());
+        assert_eq!(
+            WorkspacePolicy::trusted_local(dir.path()).network(),
+            crate::bash::default_bash_network_policy(),
+            "bare trusted_local must be fail-safe (Deny default), not network-on"
+        );
+        assert_eq!(
+            WorkspacePolicy::contained(dir.path()).network(),
+            crate::bash::default_bash_network_policy(),
+            "a contained workspace stays denied (env opt-in via the helper)"
+        );
+        // `with_network` is the explicit local grant applied at bootstrap.
+        assert_eq!(
+            WorkspacePolicy::trusted_local(dir.path())
+                .with_network(NetworkPolicy::Inherit)
+                .network(),
+            NetworkPolicy::Inherit,
+            "with_network must override the fail-safe default"
+        );
+    }
+
+    #[test]
+    fn local_bash_network_grants_inherit_only_without_channel_posture() {
+        // The gate: a genuinely-local session (no channel posture) gets network
+        // egress; any channel-attached session — including Full — stays on the
+        // pre-#657 lockdown (default_bash_network_policy = Deny + env hatch).
+        assert_eq!(
+            local_bash_network(false),
+            NetworkPolicy::Inherit,
+            "genuinely-local session must get network egress"
+        );
+        assert_eq!(
+            local_bash_network(true),
+            crate::bash::default_bash_network_policy(),
+            "a channel-attached session (incl Full) must stay on the Deny default"
+        );
     }
 
     #[test]
