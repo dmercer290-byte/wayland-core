@@ -219,7 +219,14 @@ pub fn register_single_server_tools(
     builtin_names: &[String],
     deferred: bool,
 ) {
-    single_server_tools_impl(registry, manager, server_name, builtin_names, deferred, false);
+    single_server_tools_impl(
+        registry,
+        manager,
+        server_name,
+        builtin_names,
+        deferred,
+        false,
+    );
 }
 
 /// #135: idempotent variant of [`register_single_server_tools`] for re-adding
@@ -234,7 +241,14 @@ pub fn replace_single_server_tools(
     builtin_names: &[String],
     deferred: bool,
 ) {
-    single_server_tools_impl(registry, manager, server_name, builtin_names, deferred, true);
+    single_server_tools_impl(
+        registry,
+        manager,
+        server_name,
+        builtin_names,
+        deferred,
+        true,
+    );
 }
 
 /// The display names [`register_single_server_tools`] would register for this
@@ -250,7 +264,9 @@ pub fn single_server_display_names(
         .all_tools()
         .iter()
         .filter(|(sn, _)| *sn == server_name)
-        .map(|(_, tool_def)| single_server_display_name(manager, server_name, builtin_names, &tool_def.name))
+        .map(|(_, tool_def)| {
+            single_server_display_name(manager, server_name, builtin_names, &tool_def.name)
+        })
         .collect()
 }
 

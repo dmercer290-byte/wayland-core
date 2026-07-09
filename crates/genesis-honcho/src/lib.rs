@@ -22,7 +22,7 @@ pub mod plugin;
 
 pub use api::{DialecticInference, UserProfile};
 pub use error::{HonchoError, Result};
-pub use plugin::{MANIFEST_TOML, GenesisHoncho, GenesisHonchoFactory};
+pub use plugin::{GenesisHoncho, GenesisHonchoFactory, MANIFEST_TOML};
 
 use std::sync::Arc;
 

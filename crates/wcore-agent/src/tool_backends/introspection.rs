@@ -34,8 +34,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use wcore_tools::genesis_introspection::{
-    IntrospectionOutcome, StatusQuery, TelemetryQuery as ToolTelemetryQuery,
-    GenesisIntrospectionBackend,
+    GenesisIntrospectionBackend, IntrospectionOutcome, StatusQuery,
+    TelemetryQuery as ToolTelemetryQuery,
 };
 
 use crate::session_state::{ProviderHealthStatus, SessionStateReader};

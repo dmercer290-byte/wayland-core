@@ -3000,8 +3000,7 @@ async fn run_json_stream_mode(
                         // REPLACE, not an append — otherwise every re-add leaks
                         // a live child process and stacks duplicate registry
                         // entries whose stale first match wins in `get()`.
-                        let existing_idx =
-                            dynamic_managers.iter().position(|(n, _)| n == &name);
+                        let existing_idx = dynamic_managers.iter().position(|(n, _)| n == &name);
                         // Wave OR: `registry_mut` returns `Option` because
                         // the registry is now Arc-shared. At this CLI boot
                         // site the engine is not running so the refcount

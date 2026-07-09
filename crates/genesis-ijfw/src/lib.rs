@@ -30,4 +30,4 @@ pub mod rules;
 pub mod skills;
 pub mod tools;
 
-pub use plugin::{MANIFEST_TOML, GenesisIjfw, GenesisIjfwFactory};
+pub use plugin::{GenesisIjfw, GenesisIjfwFactory, MANIFEST_TOML};

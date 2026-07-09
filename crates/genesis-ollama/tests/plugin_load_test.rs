@@ -7,7 +7,7 @@
 
 use wcore_plugin_api::{Plugin, PluginFactory, PluginManifest};
 
-use genesis_ollama::{MANIFEST_TOML, GenesisOllama, GenesisOllamaFactory};
+use genesis_ollama::{GenesisOllama, GenesisOllamaFactory, MANIFEST_TOML};
 
 #[test]
 fn plugin_manifest_parses_and_validates() {

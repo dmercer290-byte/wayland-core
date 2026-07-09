@@ -2,7 +2,7 @@
 //! and the default CuaToolSpec is the api-crate mirror (NOT a
 //! wcore-cua type).
 
-use genesis_cua::{MANIFEST_TOML, GenesisCua, default_cua_spec};
+use genesis_cua::{GenesisCua, MANIFEST_TOML, default_cua_spec};
 use wcore_plugin_api::{Plugin, PluginManifest};
 
 #[test]

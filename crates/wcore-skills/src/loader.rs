@@ -7,8 +7,8 @@ use crate::bundled;
 use crate::frontmatter::{parse_frontmatter_with_source, parse_skill_fields};
 use crate::mcp::load_mcp_skills;
 use crate::paths::{
-    additional_skills_dirs, project_commands_dirs, project_skills_dirs, user_commands_dir,
-    user_skills_dir, genesis_home_skills_dirs,
+    additional_skills_dirs, genesis_home_skills_dirs, project_commands_dirs, project_skills_dirs,
+    user_commands_dir, user_skills_dir,
 };
 use crate::types::{LoadedFrom, SkillMetadata, SkillSource};
 use wcore_mcp::manager::McpManager;

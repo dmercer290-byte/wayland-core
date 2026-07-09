@@ -7,8 +7,8 @@
 //!    wiremock server. Exercises JSON parsing and the 404→empty Vec
 //!    fallback without burning live API credit.
 
-use serde_json::json;
 use genesis_honcho::{DialecticInference, HonchoClient};
+use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 

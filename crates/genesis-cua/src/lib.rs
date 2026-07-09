@@ -21,4 +21,4 @@
 
 pub mod plugin;
 
-pub use plugin::{MANIFEST_TOML, GenesisCua, GenesisCuaFactory, default_cua_spec};
+pub use plugin::{GenesisCua, GenesisCuaFactory, MANIFEST_TOML, default_cua_spec};

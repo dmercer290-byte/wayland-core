@@ -11,5 +11,5 @@
 pub mod plugin;
 pub mod provider;
 
-pub use plugin::{MANIFEST_TOML, GenesisOllama, GenesisOllamaFactory};
+pub use plugin::{GenesisOllama, GenesisOllamaFactory, MANIFEST_TOML};
 pub use provider::{OllamaError, OllamaProvider};

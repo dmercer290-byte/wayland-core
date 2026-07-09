@@ -35,7 +35,7 @@ use crate::tui::render::safe_split::last_safe_split_point;
 use crate::tui::surfaces::{Surface, SurfaceAction, SurfaceId};
 use crate::tui::theme::Theme;
 use crate::tui::turn_element::TurnElement;
-use crate::tui::widgets::{panel, render_sources, render_streaming_status, genesis_banner};
+use crate::tui::widgets::{genesis_banner, panel, render_sources, render_streaming_status};
 
 /// Width of the right rail, in columns (mockup `.rail` is 312px ≈ 34
 /// cells; clamped against the area so a narrow terminal still renders).

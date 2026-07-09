@@ -16,4 +16,4 @@
 
 pub mod plugin;
 
-pub use plugin::{MANIFEST_TOML, GenesisBrowser, GenesisBrowserFactory, default_browser_spec};
+pub use plugin::{GenesisBrowser, GenesisBrowserFactory, MANIFEST_TOML, default_browser_spec};

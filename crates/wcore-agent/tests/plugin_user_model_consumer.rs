@@ -11,8 +11,8 @@
 //! The carrier was populated in v0.6.5 Task 1.5 but had no production
 //! reader; this test guards against regression of that gap.
 
-use serde_json::json;
 use genesis_honcho::HonchoClient;
+use serde_json::json;
 use wcore_agent::plugins::apply::{ReifiedUserModel, ReifiedUserModelBackend};
 use wcore_agent::test_utils::e2e_fixture::E2eFixture;
 use wcore_types::llm::LlmEvent;

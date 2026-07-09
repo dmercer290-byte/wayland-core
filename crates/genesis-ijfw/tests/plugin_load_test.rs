@@ -1,7 +1,7 @@
 //! G.1 acceptance — verify the manifest parses, declares the full
 //! register_* surface, and the factory wires through inventory.
 
-use genesis_ijfw::{MANIFEST_TOML, GenesisIjfw};
+use genesis_ijfw::{GenesisIjfw, MANIFEST_TOML};
 use wcore_plugin_api::{Plugin, PluginManifest};
 
 #[test]

@@ -60,11 +60,11 @@ use wcore_plugin_api::manifest::PluginManifest;
 
 use crate::error::{Result, WasmPluginError};
 use crate::host_adapters::http::{
-    DenyHostHttp, EmptySecretSource, GatedHostHttp, SecretSource, GenesisHostHttp,
+    DenyHostHttp, EmptySecretSource, GatedHostHttp, GenesisHostHttp, SecretSource,
 };
 use crate::host_adapters::log::{GatedHostLog, GenesisHostLog};
 use crate::host_adapters::secrets::{DenyHostSecrets, GatedHostSecrets, GenesisHostSecrets};
-use crate::host_adapters::tools::{DenyHostTools, GatedHostTools, ToolRegistry, GenesisHostTools};
+use crate::host_adapters::tools::{DenyHostTools, GatedHostTools, GenesisHostTools, ToolRegistry};
 use crate::host_adapters::workspace::{
     DenyHostWorkspace, GatedHostWorkspace, GenesisHostWorkspace,
 };

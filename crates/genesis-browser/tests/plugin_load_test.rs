@@ -2,7 +2,7 @@
 //! and the default BrowserToolSpec is the api-crate mirror (NOT a
 //! wcore-browser type).
 
-use genesis_browser::{MANIFEST_TOML, GenesisBrowser, default_browser_spec};
+use genesis_browser::{GenesisBrowser, MANIFEST_TOML, default_browser_spec};
 use wcore_plugin_api::browser_spec::BrowserProviderHint;
 use wcore_plugin_api::{Plugin, PluginManifest};
 
