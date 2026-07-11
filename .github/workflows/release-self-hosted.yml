@@ -59,7 +59,7 @@ jobs:
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update -y && sudo apt-get install -y \
-              build-essential pkg-config libdbus-1-dev libseccomp-dev libasound2-dev curl git \
+              build-essential pkg-config mold libdbus-1-dev libseccomp-dev libasound2-dev curl git \
               || echo "::warning::apt install failed or no sudo - continuing; the build will surface anything missing"
           fi
 
@@ -73,7 +73,16 @@ jobs:
 
       - name: Build release binary
         shell: bash
-        run: cargo build --release --bin ${{ env.BINARY_NAME }}
+        run: |
+          # .cargo/config.toml forces -fuse-ld=mold (a RAM workaround for the
+          # 7GB hosted runners). If mold isn't installed here, override to the
+          # toolchain default (rust-lld ships with Rust 1.84+; no system dep) -
+          # a self-hosted box with real RAM doesn't need the workaround.
+          if ! command -v mold >/dev/null 2>&1; then
+            echo "mold not found - overriding to the default linker via RUSTFLAGS"
+            export RUSTFLAGS=""
+          fi
+          cargo build --release --bin ${{ env.BINARY_NAME }}
 
       - name: Package + checksum
         id: pkg
