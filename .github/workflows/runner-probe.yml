@@ -1,0 +1,26 @@
+name: Runner Probe
+
+# One-shot diagnostic: reports what the self-hosted runner actually is
+# (OS, arch, tools) so the release matrix can be adapted to it.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: Probe self-hosted runner
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - name: Report environment
+        shell: bash
+        run: |
+          echo "runner.os=${{ runner.os }}"
+          echo "runner.arch=${{ runner.arch }}"
+          echo "runner.name=${{ runner.name }}"
+          uname -a || true
+          echo "nproc=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo unknown)"
+          df -h . | tail -1 || true
+          free -h | head -2 || true
+          for tool in cargo rustc gcc cc docker tar gzip curl git node bun; do
+            printf '%-8s' "$tool"; command -v $tool >/dev/null 2>&1 && $tool --version 2>/dev/null | head -1 || echo "MISSING"
+          done
