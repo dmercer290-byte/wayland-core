@@ -1,0 +1,120 @@
+name: Release (self-hosted)
+
+# Cuts an engine release on a self-hosted Linux runner - no GitHub-hosted
+# runners (and no Actions billing) required. Builds the native Linux x86_64
+# target, packages it with the same naming as the main Release workflow, and
+# creates/updates the GitHub release with a genesis-core-checksums.txt.
+# The main release.yml stays the full six-platform pipeline for when hosted
+# runners are available.
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to build and publish (e.g., v0.12.24-genesis-1)"
+        required: true
+        type: string
+      create_from_sha:
+        description: "Optional commit SHA to create tag_name from if the tag does not exist yet"
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  BINARY_NAME: genesis-core
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux-x64:
+    name: Build x86_64-unknown-linux-gnu (self-hosted)
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - name: Create tag from SHA (when missing)
+        if: ${{ inputs.create_from_sha != '' && inputs.create_from_sha != null }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag_name }}
+          SHA: ${{ inputs.create_from_sha }}
+        run: |
+          set -e
+          api() { curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
+          if api "https://api.github.com/repos/${{ github.repository }}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists."
+          else
+            api -X POST "https://api.github.com/repos/${{ github.repository }}/git/refs" \
+              -d "{\"ref\":\"refs/tags/${TAG}\",\"sha\":\"${SHA}\"}" >/dev/null
+            echo "Created tag ${TAG} at ${SHA}."
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/tags/${{ inputs.tag_name }}
+
+      - name: Install system deps (best-effort)
+        shell: bash
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -y && sudo apt-get install -y \
+              build-essential pkg-config libdbus-1-dev libseccomp-dev libasound2-dev curl git \
+              || echo "::warning::apt install failed or no sudo - continuing; the build will surface anything missing"
+          fi
+
+      - name: Install Rust (if missing)
+        shell: bash
+        run: |
+          if ! command -v cargo >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Build release binary
+        shell: bash
+        run: cargo build --release --bin ${{ env.BINARY_NAME }}
+
+      - name: Package + checksum
+        id: pkg
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag_name }}
+        run: |
+          set -e
+          VERSION="${TAG#v}"
+          ARCHIVE="genesis-core-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          mkdir -p dist
+          tar -C target/release -czf "dist/${ARCHIVE}" ${{ env.BINARY_NAME }}
+          (cd dist && sha256sum genesis-core-* > genesis-core-checksums.txt)
+          cat dist/genesis-core-checksums.txt
+          echo "archive=${ARCHIVE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release + upload assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag_name }}
+        run: |
+          set -e
+          api() { curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
+          # Find or create the release for this tag.
+          rid=$(api "https://api.github.com/repos/${{ github.repository }}/releases/tags/${TAG}" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])" 2>/dev/null || true)
+          if [ -z "$rid" ]; then
+            rid=$(api -X POST "https://api.github.com/repos/${{ github.repository }}/releases" \
+              -d "{\"tag_name\":\"${TAG}\",\"name\":\"${TAG}\",\"body\":\"Self-hosted engine release (Linux x86_64). Built on the fork's own runner.\"}" \
+              | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+          fi
+          echo "Release id: $rid"
+          for f in dist/*; do
+            name=$(basename "$f")
+            # Replace an existing asset of the same name (idempotent re-runs).
+            aid=$(api "https://api.github.com/repos/${{ github.repository }}/releases/${rid}/assets?per_page=100" \
+              | python3 -c "import json,sys; print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='$name'), ''))")
+            [ -n "$aid" ] && api -X DELETE "https://api.github.com/repos/${{ github.repository }}/releases/assets/${aid}" || true
+            curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
+              --data-binary @"$f" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/${rid}/assets?name=${name}" >/dev/null
+            echo "Uploaded ${name}"
+          done
+          echo "Release ${TAG} published with $(ls dist | wc -l) assets."
