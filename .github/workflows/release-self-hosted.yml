@@ -58,8 +58,12 @@ jobs:
         shell: bash
         run: |
           if command -v apt-get >/dev/null 2>&1; then
+            # Hosted ubuntu images preinstall libssl-dev/cmake/clang; a fresh
+            # self-hosted box does not - install everything the workspace's
+            # -sys crates may probe for.
             sudo apt-get update -y && sudo apt-get install -y \
-              build-essential pkg-config mold libdbus-1-dev libseccomp-dev libasound2-dev curl git \
+              build-essential pkg-config mold libssl-dev cmake clang protobuf-compiler \
+              libdbus-1-dev libseccomp-dev libasound2-dev curl git \
               || echo "::warning::apt install failed or no sudo - continuing; the build will surface anything missing"
           fi
 
