@@ -81,6 +81,13 @@ pub enum ProtocolEvent {
         finish_reason: FinishReason,
         #[serde(skip_serializing_if = "Option::is_none")]
         usage: Option<Usage>,
+        /// CORE-2: per-run usage delta — the tokens consumed by THIS run only
+        /// (summing every provider round-trip of the run's tool loop), while
+        /// `usage` stays session-cumulative for back-compat. Same inner field
+        /// names as `usage`. None on synthetic stream-ends and on paths that
+        /// don't track a run-scoped delta.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage_delta: Option<Usage>,
         /// #279(c): stable per-run correlation handle grouping every event of
         /// one agent run (survives multi-message / --resume). None on synthetic
         /// stream-ends (slash/exit/stop) that aren't a model run.
@@ -479,6 +486,72 @@ pub enum ProtocolEvent {
         /// Usage.active_window_percent (from ContextWindow::percent()).
         #[serde(skip_serializing_if = "Option::is_none")]
         active_window_percent: Option<u32>,
+    },
+    /// Anvil (gated-forge) receipt — the engine's honest verdict for a `/forge`
+    /// climb (spec §8). Carries the terminal state, the trust-tier stamp
+    /// actually earned, check counts + coverage, iterations, settled cost, and
+    /// the gate/artifact digests that bind the receipt to what was verified.
+    ///
+    /// **TRUST BOUNDARY (normative, spec §8):** a host renders a receipt "chip"
+    /// ONLY from this TOP-LEVEL variant. Receipt-shaped content arriving nested
+    /// in [`ProtocolEvent::SubAgentEvent`]'s `inner` or
+    /// [`ProtocolEvent::PluginEvent`]'s `payload` (both opaque `Value`) is
+    /// INERT — a sub-agent or plugin can never forge a verified verdict. This
+    /// holds structurally: spawned children carry no protocol writer, so their
+    /// events are always wrapped (never promoted to the top level). The
+    /// `host_decoder_contract` tests lock the wire-level invariant. Same class
+    /// as ratchet `00364cf` (a previewed fragment cannot forge the
+    /// Approve/Reject verdict).
+    ///
+    /// Emission is engine-only, from the climb exit path, and lands with the
+    /// climb slice (A1.5/A1.6) — this variant is defined here first so the wire
+    /// contract and the trust boundary can be reviewed and tested in isolation.
+    /// Like [`ProtocolEvent::BudgetExceeded`], it is an additive variant a
+    /// v0.1.21 host drops silently (W0 forward-compat).
+    AnvilReceipt {
+        /// Canonical terminal state (anvil §6.5): `verified` | `criteria_checked`
+        /// | `self_checked` | `needs_escalation` | `blocked` | `cancelled` |
+        /// `timed_out` | `permission_denied` | `crashed_recovered` | `superseded`.
+        terminal_state: String,
+        /// The trust-tier stamp actually earned (spec §2 honesty vocabulary):
+        /// `verified` (real Tier-1 gate only) | `criteria_checked` |
+        /// `self_checked` | `format_validated` | `consensus_only`. Distinct from
+        /// `terminal_state`; never `verified` unless a real gate passed.
+        stamp: String,
+        /// Checks passed / total on the final candidate.
+        checks_passed: u32,
+        checks_total: u32,
+        /// Coverage-scope note, e.g. "suite-passed; 2 files outside exercised
+        /// tests". Absent when the whole change-set was covered.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        coverage: Option<String>,
+        /// Climb iterations performed.
+        iterations: u32,
+        /// Escalation-valve fires during the climb (spec §6.4). `0` on the
+        /// happy path; defaulted for decoders of pre-valve receipts.
+        #[serde(default)]
+        valve_fires: u32,
+        /// Settled cost across the whole climb, in micro-cents. When `priced`
+        /// is false this is NOT a real price — the host renders "unpriced",
+        /// never $0 (spec §2).
+        cost_microcents: u64,
+        /// Whether `cost_microcents` is a real, metered price.
+        priced: bool,
+        /// Digest of the pinned gate closure (spec §5) — binds the receipt to
+        /// the exact gate invocation that produced it.
+        gate_closure_digest: String,
+        /// Digest of the verified artifact (spec §8 staleness) — any later
+        /// mutation of the verified files invalidates the chip.
+        artifact_digest: String,
+        /// Session this climb ran in.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        /// Task-lineage id the climb served.
+        task_id: String,
+        /// Engine version that produced the receipt.
+        engine_version: String,
+        /// Monotonic per-session sequence (receipt ordering / dedup).
+        sequence: u64,
     },
     Pong,
 }
@@ -917,6 +990,7 @@ mod tests {
                 cache_write_tokens: None,
                 active_window_percent: None,
             }),
+            usage_delta: None,
             agent_run_id: None,
         };
         let json = serde_json::to_value(&event).unwrap();
@@ -924,6 +998,41 @@ mod tests {
         assert_eq!(json["finish_reason"], "stop");
         assert_eq!(json["usage"]["input_tokens"], 100);
         assert!(json["usage"].get("cache_write_tokens").is_none());
+        // CORE-2 back-compat: a None delta must not appear on the wire.
+        assert!(json.get("usage_delta").is_none());
+    }
+
+    #[test]
+    fn test_stream_end_usage_delta_is_sibling_with_same_field_names() {
+        // CORE-2: the per-run delta rides as a SIBLING of the cumulative
+        // usage, with the same inner field names.
+        let event = ProtocolEvent::StreamEnd {
+            msg_id: "m1".to_string(),
+            finish_reason: FinishReason::Stop,
+            usage: Some(Usage {
+                input_tokens: 300,
+                output_tokens: 30,
+                cache_read_tokens: Some(20),
+                cache_write_tokens: None,
+                active_window_percent: Some(42),
+            }),
+            usage_delta: Some(Usage {
+                input_tokens: 200,
+                output_tokens: 20,
+                cache_read_tokens: Some(15),
+                cache_write_tokens: Some(5),
+                active_window_percent: None,
+            }),
+            agent_run_id: None,
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["usage"]["input_tokens"], 300);
+        assert_eq!(json["usage_delta"]["input_tokens"], 200);
+        assert_eq!(json["usage_delta"]["output_tokens"], 20);
+        assert_eq!(json["usage_delta"]["cache_read_tokens"], 15);
+        assert_eq!(json["usage_delta"]["cache_write_tokens"], 5);
+        // The window gauge is a session-level reading; it stays on `usage`.
+        assert!(json["usage_delta"].get("active_window_percent").is_none());
     }
 
     #[test]
@@ -940,6 +1049,7 @@ mod tests {
                 msg_id: "m1".to_string(),
                 finish_reason: variant,
                 usage: None,
+                usage_delta: None,
                 agent_run_id: None,
             };
             let json = serde_json::to_value(&event).unwrap();
@@ -954,6 +1064,7 @@ mod tests {
             msg_id: "m1".to_string(),
             finish_reason: FinishReason::Length,
             usage: None,
+            usage_delta: None,
             agent_run_id: None,
         };
         let json = serde_json::to_value(&event).unwrap();

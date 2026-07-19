@@ -58,6 +58,7 @@ fn turn_req() -> TurnRequest {
         session_id: "s1".to_string(),
         text: "write the probe".to_string(),
         tools: Vec::new(),
+        agent: None,
     }
 }
 
@@ -86,6 +87,7 @@ async fn mutating_tool_emits_approval_required_before_result() {
             },
             MessageEvent::Done {
                 stop_reason: "end_turn".to_string(),
+                turn_id: String::new(),
             },
         ],
     };
@@ -162,6 +164,7 @@ async fn force_posture_emits_bare_tool_call_without_gate() {
             },
             MessageEvent::Done {
                 stop_reason: "end_turn".to_string(),
+                turn_id: String::new(),
             },
         ],
     };

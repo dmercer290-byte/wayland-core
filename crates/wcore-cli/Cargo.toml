@@ -189,6 +189,8 @@ toml.workspace = true
 url.workspace = true
 regex.workspace = true
 serde.workspace = true
+# `serde_yaml` parses Hermes `config.yaml` for the `migrate` importer (#228).
+serde_yaml.workspace = true
 thiserror.workspace = true
 dirs.workspace = true
 reqwest = { workspace = true, features = ["blocking"], optional = true }
@@ -246,7 +248,7 @@ rand.workspace = true
 # W6 B.7: test the boot-time `McpReady` emission helper against a
 # pre-populated `McpManager` without spinning up real transports.
 wcore-mcp = { path = "../wcore-mcp", features = ["test-utils"] }
-# wayland#551: `integrate_deferred_mcp` tests drive a real engine via
+# genesis#551: `integrate_deferred_mcp` tests drive a real engine via
 # `AgentBootstrap::build_for_test` (mirrors wcore-agent's own self-dep).
 wcore-agent = { path = "../wcore-agent", features = ["test-utils"] }
 # v0.6.4 Task 2.4: mcp-serve smoke test constructs a FakeTool against

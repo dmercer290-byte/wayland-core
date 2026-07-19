@@ -556,9 +556,22 @@ pub fn registry() -> &'static FileStateRegistry {
 
 /// Read each call so tests can toggle via `std::env::set_var`.
 fn is_disabled() -> bool {
-    std::env::var("GENESIS_DISABLE_FILE_STATE_GUARD")
+    let disabled = std::env::var("GENESIS_DISABLE_FILE_STATE_GUARD")
         .map(|v| v.trim() == "1")
-        .unwrap_or(false)
+        .unwrap_or(false);
+    // #664: with the guard disabled, concurrent clobbers surface no stale-file
+    // warning. Log once so the weakened-safety state is visible to an operator.
+    if disabled {
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| {
+            tracing::warn!(
+                target: "wcore_tools::file_state",
+                "GENESIS_DISABLE_FILE_STATE_GUARD=1 — the stale-file write guard is OFF; \
+                 concurrent overwrites will not be detected"
+            );
+        });
+    }
+    disabled
 }
 
 /// Current wall-clock time in milliseconds since UNIX epoch.
@@ -609,14 +622,20 @@ pub fn known_reads(task_id: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::fs;
     use std::sync::{Arc, Mutex as StdMutex, OnceLock};
     use std::time::Duration;
     use tempfile::tempdir;
 
-    /// Tests use the process singleton, so they MUST run serially —
-    /// `cargo test` runs threads in parallel by default. A test-only
-    /// mutex serialises every test in this module against every other.
+    /// Tests here mutate the process-global `GENESIS_DISABLE_FILE_STATE_GUARD`
+    /// env var and the shared registry singleton, so they MUST run serially.
+    /// Every test carries `#[serial]`, which serialises them against ALL other
+    /// env-mutating tests in the whole `wcore-tools` test binary — the environ
+    /// table is process-global, so a concurrent mutation from another module is
+    /// a data race (unsafe in edition 2024) that a module-local mutex cannot
+    /// prevent. This mutex is kept as redundant belt-and-suspenders that also
+    /// gates the registry reset in `TestEnv`.
     fn test_serializer() -> &'static StdMutex<()> {
         static LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| StdMutex::new(()))
@@ -633,8 +652,9 @@ mod tests {
         fn new() -> Self {
             let guard = test_serializer().lock().unwrap_or_else(|p| p.into_inner());
             // Force-disable the env flag; some shells inherit it.
-            // SAFETY: We hold the test serializer lock, so no other
-            // thread inside this module is touching env vars.
+            // SAFETY: every test here is `#[serial]`, so no other env-mutating
+            // test in this binary runs concurrently; the module mutex adds
+            // intra-module coordination on top.
             unsafe {
                 std::env::remove_var("GENESIS_DISABLE_FILE_STATE_GUARD");
             }
@@ -654,6 +674,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn record_then_check_clean_returns_none() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -666,6 +687,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn write_without_read_warns() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -685,6 +707,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn sibling_write_after_read_warns() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -710,6 +733,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn external_mtime_drift_warns() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -731,6 +755,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn partial_read_warns_on_write() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -751,6 +776,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn note_write_clears_own_partial_flag() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -767,6 +793,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn disable_flag_makes_all_ops_noop() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -790,6 +817,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn writes_since_filters_correctly() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -818,6 +846,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn known_reads_returns_recorded_paths() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -834,6 +863,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn per_path_lock_serializes_same_path() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -881,6 +911,7 @@ mod tests {
     /// acquire→drop cycles on one path exercise the unlock path under the
     /// `ManuallyDrop` ordering; under Miri this would trip on a wrong order.
     #[test]
+    #[serial]
     fn path_lock_guard_releases_on_drop() {
         let _env = TestEnv::new();
         let dir = tempdir().unwrap();
@@ -903,6 +934,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cap_drops_oldest_per_agent() {
         let _env = TestEnv::new();
         // Synthetic mtime override so we don't need to touch the
@@ -925,6 +957,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn nonexistent_file_does_not_warn() {
         let _env = TestEnv::new();
         // record_read on a path that does not exist must be silently

@@ -15,7 +15,7 @@ use wcore_tools::grep::GrepTool;
 use wcore_tools::read::ReadTool;
 use wcore_tools::registry::ToolRegistry;
 use wcore_tools::write::WriteTool;
-use wcore_types::message::TokenUsage;
+use wcore_types::message::{FinishReason, TokenUsage};
 
 use crate::agents::bus::{AgentBus, AgentMessage, now_ms, preview};
 use crate::agents::channel_sink::ChannelSink;
@@ -26,6 +26,58 @@ use crate::output::null_sink::NullSink;
 
 // Re-export from wcore-types — single source of truth
 pub use wcore_types::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentResult};
+
+/// #661 (fail-loud) — build a [`SubAgentResult`] from a sub-agent's terminal
+/// [`AgentResult`](crate::engine::AgentResult).
+///
+/// A run that terminated abnormally — the turn cap, a budget/context ceiling,
+/// the retry-cap guardrail, or the runaway-loop breaker — returns `Ok` with
+/// empty text and a non-`Stop` finish reason. Copying that into
+/// `is_error: false` made the parent LLM read it as "the sub-agent completed and
+/// found nothing", so it reasoned from false info. Instead derive `is_error`
+/// from the finish reason, and when the terminated body is empty synthesize a
+/// cause line so the failure is legible rather than a silent empty success.
+fn subagent_ok_result(name: String, result: crate::engine::AgentResult) -> SubAgentResult {
+    // A clean EndTurn is `Stop`. `MaxTurns`/`Error` are unambiguous abnormal
+    // terminations. `Length` is ambiguous: a run aborted at the context/budget
+    // ceiling returns `Length` with EMPTY text (a real failure), but a complete
+    // answer that ends exactly at the output-token cap also returns `Length`
+    // WITH usable text — a degraded-but-usable answer, not a failure. Flagging
+    // the latter would wrongly drop it from council quorum (is_usable), so treat
+    // a non-empty `Length` as success; only an empty `Length` is an error.
+    let is_error = match result.finish_reason {
+        FinishReason::Stop => false,
+        FinishReason::Length => result.text.trim().is_empty(),
+        FinishReason::MaxTurns | FinishReason::Error => true,
+    };
+    let text = if is_error && result.text.trim().is_empty() {
+        format!(
+            "[sub-agent terminated without completing its task: {}]",
+            describe_finish_reason(result.finish_reason)
+        )
+    } else {
+        result.text
+    };
+    SubAgentResult {
+        name,
+        text,
+        usage: result.usage,
+        turns: result.turns,
+        is_error,
+    }
+}
+
+/// Human-readable cause for an abnormal sub-agent termination.
+fn describe_finish_reason(reason: FinishReason) -> &'static str {
+    match reason {
+        FinishReason::MaxTurns => "reached the turn limit before finishing",
+        FinishReason::Length => "hit a context, budget, or output-length limit",
+        FinishReason::Error => "ended with an error",
+        // Not reachable from the error branch (Stop == clean completion), but
+        // keep the match total.
+        FinishReason::Stop => "stopped",
+    }
+}
 
 /// v0.8.0 Task J — preview cap for `AgentMessage::FirstMessage.content_preview`.
 /// Kept small so a chatty parent's prompts don't bloat the broadcast
@@ -262,13 +314,7 @@ impl AgentSpawner {
             Ok(result) => {
                 self.publish_completed(&sub_config.name, result.turns, result.usage.output_tokens);
                 guard.outcome = TerminalOutcome::Published;
-                SubAgentResult {
-                    name: sub_config.name,
-                    text: result.text,
-                    usage: result.usage,
-                    turns: result.turns,
-                    is_error: false,
-                }
+                subagent_ok_result(sub_config.name, result)
             }
             Err(e) => {
                 self.publish_errored(&sub_config.name, &e.to_string());
@@ -520,13 +566,7 @@ impl AgentSpawner {
                     "sub-agent '{}' completed ({} turns)",
                     sub_config.name, result.turns
                 ));
-                SubAgentResult {
-                    name: sub_config.name,
-                    text: result.text,
-                    usage: result.usage,
-                    turns: result.turns,
-                    is_error: false,
-                }
+                subagent_ok_result(sub_config.name, result)
             }
             Err(e) => {
                 self.publish_errored(&sub_config.name, &e.to_string());
@@ -712,13 +752,7 @@ impl Spawner for AgentSpawner {
             Ok(result) => {
                 self.publish_completed(&sub_config.name, result.turns, result.usage.output_tokens);
                 guard.outcome = TerminalOutcome::Published;
-                SubAgentResult {
-                    name: sub_config.name,
-                    text: result.text,
-                    usage: result.usage,
-                    turns: result.turns,
-                    is_error: false,
-                }
+                subagent_ok_result(sub_config.name, result)
             }
             Err(e) => {
                 self.publish_errored(&sub_config.name, &e.to_string());
@@ -1292,5 +1326,77 @@ mod posture_inheritance_tests {
             "a cancelled parent must short-circuit the child before the provider; got: {}",
             result.text
         );
+    }
+}
+
+#[cfg(test)]
+mod fail_loud_tests {
+    use super::subagent_ok_result;
+    use wcore_types::message::{FinishReason, StopReason, TokenUsage};
+
+    fn agent_result(text: &str, finish: FinishReason) -> crate::engine::AgentResult {
+        crate::engine::AgentResult {
+            text: text.to_string(),
+            // stop_reason is hardcoded to MaxTurns by finish_run_terminated
+            // regardless of the real cause, which is why subagent_ok_result
+            // branches on finish_reason, not stop_reason.
+            stop_reason: StopReason::MaxTurns,
+            finish_reason: finish,
+            usage: TokenUsage::default(),
+            usage_delta: TokenUsage::default(),
+            turns: 3,
+            active_window_percent: None,
+            agent_run_id: None,
+        }
+    }
+
+    #[test]
+    fn terminated_empty_run_is_error_with_synthesized_cause() {
+        // #661: a sub-agent that hit the turn cap with no output must be an
+        // error carrying a legible cause, not a silent empty success.
+        let out = subagent_ok_result("child".into(), agent_result("", FinishReason::MaxTurns));
+        assert!(out.is_error, "a non-Stop finish must be flagged is_error");
+        assert!(
+            out.text.contains("terminated") && out.text.contains("turn limit"),
+            "empty terminated body gets a cause line, got: {}",
+            out.text
+        );
+    }
+
+    #[test]
+    fn token_capped_answer_with_text_is_usable_not_error() {
+        // A complete answer that ends exactly at the output-token cap comes back
+        // as Length WITH text — degraded-but-usable, not a failure. Flagging it
+        // would wrongly drop it from council quorum. Keep text, is_error=false.
+        let out = subagent_ok_result(
+            "child".into(),
+            agent_result("the answer", FinishReason::Length),
+        );
+        assert!(!out.is_error, "a non-empty Length result must stay usable");
+        assert_eq!(out.text, "the answer");
+    }
+
+    #[test]
+    fn empty_length_termination_is_error_with_cause() {
+        // An EMPTY Length (the context/budget-ceiling abort path) produced no
+        // answer → error with a synthesized cause, not a silent empty success.
+        let out = subagent_ok_result("child".into(), agent_result("", FinishReason::Length));
+        assert!(
+            out.is_error,
+            "an empty Length termination is a real failure"
+        );
+        assert!(
+            out.text.contains("context, budget, or output-length limit"),
+            "cause line names the limit, got: {}",
+            out.text
+        );
+    }
+
+    #[test]
+    fn clean_completion_is_success() {
+        // A clean EndTurn (FinishReason::Stop) is the only unconditional success.
+        let out = subagent_ok_result("child".into(), agent_result("done", FinishReason::Stop));
+        assert!(!out.is_error);
+        assert_eq!(out.text, "done");
     }
 }

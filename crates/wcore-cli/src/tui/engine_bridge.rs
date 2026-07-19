@@ -70,7 +70,7 @@ pub struct ChannelEmitter {
     /// carries the unguessable `resume_token` for a bridge-backed approval
     /// (crucible/egress), and EMPTY for a regular tool (no bridge entry —
     /// resolved via `ToolApprove`). All production transports (TUI and, since
-    /// wayland#497, the ACP relay) pass `Some`; `None` (unit tests only)
+    /// genesis#497, the ACP relay) pass `Some`; `None` (unit tests only)
     /// falls back to the legacy call_id-as-token emit. NOTE: the ACP
     /// PROJECTION still drops `resume_token` and its resolve endpoint stays
     /// call_id-keyed — carrying/accepting the secret end-to-end on ACP is
@@ -102,7 +102,7 @@ impl ChannelEmitter {
     /// TUI/ACP emitters where the engine may also emit its own gate frame.
     /// GHSA-8r7g: `approval_bridge` supplies the sync correlation→secret lookup
     /// used to stamp the unguessable `resume_token` onto a bridge-backed gate
-    /// frame (`Some` for the TUI and, since wayland#497, the ACP relay;
+    /// frame (`Some` for the TUI and, since genesis#497, the ACP relay;
     /// `None` only in unit tests).
     pub fn with_dedupe(
         tx: UnboundedSender<ProtocolEvent>,
@@ -332,6 +332,7 @@ impl OutputSink for ChannelSink {
                 cache_write_tokens: (cache_creation_tokens > 0).then_some(cache_creation_tokens),
                 active_window_percent: None,
             }),
+            usage_delta: None,
             agent_run_id: None,
         });
     }
@@ -574,6 +575,7 @@ impl Drop for TerminalGuard {
             msg_id: std::mem::take(&mut self.msg_id),
             finish_reason: FinishReason::Error,
             usage: None,
+            usage_delta: None,
             agent_run_id: None,
         });
     }
@@ -1034,6 +1036,16 @@ impl TuiEngine {
                                 .then_some(result.usage.cache_creation_tokens),
                             active_window_percent: result.active_window_percent,
                         }),
+                        // CORE-2: run-scoped delta beside the cumulative usage.
+                        usage_delta: Some(Usage {
+                            input_tokens: result.usage_delta.input_tokens,
+                            output_tokens: result.usage_delta.output_tokens,
+                            cache_read_tokens: (result.usage_delta.cache_read_tokens > 0)
+                                .then_some(result.usage_delta.cache_read_tokens),
+                            cache_write_tokens: (result.usage_delta.cache_creation_tokens > 0)
+                                .then_some(result.usage_delta.cache_creation_tokens),
+                            active_window_percent: None,
+                        }),
                         agent_run_id: result.agent_run_id.clone(),
                     });
                     term.disarm();
@@ -1051,6 +1063,7 @@ impl TuiEngine {
                         msg_id: msg_id.clone(),
                         finish_reason: FinishReason::Error,
                         usage: None,
+                        usage_delta: None,
                         agent_run_id: None,
                     });
                     term.disarm();
@@ -1093,6 +1106,7 @@ impl TuiEngine {
                 msg_id: String::new(),
                 finish_reason: FinishReason::Error,
                 usage: None,
+                usage_delta: None,
                 agent_run_id: None,
             });
         }

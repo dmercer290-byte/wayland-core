@@ -9,6 +9,7 @@
 //! would all be orphans.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{Args, Subcommand};
@@ -70,6 +71,119 @@ pub struct AcpServeArgs {
     /// bind. Without it, approval-required tools do not auto-execute.
     #[arg(long)]
     pub allow_all_tools: bool,
+
+    /// persona-profiles Phase A — expose the TRUSTED persona-agent roster over
+    /// ACP (`agents/list` + the `session/create.agent` selector). OFF by
+    /// default: without this flag no roster is installed, so `agents/list`
+    /// returns an empty catalog and any `agent` selector resolves to
+    /// `AgentNotFound` — byte-identical to the pre-persona server.
+    ///
+    /// Enumerates ONLY compiled-in `AgentPack` personas and the operator's own
+    /// global agent YAML (`genesis_config_dir()/agents`). It never enumerates
+    /// project-supplied manifests (untrusted repo content) and never isolated
+    /// profiles (a profile is a credential boundary — per-profile isolation is
+    /// the supervisor/router topology, one process per profile, not this
+    /// in-process roster). Personas share this process's single identity: they
+    /// overlay prompt/model/tools only, never credentials.
+    #[arg(long)]
+    pub enable_agent_selection: bool,
+
+    /// Serve as an ISOLATED PROFILE — the profile's own home (credentials,
+    /// `.env`, memory, skills, SOUL), and its provider/model from that home's
+    /// own `config.toml`.
+    ///
+    /// This is the supervisor/router spawn primitive: one `acp serve --profile
+    /// <name>` child process PER profile, each with its own `GENESIS_HOME`, is
+    /// how per-profile identity stays isolated. N profiles are NEVER served
+    /// from one process — that would share this process's global
+    /// `GENESIS_HOME` / credential / egress singletons across identities.
+    ///
+    /// The home is materialized at process entry by
+    /// `profile::activate_for_launch()` (which scans raw argv, so it sees this
+    /// flag) and becomes `GENESIS_HOME`. `Config::resolve` then reads that
+    /// home's own `config.toml` for provider/model — so nothing is routed into
+    /// the config-file `[profiles.<name>]` OVERLAY, which is a distinct
+    /// mechanism whose missing-table case hard-errors.
+    ///
+    /// FAILS CLOSED: if the profile is unknown, has no home on disk, or
+    /// disagrees with an explicitly-set `GENESIS_HOME`, the server refuses to
+    /// start rather than silently falling through to the SHARED DEFAULT home
+    /// and cross-writing another profile's credentials and memory.
+    ///
+    /// `--profile` also works in the GLOBAL position (`genesis-core --profile X
+    /// acp serve`); both positions are validated. This field exists so clap
+    /// accepts and documents the subcommand form — the guard itself reads the
+    /// name from raw argv (see `serve`), which is the single source of truth
+    /// `activate_for_launch` also uses, so the two cannot disagree.
+    #[arg(long, value_name = "NAME")]
+    pub profile: Option<String>,
+
+    /// persona-profiles PR-7 — enable the profile SUPERVISOR/ROUTER. When set,
+    /// isolated profiles are enumerated as `profile:<name>` agents, and a
+    /// `session/create` selecting one spawns a DEDICATED child process
+    /// (`acp serve --profile <name>`) with that profile's own `GENESIS_HOME` /
+    /// credentials and routes the session to it. One process PER profile — N
+    /// profiles are NEVER multiplexed into this process (that would share this
+    /// process's credential / egress singletons across identities).
+    ///
+    /// This is DISTINCT from `--profile` (which makes THIS process serve one
+    /// profile) and from `--enable-agent-selection` (in-process personas that
+    /// share this identity). FAILS CLOSED: selecting an unknown profile is
+    /// `AgentNotFound` and spawns no child. Default-OFF: without it, no profile
+    /// is enumerated or routable and the server behaves byte-identically.
+    #[arg(long)]
+    pub enable_profile_router: bool,
+}
+
+/// Resolve `--profile` to the isolated home the process is ACTUALLY bound to,
+/// refusing every case where the two could disagree.
+///
+/// `profile::activate_for_launch()` already ran at process entry and either set
+/// `GENESIS_HOME` to the profile's home, or — when the name is invalid or the
+/// home does not exist — WARNED and fell through to the shared default home.
+/// That fall-through is tolerable for interactive CLI use but NOT for a host
+/// protocol: an ACP server told to serve profile `work` while actually writing
+/// the default home would cross-write another identity's credentials and
+/// memory. This is the same contract `json_stream_profile_guard` (main.rs)
+/// enforces for `--json-stream`; ACP is the same class of surface.
+///
+/// Returns the resolved home on success, or a loud error string to refuse with.
+fn resolve_profile_home(name: &str) -> Result<PathBuf, String> {
+    let dir = wcore_config::profile::profile_dir(name)
+        .map_err(|e| format!("refusing to serve ACP with an invalid --profile {name:?}: {e}"))?;
+
+    if !dir.is_dir() {
+        return Err(format!(
+            "refusing to serve ACP with --profile {name:?}: no profile home at {}. \
+             Without it the server would fall through to the SHARED DEFAULT home and \
+             cross-write another profile's credentials and memory. Create it with \
+             `genesis-core profile create {name}`.",
+            dir.display()
+        ));
+    }
+
+    // `GENESIS_HOME` is the single source of truth after activation, and an
+    // explicit one always WINS over `--profile` (profile.rs resolution order).
+    // So if it points somewhere else, the flag is a lie about the identity this
+    // process actually serves — refuse rather than serve the wrong home.
+    if let Some(home) = std::env::var_os("GENESIS_HOME") {
+        let home = PathBuf::from(home);
+        let same = match (home.canonicalize(), dir.canonicalize()) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => home == dir,
+        };
+        if !same {
+            return Err(format!(
+                "refusing to serve ACP: --profile {name:?} resolves to {} but GENESIS_HOME is {}. \
+                 An explicit GENESIS_HOME wins over --profile, so this server would serve one \
+                 profile's identity under another's name. Unset one of them.",
+                dir.display(),
+                home.display()
+            ));
+        }
+    }
+
+    Ok(dir)
 }
 
 #[derive(Args, Debug)]
@@ -113,6 +227,47 @@ pub async fn run(args: AcpArgs) -> anyhow::Result<()> {
 const ACP_SERVER_KEY_ACCOUNT: &str = "acp-server-key";
 
 async fn serve(args: AcpServeArgs) -> anyhow::Result<()> {
+    // Bind the isolated profile FIRST — before the bind address is parsed, before
+    // the server's API key is loaded-or-GENERATED into the keychain, before the
+    // config is resolved, and before the egress policy is installed. A refused
+    // profile must have ZERO side effects: if this ran later, `--profile ghost`
+    // (a name with no home) would fall through to the SHARED DEFAULT home, mint
+    // and persist a fresh server key there, and only then refuse. Fails closed —
+    // see `resolve_profile_home`.
+    //
+    // We read the requested profile from RAW ARGV (`requested_profile_from_argv`),
+    // NOT `args.profile`. `--profile` is accepted in two clap positions — global
+    // (`genesis-core --profile X acp serve`) and subcommand (`... acp serve
+    // --profile X`) — and `activate_for_launch` (which binds GENESIS_HOME at
+    // process entry) honors BOTH via the same argv scan. Reading only the
+    // subcommand field would leave the global position unguarded: activation
+    // would fall through to the default home while this guard saw `None` and
+    // waved it past — serving one identity while writing another's. One argv
+    // source keeps the guard and activation in lockstep by construction.
+    if let Some(name) = wcore_config::profile::requested_profile_from_argv() {
+        let home = resolve_profile_home(&name).map_err(|e| anyhow::anyhow!("{e}"))?;
+        eprintln!(
+            "genesis-core acp: serving isolated profile {name:?} (home {})",
+            home.display()
+        );
+    } else if let Some(unbound) =
+        wcore_config::profile::launch_outcome().and_then(|o| o.unbound_selection)
+    {
+        // No `--profile` flag, but activation selected a profile via the `active`
+        // pointer (`genesis-core profile use <name>`) whose home is absent — so it
+        // fell through to the SHARED DEFAULT home. The flag guard above can't see
+        // this (there is no flag); reason on activation's RESULT instead. Fail
+        // closed: serving now would expose the default identity's credentials and
+        // memory under the selected profile's name. Same class as the flag path.
+        return Err(anyhow::anyhow!(
+            "refusing to serve ACP: the active profile {unbound:?} was selected but has no home \
+             on disk, so this process fell through to the SHARED DEFAULT home. Serving would \
+             expose the default identity's credentials and memory under {unbound:?}. Recreate it \
+             (`genesis-core profile create {unbound}`) or clear the selection \
+             (`genesis-core profile use default`)."
+        ));
+    }
+
     let addr: SocketAddr = args
         .bind
         .parse()
@@ -122,31 +277,40 @@ async fn serve(args: AcpServeArgs) -> anyhow::Result<()> {
     // We try to load an existing key from the keychain first; if absent
     // (first run), we generate a new one, persist it, and print it to stderr
     // exactly once. The key is 32 random bytes, hex-encoded → 64 chars.
-    let api_key = match wcore_config::keychain::get_secret(
-        wcore_acp::auth::KEYCHAIN_SERVICE,
-        ACP_SERVER_KEY_ACCOUNT,
-    ) {
+    // persona-profiles PR-7: when the profile SUPERVISOR spawns this process as
+    // a per-profile CHILD, it injects a pre-generated server key via
+    // GENESIS_ACP_SERVER_KEY so the parent's AcpClient can authenticate to us
+    // (X-API-Key) WITHOUT scraping our stderr for a keychain-generated key. The
+    // env var is readable only by this child process (and root); children bind
+    // localhost ephemeral ports. Takes precedence over the keychain path below.
+    let api_key = match std::env::var("GENESIS_ACP_SERVER_KEY") {
         Ok(k) if !k.is_empty() => k,
-        _ => {
-            // First run: generate a fresh key.
-            let random_bytes: [u8; 32] = {
-                let mut buf = [0u8; 32];
-                // Use uuid's rng (already in the workspace) for portability.
-                let id = uuid::Uuid::new_v4();
-                let id2 = uuid::Uuid::new_v4();
-                buf[..16].copy_from_slice(id.as_bytes());
-                buf[16..].copy_from_slice(id2.as_bytes());
-                buf
-            };
-            let key: String = random_bytes.iter().map(|b| format!("{:02x}", b)).collect();
-            store_api_key(ACP_SERVER_KEY_ACCOUNT, &key)
-                .map_err(|e| anyhow::anyhow!("keychain store failed: {e}"))?;
-            eprintln!(
-                "genesis-core acp: generated API key (first run) — \
+        _ => match wcore_config::keychain::get_secret(
+            wcore_acp::auth::KEYCHAIN_SERVICE,
+            ACP_SERVER_KEY_ACCOUNT,
+        ) {
+            Ok(k) if !k.is_empty() => k,
+            _ => {
+                // First run: generate a fresh key.
+                let random_bytes: [u8; 32] = {
+                    let mut buf = [0u8; 32];
+                    // Use uuid's rng (already in the workspace) for portability.
+                    let id = uuid::Uuid::new_v4();
+                    let id2 = uuid::Uuid::new_v4();
+                    buf[..16].copy_from_slice(id.as_bytes());
+                    buf[16..].copy_from_slice(id2.as_bytes());
+                    buf
+                };
+                let key: String = random_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                store_api_key(ACP_SERVER_KEY_ACCOUNT, &key)
+                    .map_err(|e| anyhow::anyhow!("keychain store failed: {e}"))?;
+                eprintln!(
+                    "genesis-core acp: generated API key (first run) — \
                  pass as X-API-Key header:\n  {key}"
-            );
-            key
-        }
+                );
+                key
+            }
+        },
     };
 
     // Resolve a runtime Config for the engine. Provider/model/api-key flags
@@ -164,6 +328,15 @@ async fn serve(args: AcpServeArgs) -> anyhow::Result<()> {
         max_tokens: None,
         max_turns: None,
         system_prompt: None,
+        // NOT the profile name. `CliArgs.profile` selects a config-file
+        // `[profiles.<name>]` OVERLAY table — a DIFFERENT mechanism from an
+        // isolated-home profile, and a missing table is a hard error. An
+        // isolated profile carries its provider/model/keys through its OWN
+        // `config.toml`, which `Config::resolve` already reads because
+        // `genesis_config_dir()` honors the `GENESIS_HOME` that
+        // `activate_for_launch` set from `--profile`. So the overlay is both
+        // redundant here and a footgun (it would abort every profile that
+        // hasn't had a `[profiles.<name>]` table hand-authored).
         profile: None,
         auto_approve: false,
         project_dir: None,
@@ -197,18 +370,73 @@ async fn serve(args: AcpServeArgs) -> anyhow::Result<()> {
             args.bind
         );
     }
-    let turn_engine = Arc::new(
-        crate::acp_engine::EngineTurnEngine::new(config.clone(), cwd.clone())
-            .force_tools(args.allow_all_tools),
-    );
+    // persona-profiles Phase A: build the trusted persona-agent roster ONLY when
+    // the operator opts in. Feature default-OFF — with no roster the server keeps
+    // its pre-persona behaviour exactly (empty `agents/list`, `AgentNotFound` for
+    // any selector, and no persona is resolvable by the engine).
+    //
+    // ONE roster instance is shared by the server (which AUTHORIZES a selector at
+    // session/create) and the turn engine (which RESOLVES that id to the persona
+    // overlay). Sharing the instance is the invariant that makes "what you may
+    // select" and "what may be applied to your engine" the same set — two rosters
+    // could drift and become an authz bypass.
+    //
+    // PR-7: the profile SUPERVISOR shares this same roster — enabling it
+    // enumerates `profile:<name>` agents so `session/create` can AUTHORIZE a
+    // profile selector, which the installed `ProfileRouter` then spawns/routes
+    // to a dedicated child. A roster is built when EITHER feature is on.
+    let roster = if args.enable_agent_selection || args.enable_profile_router {
+        let mut r = crate::acp_roster::CliAgentRoster::from_trusted_sources();
+        if args.enable_agent_selection {
+            eprintln!(
+                "genesis-core acp: persona-agent selection ENABLED — {} trusted agent(s) \
+                 selectable (AgentPack + global operator YAML; project manifests and \
+                 isolated profiles are never enumerated as in-process personas).",
+                r.len()
+            );
+        }
+        if args.enable_profile_router {
+            let profiles = wcore_config::profile::list_profiles();
+            let n = profiles.len();
+            r = r.with_profiles(profiles);
+            eprintln!(
+                "genesis-core acp: profile SUPERVISOR/ROUTER ENABLED — {n} isolated \
+                 profile(s) selectable as profile:<name>; each spawns a dedicated child \
+                 process with its own GENESIS_HOME/credentials (one process per profile, \
+                 fail-closed on unknown profiles)."
+            );
+        }
+        Some(Arc::new(r))
+    } else {
+        None
+    };
+
+    let mut engine = crate::acp_engine::EngineTurnEngine::new(config.clone(), cwd.clone())
+        .force_tools(args.allow_all_tools);
+    if let Some(r) = &roster {
+        engine = engine.with_roster(Arc::clone(r));
+    }
+    let turn_engine = Arc::new(engine);
+
     let a2a = Arc::new(crate::acp_engine::EngineA2aHandler::new(
         agent_id, config, cwd,
     ));
-    let server = Arc::new(
-        AcpServer::new()
-            .with_a2a_handler(a2a)
-            .with_turn_engine(turn_engine),
-    );
+    let mut acp_server = AcpServer::new()
+        .with_a2a_handler(a2a)
+        .with_turn_engine(turn_engine);
+    if let Some(r) = roster {
+        acp_server = acp_server.with_roster(r);
+    }
+    // PR-7: install the profile supervisor. It re-invokes THIS binary as
+    // `acp serve --profile <name>` per selected profile and routes that
+    // session to the child. Only reachable for a `profile:` agent the roster
+    // above authorized (default-OFF ⇒ no profile is ever authorized).
+    if args.enable_profile_router {
+        let router = crate::profile_router::CliProfileRouter::new()
+            .map_err(|e| anyhow::anyhow!("failed to init profile supervisor: {e}"))?;
+        acp_server = acp_server.with_profile_router(Arc::new(router));
+    }
+    let server = Arc::new(acp_server);
 
     // F-017: wire the ApiKeyVerifier so every request must carry
     // X-API-Key: <api_key>. CorsLayer::permissive() is gone — no
@@ -313,6 +541,7 @@ async fn request(args: AcpRequestArgs) -> anyhow::Result<()> {
                     model,
                     tools: Vec::new(),
                     system_prompt: None,
+                    agent: None,
                 })
                 .await
                 .map_err(|e| anyhow::anyhow!("create_session: {e}"))?;
@@ -366,8 +595,113 @@ async fn request(args: AcpRequestArgs) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::time::Duration;
     use tokio::net::TcpListener;
+
+    /// Point `profiles_root()` at a scratch dir and clear any inherited
+    /// `GENESIS_HOME`. Mutates process-global env, hence `#[serial]` on every
+    /// test that calls it.
+    fn with_profiles_root(dir: &std::path::Path) {
+        // SAFETY: these tests are `#[serial]`, so no other test thread is
+        // observing the environment while we mutate it.
+        unsafe {
+            std::env::set_var("GENESIS_PROFILES_ROOT", dir);
+            std::env::remove_var("GENESIS_HOME");
+        }
+    }
+
+    fn clear_profile_env() {
+        // SAFETY: as above — serialized.
+        unsafe {
+            std::env::remove_var("GENESIS_PROFILES_ROOT");
+            std::env::remove_var("GENESIS_HOME");
+        }
+    }
+
+    /// The happy path: a profile whose home exists resolves to that home.
+    #[test]
+    #[serial]
+    fn existing_profile_resolves_to_its_own_home() {
+        let tmp = tempfile::tempdir().unwrap();
+        with_profiles_root(tmp.path());
+        std::fs::create_dir_all(tmp.path().join("work")).unwrap();
+
+        let home = resolve_profile_home("work").expect("an existing profile resolves");
+        assert_eq!(home, tmp.path().join("work"));
+        clear_profile_env();
+    }
+
+    /// THE CORE GUARD: a profile with no home on disk must REFUSE, not fall
+    /// through to the shared default home. Falling through is what
+    /// cross-writes another identity's credentials and memory.
+    #[test]
+    #[serial]
+    fn missing_profile_home_refuses_instead_of_using_the_default_home() {
+        let tmp = tempfile::tempdir().unwrap();
+        with_profiles_root(tmp.path());
+
+        let err = resolve_profile_home("ghost").expect_err("a missing home must refuse");
+        assert!(
+            err.contains("no profile home"),
+            "the refusal must name the cause; got: {err}"
+        );
+        clear_profile_env();
+    }
+
+    /// An explicit `GENESIS_HOME` WINS over `--profile` (profile.rs resolution
+    /// order), so a disagreement means the server would serve one identity
+    /// under another's name. Refuse.
+    #[test]
+    #[serial]
+    fn genesis_home_disagreeing_with_the_profile_refuses() {
+        let tmp = tempfile::tempdir().unwrap();
+        with_profiles_root(tmp.path());
+        std::fs::create_dir_all(tmp.path().join("work")).unwrap();
+        let other = tmp.path().join("somewhere-else");
+        std::fs::create_dir_all(&other).unwrap();
+        // SAFETY: serialized.
+        unsafe { std::env::set_var("GENESIS_HOME", &other) };
+
+        let err = resolve_profile_home("work").expect_err("a mismatched home must refuse");
+        assert!(
+            err.contains("GENESIS_HOME"),
+            "the refusal must name the conflict; got: {err}"
+        );
+        clear_profile_env();
+    }
+
+    /// The agreeing case is NOT a conflict: activation sets `GENESIS_HOME` to
+    /// exactly the profile's home, which is the normal supervisor spawn.
+    #[test]
+    #[serial]
+    fn genesis_home_agreeing_with_the_profile_is_accepted() {
+        let tmp = tempfile::tempdir().unwrap();
+        with_profiles_root(tmp.path());
+        let home = tmp.path().join("work");
+        std::fs::create_dir_all(&home).unwrap();
+        // SAFETY: serialized.
+        unsafe { std::env::set_var("GENESIS_HOME", &home) };
+
+        let got = resolve_profile_home("work").expect("an agreeing home is the normal spawn");
+        assert_eq!(got, home);
+        clear_profile_env();
+    }
+
+    /// A hostile name must never be joined onto the profiles root.
+    #[test]
+    #[serial]
+    fn traversal_name_is_rejected_by_validation() {
+        let tmp = tempfile::tempdir().unwrap();
+        with_profiles_root(tmp.path());
+
+        let err = resolve_profile_home("../../etc").expect_err("traversal must be rejected");
+        assert!(
+            err.contains("invalid --profile"),
+            "the refusal must name it invalid; got: {err}"
+        );
+        clear_profile_env();
+    }
 
     /// End-to-end smoke: `serve` on an ephemeral port, then drive
     /// each `Request` op against it, asserting basic shape.

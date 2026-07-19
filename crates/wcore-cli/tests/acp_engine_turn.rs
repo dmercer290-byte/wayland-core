@@ -81,6 +81,7 @@ async fn acp_turn_streams_text_then_done() {
             session_id: "11111111-2222-3333-4444-aaaaaaaaaaaa".to_string(),
             text: "say hi".to_string(),
             tools: Vec::new(),
+            agent: None,
         })
         .await
         .expect("run_turn establishes a stream");
@@ -109,7 +110,7 @@ async fn acp_turn_streams_text_then_done() {
         "exactly one terminal frame; frames: {frames:?}"
     );
     match frames.last().expect("a terminal frame") {
-        MessageEvent::Done { stop_reason } => assert_eq!(stop_reason, "end_turn"),
+        MessageEvent::Done { stop_reason, .. } => assert_eq!(stop_reason, "end_turn"),
         other => panic!("expected a clean Done last, got {other:?}"),
     }
 }

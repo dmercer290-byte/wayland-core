@@ -1,3 +1,24 @@
+---
+ijfw_version: 1.3.2
+ijfw_schema: 1
+type: software
+primary_type: software
+secondary_types: []
+confidence: 0.907
+detected_at: 2026-07-13T04:27:50.434Z
+signals:
+  - kind: manifest
+    weight: 0.9
+    manifests: [Cargo.toml, Cargo.toml, Cargo.toml, Cargo.toml, Cargo.toml, Cargo.toml]
+  - kind: dir_design
+    weight: 0.4
+    name: design
+  - kind: file_extension_ratio
+    weight: 0.7
+    domain: software
+    ratio: 1
+    count: 1359
+---
 ## Coordination (READ EVERY TASK — multi-agent blackboard)
 
 You are the **core** lane (area label **area:core**). Coordination state lives on GitHub
@@ -185,7 +206,7 @@ genesis-core is a **multi-provider AI agent CLI** written in Rust. It connects t
 LLM providers (Anthropic, OpenAI, AWS Bedrock, Google Vertex AI), orchestrates
 built-in tools (Read, Write, Edit, Bash, Grep, Glob, Spawn), supports MCP
 servers, skills, hooks, and long-term memory. It also exposes a JSON stream
-protocol for host integration (e.g. the Electron-based Wayland desktop app).
+protocol for host integration (e.g. the Electron-based Genesis desktop app).
 
 Tech stack: Rust 2021 edition, stable toolchain, Cargo workspace under `crates/`.
 
@@ -351,7 +372,7 @@ Key references in `docs/` (don't duplicate their content here):
 | [skills.md](docs/skills.md) | Writing skills, front matter, shell expansion, conditional activation |
 | [mcp.md](docs/mcp.md) | MCP server integration, transport types, deferred loading |
 | [advanced.md](docs/advanced.md) | Sub-agents, hooks, memory, plan mode, context compression |
-| [json-stream-protocol.md](docs/json-stream-protocol.md) | JSON Lines protocol spec for host integration (e.g. the Wayland desktop app) |
+| [json-stream-protocol.md](docs/json-stream-protocol.md) | JSON Lines protocol spec for host integration (e.g. the Genesis desktop app) |
 | [troubleshooting.md](docs/troubleshooting.md) | Common errors and solutions |
 
 ### Forbidden

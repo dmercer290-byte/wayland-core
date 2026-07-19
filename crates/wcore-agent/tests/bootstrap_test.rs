@@ -392,7 +392,7 @@ async fn bootstrap_no_mcp_when_no_servers() {
     assert!(result.mcp_managers.is_empty());
 }
 
-/// wayland#551 — `defer_config_mcp(true)` must skip the config-server
+/// genesis#551 — `defer_config_mcp(true)` must skip the config-server
 /// connect entirely: build() returns without dialing (the configured
 /// server here would hang the full 30s per-server budget if dialed —
 /// the exact stall that blew hosts' 30s ready timeout), registers no
@@ -841,6 +841,7 @@ async fn w2_v063_bootstrap_initializes_kg_when_memory_enabled() {
         .expect("search on live memory should not error");
 }
 
+#[serial]
 #[tokio::test]
 async fn w2_v063_bootstrap_skips_kg_when_disabled() {
     // W2 v0.6.3 inverse path: GENESIS_KG=off must not block bootstrap. We

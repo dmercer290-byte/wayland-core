@@ -23,10 +23,12 @@ use tokio::sync::RwLock;
 
 use crate::error::AcpError;
 use crate::protocol::{
-    ErrorCode, JsonRpcError, MessageEvent, MessageSendRequest, SessionCreateRequest,
+    ACP_PROTOCOL_VERSION, AgentsListResponse, ErrorCode, InitializeResponse, JsonRpcError,
+    MessageEvent, MessageSendRequest, ServerCapabilities, SessionCreateRequest,
     SessionCreateResponse, SessionGetResponse, SessionListResponse, SessionMetadata,
     ToolDefinition,
 };
+use crate::roster::AgentRoster;
 use crate::transport::HttpHandler;
 
 /// Internal session record. Wraps [`SessionMetadata`] with the create-time
@@ -47,6 +49,13 @@ struct SessionRecord {
     /// The session's configured tool allowlist. Used as the fallback when a
     /// `message/send` request body carries no per-call tools.
     tools: Vec<ToolDefinition>,
+    /// persona-profiles Phase A: the AUTHORIZED persona-agent id this session
+    /// was created with, if any. Recorded (and readable via
+    /// [`AcpServer::session_agent`]) so a later per-session persona binding
+    /// (PR-4) can resolve the overlay. In PR-2 it is stored + validated only —
+    /// no persona overlay is applied to the engine yet, so selecting an agent
+    /// does NOT change turn behaviour or cross any credential boundary.
+    agent: Option<String>,
 }
 
 /// Minimal ACP server with in-memory session storage.
@@ -68,6 +77,25 @@ pub struct AcpServer {
     /// frame ("no turn engine installed"). Injected from the CLI layer
     /// exactly like `a2a_handler` so `wcore-acp` stays engine-free.
     turn_engine: Option<Arc<dyn crate::turn::TurnEngine>>,
+    /// persona-profiles Phase A — optional persona-agent roster. When `Some`,
+    /// `agents/list` returns the authorized catalog and a `session/create`
+    /// `agent` selector is validated against it. When `None` (the default,
+    /// feature-OFF), `agents/list` is `[]` and any selector is
+    /// `AgentNotFound` — byte-identical to the pre-extension server for
+    /// selector-free clients. Injected from the CLI layer (PR-3's
+    /// `CliAgentRoster`) exactly like `a2a_handler`, keeping `wcore-acp`
+    /// dependency-free.
+    roster: Option<Arc<dyn AgentRoster>>,
+    /// persona-profiles PR-7 — optional profile SUPERVISOR/ROUTER. When `Some`,
+    /// a session whose create-time `agent` is a `profile:<name>` selector is
+    /// routed to a per-profile child process (one process per profile — its own
+    /// `GENESIS_HOME`/keys/memory) instead of the in-process `turn_engine`. When
+    /// `None` (the default, feature-OFF), the roster enumerates no profiles, so
+    /// `session/create` never authorizes one and nothing reaches this path —
+    /// byte-identical to the pre-extension server. Injected from the CLI layer
+    /// (where process spawn + the ACP client pool live), keeping `wcore-acp`
+    /// process-machinery-free.
+    router: Option<Arc<dyn crate::router::ProfileRouter>>,
 }
 
 impl std::fmt::Debug for AcpServer {
@@ -81,6 +109,11 @@ impl std::fmt::Debug for AcpServer {
             .field(
                 "turn_engine",
                 &self.turn_engine.as_ref().map(|_| "<dyn TurnEngine>"),
+            )
+            .field("roster", &self.roster.as_ref().map(|_| "<dyn AgentRoster>"))
+            .field(
+                "router",
+                &self.router.as_ref().map(|_| "<dyn ProfileRouter>"),
             )
             .finish()
     }
@@ -132,6 +165,56 @@ impl AcpServer {
             .await
             .get(session_id)
             .map(|r| r.tools.clone())
+    }
+
+    /// persona-profiles Phase A — install a persona-agent roster. When present,
+    /// `agents/list` returns its authorized catalog and a `session/create`
+    /// `agent` selector is validated against it (`AgentNotFound` on miss).
+    /// When absent, the server is backward-compatible: empty roster, and any
+    /// selector is rejected. Mirrors [`Self::with_a2a_handler`] /
+    /// [`Self::with_turn_engine`].
+    pub fn with_roster(mut self, roster: Arc<dyn AgentRoster>) -> Self {
+        self.roster = Some(roster);
+        self
+    }
+
+    /// Whether a persona-agent roster is installed.
+    pub fn has_roster(&self) -> bool {
+        self.roster.is_some()
+    }
+
+    /// persona-profiles PR-7 — install the profile supervisor/router. When
+    /// present, a session created with a `profile:<name>` agent is routed to a
+    /// per-profile child process instead of the in-process turn engine. When
+    /// absent, no profile is enumerable/authorizable, so nothing reaches the
+    /// router. Mirrors [`Self::with_turn_engine`] / [`Self::with_roster`].
+    pub fn with_profile_router(mut self, router: Arc<dyn crate::router::ProfileRouter>) -> Self {
+        self.router = Some(router);
+        self
+    }
+
+    /// Whether a profile supervisor/router is installed.
+    pub fn has_profile_router(&self) -> bool {
+        self.router.is_some()
+    }
+
+    /// persona-profiles PR-7 — whether an agent selector names a per-PROFILE
+    /// agent (routed to its own child process) rather than an in-process
+    /// persona overlay. `profile:` is the wire prefix of a profile-agent id.
+    fn is_profile_agent(agent: Option<&str>) -> bool {
+        agent.is_some_and(|a| a.starts_with("profile:"))
+    }
+
+    /// The AUTHORIZED persona-agent id bound to `session_id` at create-time, if
+    /// the session exists and selected one. Parallels [`Self::session_tools`].
+    /// A later per-session persona binding (PR-4) reads this to resolve the
+    /// overlay; in PR-2 it is a read-only record of the validated selector.
+    pub async fn session_agent(&self, session_id: &str) -> Option<String> {
+        self.sessions
+            .read()
+            .await
+            .get(session_id)
+            .and_then(|r| r.agent.clone())
     }
 
     /// v0.8.1 U12 — dispatch `a2a/handshake`.
@@ -188,6 +271,26 @@ impl HttpHandler for AcpServer {
         &self,
         req: SessionCreateRequest,
     ) -> Result<SessionCreateResponse, AcpError> {
+        // persona-profiles Phase A (R3): if the client selected a persona-agent,
+        // AUTHORIZE it against the installed roster BEFORE creating the session.
+        // The roster returns only agents the principal may use, so a miss (or no
+        // roster at all) is `AgentNotFound` — which doubles as "not authorized"
+        // without leaking existence. A selector-free create is untouched, keeping
+        // the pre-extension wire byte-identical (compat regression proof).
+        //
+        // NOTE this only VALIDATES + RECORDS the id; it applies NO persona
+        // overlay to the engine (system_prompt/model/tools stay as configured).
+        // Binding the persona is PR-4 — deliberately not done here.
+        if let Some(agent_id) = req.agent.as_deref() {
+            let authorized = match &self.roster {
+                Some(roster) => roster.contains(agent_id).await,
+                None => false,
+            };
+            if !authorized {
+                return Err(AcpError::Agent(format!("agent not found: {agent_id}")));
+            }
+        }
+
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_secs();
         let metadata = SessionMetadata {
@@ -201,11 +304,62 @@ impl HttpHandler for AcpServer {
             metadata: metadata.clone(),
             system_prompt: req.system_prompt.clone(),
             tools: req.tools.clone(),
+            agent: req.agent.clone(),
         };
         self.sessions.write().await.insert(id.clone(), record);
+
+        // persona-profiles PR-7: a `profile:<name>` agent routes to a per-PROFILE
+        // CHILD process (its own GENESIS_HOME/identity). Spawn/open it now and map
+        // this parent session to the child. FAIL CLOSED — on any error discard the
+        // just-inserted parent record, so a failed bind never leaves a session
+        // that could later fall through to this process's default identity.
+        if Self::is_profile_agent(req.agent.as_deref()) {
+            let agent_id = req.agent.as_deref().unwrap_or_default();
+            let opened = match &self.router {
+                Some(router) => router.open(&id, agent_id, &req).await,
+                // Authorized as a profile agent but no supervisor is installed —
+                // a misconfiguration. Fail closed rather than silently serving
+                // the default identity under the profile's name.
+                None => Err(AcpError::Agent(format!("agent not found: {agent_id}"))),
+            };
+            if let Err(e) = opened {
+                self.sessions.write().await.remove(&id);
+                return Err(e);
+            }
+        }
+
         Ok(SessionCreateResponse {
             session_id: id,
             model: req.model,
+        })
+    }
+
+    async fn list_agents(&self) -> Result<AgentsListResponse, AcpError> {
+        // Feature default-OFF: no roster installed ⇒ empty catalog (`[]`),
+        // backward-compatible. When installed, the roster returns ONLY the
+        // agents the calling principal is authorized to see (R3), each exposing
+        // just id/label/description (R4).
+        match &self.roster {
+            Some(roster) => Ok(AgentsListResponse {
+                agents: roster.list().await?,
+            }),
+            None => Ok(AgentsListResponse { agents: Vec::new() }),
+        }
+    }
+
+    async fn initialize(&self) -> Result<InitializeResponse, AcpError> {
+        // Capability handshake (R2): advertise `agent_selection` so a client
+        // knows THIS build understands the optional `agent` selector +
+        // `agents/list` before it risks sending version-gated fields to a
+        // possibly-older peer. This is a compile-time property of the server
+        // (always `true` here) — it is advertised even when no roster is
+        // installed, and grants nothing: `agents/list` is still `[]` and any
+        // selector still yields `AgentNotFound`.
+        Ok(InitializeResponse {
+            protocol_version: ACP_PROTOCOL_VERSION.to_string(),
+            capabilities: ServerCapabilities {
+                agent_selection: true,
+            },
         })
     }
 
@@ -231,14 +385,21 @@ impl HttpHandler for AcpServer {
     }
 
     async fn delete_session(&self, session_id: String) -> Result<(), AcpError> {
-        let mut guard = self.sessions.write().await;
-        if guard.remove(&session_id).is_some() {
-            Ok(())
-        } else {
-            Err(AcpError::Session(format!(
+        let removed = self.sessions.write().await.remove(&session_id);
+        let Some(record) = removed else {
+            return Err(AcpError::Session(format!(
                 "session not found: {session_id}"
-            )))
+            )));
+        };
+        // persona-profiles PR-7: reap the per-profile child session mapped to
+        // this session (the router tears the child process down when its last
+        // session goes away). Non-profile sessions have no child — nothing to do.
+        if Self::is_profile_agent(record.agent.as_deref())
+            && let Some(router) = &self.router
+        {
+            router.delete(&session_id).await?;
         }
+        Ok(())
     }
 
     async fn send_message(
@@ -268,6 +429,34 @@ impl HttpHandler for AcpServer {
             req.tools
         };
 
+        // persona-profiles PR-4': carry the session's AUTHORIZED persona-agent id
+        // into the turn so the engine bridge can apply that persona's overlay.
+        // Read from the session record (NOT from the request body) — a per-message
+        // body can never smuggle in a persona that was not authorized at create.
+        let agent = self.session_agent(&req.session_id).await;
+
+        // persona-profiles PR-7: a `profile:<name>` session is served by its own
+        // child process — forward the message to that child instead of the
+        // in-process turn engine. The persona/tools overlay is the CHILD's
+        // concern (it runs under the profile's own home/config).
+        if Self::is_profile_agent(agent.as_deref()) {
+            return match &self.router {
+                Some(router) => {
+                    router
+                        .send(MessageSendRequest {
+                            session_id: req.session_id,
+                            text: req.text,
+                            tools,
+                        })
+                        .await
+                }
+                None => Err(AcpError::Session(format!(
+                    "session {} is bound to a profile agent but no supervisor is installed",
+                    req.session_id
+                ))),
+            };
+        }
+
         match &self.turn_engine {
             Some(engine) => {
                 engine
@@ -275,6 +464,7 @@ impl HttpHandler for AcpServer {
                         session_id: req.session_id,
                         text: req.text,
                         tools,
+                        agent,
                     })
                     .await
             }
@@ -288,6 +478,9 @@ impl HttpHandler for AcpServer {
                         message: "no turn engine installed".to_string(),
                         data: None,
                     },
+                    // #787: a server-level frame with no turn context — there is
+                    // no per-turn id to stamp (no engine ran).
+                    turn_id: String::new(),
                 };
                 Ok(stream::iter(vec![ev]).boxed())
             }
@@ -354,6 +547,7 @@ mod tests {
             model: None,
             tools: Vec::new(),
             system_prompt: None,
+            agent: None,
         }
     }
 
@@ -365,6 +559,7 @@ mod tests {
                 model: Some("claude-opus-4-7".to_string()),
                 tools: Vec::new(),
                 system_prompt: None,
+                agent: None,
             })
             .await
             .unwrap();
@@ -435,7 +630,7 @@ mod tests {
             .unwrap();
         let first = s.next().await.expect("one event");
         match first {
-            MessageEvent::Error { error } => {
+            MessageEvent::Error { error, .. } => {
                 assert_eq!(error.message, "no turn engine installed");
                 assert_eq!(error.code, ErrorCode::InternalError.code());
             }
@@ -458,6 +653,7 @@ mod tests {
             },
             MessageEvent::Done {
                 stop_reason: "end_turn".to_string(),
+                turn_id: String::new(),
             },
         ]));
         let server = AcpServer::new().with_turn_engine(engine.clone());
@@ -477,7 +673,7 @@ mod tests {
             other => panic!("expected TextDelta, got {other:?}"),
         }
         match s.next().await.expect("terminal") {
-            MessageEvent::Done { stop_reason } => assert_eq!(stop_reason, "end_turn"),
+            MessageEvent::Done { stop_reason, .. } => assert_eq!(stop_reason, "end_turn"),
             other => panic!("expected Done, got {other:?}"),
         }
         assert!(s.next().await.is_none());
@@ -509,6 +705,7 @@ mod tests {
         }];
         let engine = Arc::new(MockTurnEngine::new(vec![MessageEvent::Done {
             stop_reason: "end_turn".to_string(),
+            turn_id: String::new(),
         }]));
         let server = AcpServer::new().with_turn_engine(engine.clone());
         let resp = server
@@ -516,6 +713,7 @@ mod tests {
                 model: None,
                 tools: tools.clone(),
                 system_prompt: Some("be terse".to_string()),
+                agent: None,
             })
             .await
             .unwrap();
@@ -559,6 +757,7 @@ mod tests {
         };
         let engine = Arc::new(MockTurnEngine::new(vec![MessageEvent::Done {
             stop_reason: "end_turn".to_string(),
+            turn_id: String::new(),
         }]));
         let server = AcpServer::new().with_turn_engine(engine.clone());
         let resp = server
@@ -566,6 +765,7 @@ mod tests {
                 model: None,
                 tools: vec![stored_tool],
                 system_prompt: None,
+                agent: None,
             })
             .await
             .unwrap();
@@ -670,6 +870,310 @@ mod tests {
         assert_eq!(got.tools, vec!["read"]);
     }
 
+    // ── persona-profiles Phase A: roster wiring + capability handshake ──────
+
+    use crate::protocol::AgentInfo;
+    use crate::roster::AgentRoster;
+
+    /// Fixed in-memory roster for server tests. Returns a canned authorized
+    /// set — the same fixed-script mock style as `MockTurnEngine`.
+    struct MockRoster {
+        agents: Vec<AgentInfo>,
+    }
+
+    #[async_trait]
+    impl AgentRoster for MockRoster {
+        async fn list(&self) -> Result<Vec<AgentInfo>, AcpError> {
+            Ok(self.agents.clone())
+        }
+    }
+
+    fn agent_info(id: &str) -> AgentInfo {
+        AgentInfo {
+            id: id.to_string(),
+            label: id.to_string(),
+            description: None,
+        }
+    }
+
+    // Feature default-OFF: no roster ⇒ `agents/list` is empty, and the server
+    // reports it has no roster.
+    #[tokio::test]
+    async fn list_agents_empty_without_roster() {
+        let server = AcpServer::new();
+        assert!(!server.has_roster());
+        let resp = server.list_agents().await.unwrap();
+        assert!(resp.agents.is_empty());
+    }
+
+    // With a roster installed, `agents/list` returns its authorized catalog.
+    #[tokio::test]
+    async fn list_agents_returns_roster_catalog() {
+        let roster = Arc::new(MockRoster {
+            agents: vec![agent_info("architect"), agent_info("researcher")],
+        });
+        let server = AcpServer::new().with_roster(roster);
+        assert!(server.has_roster());
+        let resp = server.list_agents().await.unwrap();
+        let ids: Vec<&str> = resp.agents.iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, ["architect", "researcher"]);
+    }
+
+    // R3: a `session/create` selecting an AUTHORIZED agent succeeds and the id
+    // is recorded (readable via `session_agent`) — but no persona overlay is
+    // applied (PR-2 records only).
+    #[tokio::test]
+    async fn create_with_authorized_agent_records_selector() {
+        let roster = Arc::new(MockRoster {
+            agents: vec![agent_info("architect")],
+        });
+        let server = AcpServer::new().with_roster(roster);
+        let resp = server
+            .create_session(SessionCreateRequest {
+                model: None,
+                tools: Vec::new(),
+                system_prompt: None,
+                agent: Some("architect".to_string()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            server.session_agent(&resp.session_id).await.as_deref(),
+            Some("architect")
+        );
+    }
+
+    // R3: selecting an agent NOT in the authorized roster is rejected with the
+    // agent-not-found signal (maps to ErrorCode::AgentNotFound at the transport).
+    #[tokio::test]
+    async fn create_with_unauthorized_agent_is_agent_error() {
+        let roster = Arc::new(MockRoster {
+            agents: vec![agent_info("architect")],
+        });
+        let server = AcpServer::new().with_roster(roster);
+        let err = server
+            .create_session(SessionCreateRequest {
+                model: None,
+                tools: Vec::new(),
+                system_prompt: None,
+                agent: Some("root".to_string()),
+            })
+            .await
+            .expect_err("unauthorized agent must be rejected");
+        assert!(matches!(err, AcpError::Agent(_)), "got {err:?}");
+    }
+
+    // ── persona-profiles PR-7: profile supervisor/router dispatch ───────────
+
+    use crate::router::ProfileRouter;
+
+    /// A mock supervisor that records routed calls WITHOUT spawning a real
+    /// child — proves `AcpServer` dispatches a `profile:` session to the router
+    /// (and a non-profile session to the engine), and fails closed on open error.
+    #[derive(Default)]
+    struct MockProfileRouter {
+        opened: std::sync::Mutex<Vec<(String, String)>>,
+        sent: std::sync::Mutex<Vec<String>>,
+        deleted: std::sync::Mutex<Vec<String>>,
+        fail_open: bool,
+    }
+
+    #[async_trait]
+    impl ProfileRouter for MockProfileRouter {
+        async fn open(
+            &self,
+            session_id: &str,
+            agent: &str,
+            _req: &SessionCreateRequest,
+        ) -> Result<(), AcpError> {
+            if self.fail_open {
+                return Err(AcpError::Agent(format!("cannot open {agent}")));
+            }
+            self.opened
+                .lock()
+                .unwrap()
+                .push((session_id.to_string(), agent.to_string()));
+            Ok(())
+        }
+        async fn send(
+            &self,
+            req: MessageSendRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = MessageEvent> + Send>>, AcpError> {
+            self.sent.lock().unwrap().push(req.session_id.clone());
+            let ev = MessageEvent::Done {
+                stop_reason: "end_turn".to_string(),
+                turn_id: req.session_id,
+            };
+            Ok(stream::iter(vec![ev]).boxed())
+        }
+        async fn get(&self, session_id: &str) -> Result<SessionGetResponse, AcpError> {
+            Err(AcpError::Session(format!("no child for {session_id}")))
+        }
+        async fn delete(&self, session_id: &str) -> Result<(), AcpError> {
+            self.deleted.lock().unwrap().push(session_id.to_string());
+            Ok(())
+        }
+    }
+
+    // A `profile:<name>` session is opened on the router at create, forwarded to
+    // it on send, and reaped on delete — NEVER the in-process engine.
+    #[tokio::test]
+    async fn profile_agent_routes_to_supervisor_not_engine() {
+        let roster = Arc::new(MockRoster {
+            agents: vec![agent_info("profile:work")],
+        });
+        let router = Arc::new(MockProfileRouter::default());
+        // An engine is installed but must NOT run for a profile session — its
+        // script is a marker we assert never reaches the caller.
+        let engine = Arc::new(MockTurnEngine::new(vec![MessageEvent::Error {
+            error: JsonRpcError {
+                code: -1,
+                message: "ENGINE-MUST-NOT-RUN".to_string(),
+                data: None,
+            },
+            turn_id: String::new(),
+        }]));
+        let server = AcpServer::new()
+            .with_roster(roster)
+            .with_turn_engine(engine)
+            .with_profile_router(router.clone());
+
+        let resp = server
+            .create_session(SessionCreateRequest {
+                model: None,
+                tools: Vec::new(),
+                system_prompt: None,
+                agent: Some("profile:work".to_string()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            router.opened.lock().unwrap().as_slice(),
+            &[(resp.session_id.clone(), "profile:work".to_string())],
+            "create must open the child on the router"
+        );
+
+        let s = server
+            .send_message(MessageSendRequest {
+                session_id: resp.session_id.clone(),
+                text: "hi".to_string(),
+                tools: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let frames: Vec<MessageEvent> = s.collect().await;
+        // Routed to the child (a clean Done), NOT the engine's error marker.
+        assert!(
+            matches!(frames.last(), Some(MessageEvent::Done { .. })),
+            "got {frames:?}"
+        );
+        assert_eq!(
+            router.sent.lock().unwrap().as_slice(),
+            std::slice::from_ref(&resp.session_id)
+        );
+
+        server
+            .delete_session(resp.session_id.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            router.deleted.lock().unwrap().as_slice(),
+            &[resp.session_id]
+        );
+    }
+
+    // FAIL CLOSED: a child that cannot open fails the create AND leaves no
+    // dangling parent session (which could later fall through to the default).
+    #[tokio::test]
+    async fn profile_open_failure_fails_closed_with_no_dangling_session() {
+        let roster = Arc::new(MockRoster {
+            agents: vec![agent_info("profile:ghost")],
+        });
+        let router = Arc::new(MockProfileRouter {
+            fail_open: true,
+            ..Default::default()
+        });
+        let server = AcpServer::new()
+            .with_roster(roster)
+            .with_profile_router(router);
+        let err = server
+            .create_session(SessionCreateRequest {
+                model: None,
+                tools: Vec::new(),
+                system_prompt: None,
+                agent: Some("profile:ghost".to_string()),
+            })
+            .await
+            .expect_err("a child that cannot open must fail the create");
+        assert!(matches!(err, AcpError::Agent(_)), "got {err:?}");
+        assert_eq!(
+            server.session_count().await,
+            0,
+            "no dangling session after a failed profile bind"
+        );
+    }
+
+    // FAIL CLOSED: a profile agent authorized but NO supervisor installed must
+    // error — never serve this process's default identity under the profile name.
+    #[tokio::test]
+    async fn profile_agent_without_router_fails_closed() {
+        let roster = Arc::new(MockRoster {
+            agents: vec![agent_info("profile:work")],
+        });
+        let server = AcpServer::new().with_roster(roster);
+        let err = server
+            .create_session(SessionCreateRequest {
+                model: None,
+                tools: Vec::new(),
+                system_prompt: None,
+                agent: Some("profile:work".to_string()),
+            })
+            .await
+            .expect_err("profile agent with no supervisor must fail closed");
+        assert!(matches!(err, AcpError::Agent(_)), "got {err:?}");
+        assert_eq!(server.session_count().await, 0);
+    }
+
+    // Feature default-OFF: selecting any agent when NO roster is installed is
+    // rejected (cannot authorize without a roster) — fail closed.
+    #[tokio::test]
+    async fn create_with_agent_but_no_roster_is_agent_error() {
+        let server = AcpServer::new();
+        let err = server
+            .create_session(SessionCreateRequest {
+                model: None,
+                tools: Vec::new(),
+                system_prompt: None,
+                agent: Some("architect".to_string()),
+            })
+            .await
+            .expect_err("no roster ⇒ cannot authorize any selector");
+        assert!(matches!(err, AcpError::Agent(_)), "got {err:?}");
+    }
+
+    // Compat (R2): a selector-free create is unaffected and records no agent.
+    #[tokio::test]
+    async fn create_without_agent_records_none() {
+        let server = AcpServer::new();
+        let resp = server.create_session(empty_create()).await.unwrap();
+        assert_eq!(server.session_agent(&resp.session_id).await, None);
+    }
+
+    // R2: AcpServer advertises the `agent_selection` capability in `initialize`.
+    #[tokio::test]
+    async fn initialize_advertises_agent_selection() {
+        let server = AcpServer::new();
+        let resp = server.initialize().await.unwrap();
+        assert_eq!(resp.protocol_version, ACP_PROTOCOL_VERSION);
+        assert!(
+            resp.capabilities.agent_selection,
+            "AcpServer must advertise agent_selection (R2)"
+        );
+        // Advertised even without a roster (capability = protocol understanding,
+        // not availability).
+        assert!(!server.has_roster());
+    }
+
     #[tokio::test]
     async fn tool_definitions_accepted_in_create() {
         let server = AcpServer::new();
@@ -683,6 +1187,7 @@ mod tests {
                 model: None,
                 tools,
                 system_prompt: None,
+                agent: None,
             })
             .await
             .unwrap();

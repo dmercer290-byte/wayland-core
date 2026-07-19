@@ -63,6 +63,12 @@ pub enum ErrorCode {
     AuthRequired,
     /// ACP: tool execution failed.
     ToolFailed,
+    /// ACP: `session/create` named an `agent` selector that is not in the
+    /// authorized roster (persona-profiles Phase A). Distinct from
+    /// `InvalidParams` so a host can tell "malformed request" from "no such
+    /// agent for this principal". The roster returns only AUTHORIZED agents, so
+    /// this doubles as the not-authorized signal without leaking existence.
+    AgentNotFound,
 }
 
 impl ErrorCode {
@@ -76,6 +82,7 @@ impl ErrorCode {
             Self::SessionNotFound => -32001,
             Self::AuthRequired => -32002,
             Self::ToolFailed => -32003,
+            Self::AgentNotFound => -32004,
         }
     }
 }
@@ -92,6 +99,18 @@ pub struct SessionCreateRequest {
     pub tools: Vec<ToolDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<String>,
+    /// Optional persona-agent selector (Phase A, persona-profiles). Names an
+    /// [`AgentInfo::id`] from `agents/list` to bind this session to a trusted
+    /// AgentPack persona (system_prompt/model/allowed_tools overlay) within the
+    /// SAME process identity — it never selects a different profile/credential
+    /// boundary. `serde(default)` + `skip_serializing_if` keep an absent
+    /// selector byte-identical to the pre-persona wire (compat regression test
+    /// `session_create_without_agent_is_byte_identical`); a client MUST only
+    /// send it after the server advertises the `agent_selection` capability
+    /// (added in PR-2). The field is inert until the roster/selector lands
+    /// feature-flagged; an unknown id resolves to [`ErrorCode::AgentNotFound`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 /// `session/create` response payload.
@@ -144,6 +163,106 @@ pub struct SessionMetadata {
     pub message_count: u64,
 }
 
+// ── Agent roster (persona-profiles Phase A) ──────────────────────────────
+
+/// One entry in the `agents/list` roster — a selectable persona-agent.
+///
+/// SECURITY (red-team R4, mirrors the codebase's own F-070 anti-fingerprinting
+/// in `a2a/default_handler.rs`): this type carries ONLY an opaque `id` and a
+/// human `label`, plus an optional operator-authored `description` for display.
+/// It MUST NEVER carry the persona's `system_prompt`/SOUL, model, provider, API
+/// key, filesystem paths, or any other capability/credential detail — those
+/// stay server-side and are bound by id at `session/create`. The roster itself
+/// returns only agents the calling principal is AUTHORIZED to see (PR-3'), so a
+/// leaked `AgentInfo` reveals nothing an authorized selector could not already
+/// use.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AgentInfo {
+    /// Opaque, stable selector id (matches `SessionCreateRequest::agent`).
+    pub id: String,
+    /// Human-readable display label. Non-secret.
+    pub label: String,
+    /// Optional operator-authored one-line display description. Non-secret;
+    /// never derived from the persona's prompt/SOUL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// `agents/list` request payload (empty body — included for symmetry, like
+/// [`SessionListRequest`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentsListRequest {}
+
+/// `agents/list` response payload: the roster of persona-agents the calling
+/// principal is authorized to select.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AgentsListResponse {
+    pub agents: Vec<AgentInfo>,
+}
+
+// ── Capability handshake (persona-profiles R2 — version-skew safety) ──────
+
+/// ACP protocol revision this server implements. Surfaced in the
+/// [`InitializeResponse`] so a client can reason about wire compatibility
+/// before exercising version-gated features.
+pub const ACP_PROTOCOL_VERSION: &str = "0.1";
+
+/// Server capability advertisement returned by `initialize`.
+///
+/// SECURITY / COMPAT (red-team R2): the persona-agent extension adds an
+/// optional `agent` selector to `session/create` and an `agents/list` roster.
+/// Because every request type carries `#[serde(deny_unknown_fields)]`, a NEW
+/// client that blindly sends `agent` to an OLD (pre-extension) server would be
+/// hard-rejected at parse time. The fix is negotiation: a client MUST consult
+/// [`Self::agent_selection`] from `initialize` BEFORE sending an `agent`
+/// selector or relying on `agents/list`. An old server omits the capability
+/// (there is no `initialize` route, or the field is absent → `false` on
+/// parse), so a new client cleanly down-shifts instead of breaking.
+///
+/// NOTE this struct deliberately does NOT use `deny_unknown_fields` (mirroring
+/// `A2aCapabilities`): capability sets are forward-extensible, so an old client
+/// must be able to parse a newer server's response and simply ignore
+/// capabilities it does not understand.
+///
+/// Advertising `agent_selection` says only "this build understands the
+/// selection protocol" — it is a compile-time property of the server, NOT a
+/// claim that any agent is available. Whether a roster actually holds agents
+/// (feature default-OFF ⇒ empty) is discovered separately via `agents/list`,
+/// and selecting an unavailable/unauthorized id still yields
+/// [`ErrorCode::AgentNotFound`]. Advertising the capability therefore grants
+/// nothing; it only prevents a version-skew hard-break.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct ServerCapabilities {
+    /// `true` when the server understands the persona-agent selection
+    /// extension (accepts an optional `agent` on `session/create` and serves
+    /// the `agents/list` roster, possibly empty).
+    #[serde(default)]
+    pub agent_selection: bool,
+}
+
+/// `initialize` request payload (empty body — included for symmetry, like
+/// [`SessionListRequest`]). A capability handshake takes no client input in
+/// Phase A; the field set is reserved for future client-capability exchange.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InitializeRequest {}
+
+/// `initialize` response payload — the server capability handshake.
+///
+/// A client performs this handshake first and gates version-sensitive
+/// behaviour (e.g. sending `SessionCreateRequest::agent`) on the advertised
+/// [`ServerCapabilities`]. See [`ServerCapabilities`] for the R2 rationale.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct InitializeResponse {
+    /// ACP protocol revision the server implements ([`ACP_PROTOCOL_VERSION`]).
+    pub protocol_version: String,
+    /// Advertised server capabilities.
+    pub capabilities: ServerCapabilities,
+}
+
 // ── Messages ─────────────────────────────────────────────────────────────
 
 /// `message/send` request payload. Server emits a stream of [`MessageEvent`]s.
@@ -192,7 +311,7 @@ pub enum MessageEvent {
         /// Human-readable explanation of why approval is required (e.g. the
         /// tool category). No em-dashes; surfaced verbatim to hosts.
         reason: String,
-        /// GHSA-8r7g M2 (wayland#568) — the server-generated SECRET
+        /// GHSA-8r7g M2 (genesis#568) — the server-generated SECRET
         /// `resume_token` (`apr-{uuid}`) the host MUST present on the matching
         /// `POST .../resolve` to answer a BRIDGE-backed gate (Crucible council
         /// / egress consent). Empty for a manager-gated tool (ordinary
@@ -206,9 +325,24 @@ pub enum MessageEvent {
     },
     Done {
         stop_reason: String,
+        /// #787: stable per-turn correlation id (the turn's `msg_id` uuid — a
+        /// `uuid::Uuid::new_v4()` minted once per turn). Lets a host dedup a
+        /// terminal frame per turn: a re-wake straggler carries the PRIOR
+        /// turn's id, so it is distinguishable from the new turn's terminal.
+        /// Empty only on server-level frames that carry no turn context (e.g.
+        /// "no turn engine installed"). `#[serde(default)]` so a newer client
+        /// can still parse an older server that omits it.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        turn_id: String,
     },
     Error {
         error: JsonRpcError,
+        /// #787: stable per-turn correlation id — see [`MessageEvent::Done`].
+        /// Carried here precisely because the error/synthetic-terminal path is
+        /// the duplicate-terminal case a host dedups (`agent_run_id` is `None`
+        /// there, `msg_id` is not).
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        turn_id: String,
     },
 }
 
@@ -337,10 +471,173 @@ mod tests {
             ErrorCode::SessionNotFound,
             ErrorCode::AuthRequired,
             ErrorCode::ToolFailed,
+            ErrorCode::AgentNotFound,
         ]
         .iter()
         .map(|c| c.code())
         .collect();
-        assert_eq!(codes.len(), 8);
+        assert_eq!(codes.len(), 9);
+    }
+
+    #[test]
+    fn agent_not_found_code_value() {
+        assert_eq!(ErrorCode::AgentNotFound.code(), -32004);
+    }
+
+    /// Compat regression (red-team R2): a `session/create` that does NOT select
+    /// a persona-agent must serialize BYTE-IDENTICALLY to the pre-persona wire —
+    /// no `agent` key present — so old hosts/servers are unaffected.
+    #[test]
+    fn session_create_without_agent_is_byte_identical() {
+        let req = SessionCreateRequest {
+            model: Some("claude-opus-4-8".into()),
+            tools: Vec::new(),
+            system_prompt: None,
+            agent: None,
+        };
+        let s = serde_json::to_string(&req).unwrap();
+        assert_eq!(s, r#"{"model":"claude-opus-4-8"}"#);
+        assert!(
+            !s.contains("agent"),
+            "absent selector must not appear on wire"
+        );
+        // And a legacy payload (no `agent` field) still deserializes.
+        let legacy: SessionCreateRequest =
+            serde_json::from_str(r#"{"model":"claude-opus-4-8"}"#).unwrap();
+        assert!(legacy.agent.is_none());
+    }
+
+    #[test]
+    fn session_create_with_agent_roundtrips() {
+        let req = SessionCreateRequest {
+            model: None,
+            tools: Vec::new(),
+            system_prompt: None,
+            agent: Some("researcher".into()),
+        };
+        let s = serde_json::to_string(&req).unwrap();
+        assert!(s.contains(r#""agent":"researcher""#));
+        let back: SessionCreateRequest = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.agent.as_deref(), Some("researcher"));
+    }
+
+    /// Red-team R4: `AgentInfo` must expose ONLY id/label/description on the
+    /// wire — never prompt/SOUL/model/provider/key/paths. Guards against a
+    /// future field addition silently leaking a persona's capabilities.
+    #[test]
+    fn agent_info_exposes_no_secret_fields() {
+        let info = AgentInfo {
+            id: "researcher".into(),
+            label: "Researcher".into(),
+            description: Some("Deep web research persona".into()),
+        };
+        let v: serde_json::Value = serde_json::to_value(&info).unwrap();
+        let keys: std::collections::BTreeSet<&str> =
+            v.as_object().unwrap().keys().map(String::as_str).collect();
+        let allowed: std::collections::BTreeSet<&str> =
+            ["id", "label", "description"].into_iter().collect();
+        assert!(
+            keys.is_subset(&allowed),
+            "AgentInfo leaked non-allowlisted field(s): {:?}",
+            &keys - &allowed
+        );
+        for forbidden in [
+            "system_prompt",
+            "soul",
+            "model",
+            "provider",
+            "api_key",
+            "path",
+        ] {
+            assert!(
+                !keys.contains(forbidden),
+                "AgentInfo must not carry {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_info_omits_absent_description() {
+        let info = AgentInfo {
+            id: "a1".into(),
+            label: "A1".into(),
+            description: None,
+        };
+        let s = serde_json::to_string(&info).unwrap();
+        assert_eq!(s, r#"{"id":"a1","label":"A1"}"#);
+    }
+
+    #[test]
+    fn agents_list_response_roundtrip() {
+        let resp = AgentsListResponse {
+            agents: vec![
+                AgentInfo {
+                    id: "a".into(),
+                    label: "A".into(),
+                    description: None,
+                },
+                AgentInfo {
+                    id: "b".into(),
+                    label: "B".into(),
+                    description: Some("second".into()),
+                },
+            ],
+        };
+        let s = serde_json::to_string(&resp).unwrap();
+        let back: AgentsListResponse = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.agents.len(), 2);
+        assert_eq!(back.agents[1].description.as_deref(), Some("second"));
+    }
+
+    #[test]
+    fn agents_list_request_rejects_unknown_fields() {
+        let bad = r#"{"mystery":"x"}"#;
+        let r: Result<AgentsListRequest, _> = serde_json::from_str(bad);
+        assert!(r.is_err(), "deny_unknown_fields should reject");
+    }
+
+    /// Capability handshake (R2): the `initialize` response carries a protocol
+    /// version and an `agent_selection` capability that round-trips.
+    #[test]
+    fn initialize_response_roundtrips_with_capability() {
+        let resp = InitializeResponse {
+            protocol_version: ACP_PROTOCOL_VERSION.to_string(),
+            capabilities: ServerCapabilities {
+                agent_selection: true,
+            },
+        };
+        let s = serde_json::to_string(&resp).unwrap();
+        assert!(s.contains(r#""agent_selection":true"#));
+        let back: InitializeResponse = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.protocol_version, ACP_PROTOCOL_VERSION);
+        assert!(back.capabilities.agent_selection);
+    }
+
+    /// R2 version-skew safety: `ServerCapabilities` must be forward-extensible.
+    /// A payload carrying a capability an old client does not know MUST still
+    /// parse (unknown keys ignored), and an absent `agent_selection` defaults
+    /// to `false` (an old server that never advertised it).
+    #[test]
+    fn server_capabilities_is_forward_compatible() {
+        // Unknown future capability is ignored, not rejected.
+        let future = r#"{"agent_selection":true,"some_future_cap":true}"#;
+        let caps: ServerCapabilities = serde_json::from_str(future)
+            .expect("capabilities must tolerate unknown (forward-compat) fields");
+        assert!(caps.agent_selection);
+
+        // Absent capability defaults to false (pre-extension server).
+        let old = r#"{}"#;
+        let caps: ServerCapabilities = serde_json::from_str(old).unwrap();
+        assert!(
+            !caps.agent_selection,
+            "absent capability must default false"
+        );
+    }
+
+    #[test]
+    fn initialize_request_rejects_unknown_fields() {
+        let bad = r#"{"mystery":"x"}"#;
+        let r: Result<InitializeRequest, _> = serde_json::from_str(bad);
+        assert!(r.is_err(), "deny_unknown_fields should reject");
     }
 }

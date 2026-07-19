@@ -1,6 +1,6 @@
 # genesis-core JSON Stream Protocol Spec
 
-> This protocol defines the communication between genesis-core (Rust CLI) and a host client (e.g., the Wayland desktop Electron app) via stdin/stdout JSON Lines.
+> This protocol defines the communication between genesis-core (Rust CLI) and a host client (e.g., the Genesis desktop Electron app) via stdin/stdout JSON Lines.
 
 ## Overview
 
@@ -334,6 +334,46 @@ Response to a `ping` command from the client. Used for heartbeat/liveness detect
 ```
 
 No additional fields. The agent emits `pong` immediately upon receiving a `ping` command, regardless of whether a message turn is active.
+
+### 1.15 `anvil_receipt` (Anvil A1)
+
+The engine's honest verdict for a gated-forge (`/forge`) climb. Additive
+variant; a host that doesn't render receipts drops it silently per the Host
+Decoder Contract (like `budget_exceeded`).
+
+```json
+{
+  "type": "anvil_receipt",
+  "terminal_state": "verified",
+  "stamp": "verified",
+  "checks_passed": 14,
+  "checks_total": 14,
+  "iterations": 3,
+  "valve_fires": 1,
+  "cost_microcents": 7000,
+  "priced": true,
+  "gate_closure_digest": "sha256:...",
+  "artifact_digest": "sha256:...",
+  "task_id": "task-1",
+  "engine_version": "0.12.24",
+  "sequence": 1
+}
+```
+
+`valve_fires` counts escalation-valve diagnostic turns bought during the
+climb (0 on the happy path; decoders of pre-valve receipts default it to 0).
+`stamp` is the trust tier actually earned — `verified` ONLY for a real
+executable gate; `criteria_checked` / `self_checked` / `format_validated` /
+`consensus_only` otherwise (never green-parity). `coverage` and `session_id`
+are optional (omitted when absent). When `priced` is `false`, the host renders
+cost as **"unpriced"**, never `$0`.
+
+**TRUST BOUNDARY (normative):** a host MUST render a receipt "chip" ONLY from
+a **top-level** `anvil_receipt` event. Receipt-shaped content arriving nested
+inside `sub_agent_event.inner` or `plugin_event.payload` is INERT — a
+sub-agent or plugin can never forge a verified verdict. (Same class as the
+tool-approval rule: a previewed fragment cannot forge the Approve/Reject
+verdict.) Emission is engine-only, from the climb exit path.
 
 ## 2. Client → Agent Commands (stdin)
 

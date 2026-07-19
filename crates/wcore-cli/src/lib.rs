@@ -18,6 +18,19 @@ pub mod acp;
 // --lib`.
 pub mod acp_engine;
 
+// persona-profiles PR-3': the CLI-layer `AgentRoster` impl. `wcore-acp` owns
+// the transport-neutral roster seam but must not depend on the identity
+// sources, so enumeration (AgentPack + the operator's global agent YAML —
+// never project-supplied manifests, never isolated profiles) lives here,
+// alongside the other injected bridges.
+pub mod acp_roster;
+
+// persona-profiles PR-7: the CLI-layer `ProfileRouter` impl — the profile
+// SUPERVISOR. `wcore-acp` owns the transport-neutral router seam but must not
+// depend on process/spawn machinery or the profile store, so the one-process-
+// per-profile spawn/health-check/route/reap lifecycle lives here.
+pub mod profile_router;
+
 // v0.7.0 Task 3.B.2: `agent` subcommand — five flag-driven CRUD ops
 // (create / list / show / edit / delete) wrapping the
 // `wcore_agents_pack::factory` user-agent surface. Lives in the lib so
@@ -69,6 +82,8 @@ pub mod workflow;
 // touching the user's home dir.
 pub mod cron;
 
+// Anvil (gated forge): `genesis-core forge "<task>"` — kill-switched engine.
+pub mod anvil;
 // Crucible (Mixture-of-Providers): `genesis-core crucible "<task>"` runs the
 // cross-provider council — N pinned-provider proposers fused by a fenced,
 // read-only aggregator. Self-contained one-shot handler.
@@ -108,6 +123,9 @@ pub mod auth;
 // unit-testable against a tempdir-backed `GENESIS_PROFILES_ROOT`. All
 // active-pointer access stays in `wcore_config::profile` (D2 single-reader lint).
 pub mod profile;
+
+// CLI surface: `genesis-core migrate` — import Hermes/OpenClaw setups (#228).
+pub mod migrate;
 
 // CLI surface: `genesis-core image` — FluxRouter image generation
 // (`POST /v1/images/generations`). Lives in the lib so credential

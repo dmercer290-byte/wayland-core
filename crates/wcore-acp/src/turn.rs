@@ -46,7 +46,7 @@ pub struct ApprovalDecision {
     /// Optional answer payload (AskUserQuestion choice). `None` for a plain
     /// approve/deny.
     pub answer: Option<String>,
-    /// GHSA-8r7g M2 (wayland#568) — the SECRET `resume_token` for a
+    /// GHSA-8r7g M2 (genesis#568) — the SECRET `resume_token` for a
     /// bridge-backed gate. `None`/empty resolves via the approval manager by
     /// `call_id` (the legacy manager-gated path).
     pub resume_token: Option<String>,
@@ -65,6 +65,20 @@ pub struct TurnRequest {
     /// session's configured allowlist (or the engine's full registry when
     /// the session record carries none).
     pub tools: Vec<ToolDefinition>,
+    /// persona-profiles PR-4' — the AUTHORIZED persona-agent id this session was
+    /// created with (`None` = no persona: the engine behaves exactly as before).
+    ///
+    /// Only the opaque ID travels here. The persona's `system_prompt`/`model`/
+    /// `allowed_tools` live in the CLI layer's manifest and are resolved THERE —
+    /// deliberately never carried through `wcore-acp`, so the transport crate
+    /// stays free of identity sources and a prompt/capability can never be
+    /// serialized onto the wire.
+    ///
+    /// The id was validated against the authorized roster at `session/create`
+    /// (unknown/unauthorized ⇒ `AgentNotFound`), so an engine bridge may treat a
+    /// `Some(id)` here as already-authorized — but it MUST still resolve it
+    /// through the same authorized set (fail closed) rather than trusting it.
+    pub agent: Option<String>,
 }
 
 /// Turns one user prompt into a stream of [`MessageEvent`]s.
@@ -174,6 +188,7 @@ mod tests {
                 },
                 MessageEvent::Done {
                     stop_reason: "end_turn".to_string(),
+                    turn_id: String::new(),
                 },
             ],
         };
@@ -181,6 +196,7 @@ mod tests {
             session_id: "s1".to_string(),
             text: "go".to_string(),
             tools: Vec::new(),
+            agent: None,
         };
         let frames: Vec<MessageEvent> = Arc::new(engine)
             .run_turn(req)
@@ -200,7 +216,7 @@ mod tests {
             .count();
         assert_eq!(terminals, 1, "exactly one terminal frame");
         match frames.last().expect("last frame") {
-            MessageEvent::Done { stop_reason } => assert_eq!(stop_reason, "end_turn"),
+            MessageEvent::Done { stop_reason, .. } => assert_eq!(stop_reason, "end_turn"),
             other => panic!("expected Done last, got {other:?}"),
         }
     }
@@ -215,12 +231,14 @@ mod tests {
                     message: "boom".to_string(),
                     data: None,
                 },
+                turn_id: String::new(),
             }],
         };
         let req = TurnRequest {
             session_id: "s1".to_string(),
             text: "go".to_string(),
             tools: Vec::new(),
+            agent: None,
         };
         let frames: Vec<MessageEvent> = Arc::new(engine)
             .run_turn(req)

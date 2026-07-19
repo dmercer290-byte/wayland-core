@@ -314,6 +314,12 @@ struct Cli {
     #[arg(long)]
     config_path: bool,
 
+    /// Print build provenance (version + embedded source git SHA) and exit.
+    /// Catches the stale-build class: the SHA must match the HEAD the binary
+    /// was compiled from. Used by the build-provenance integration test.
+    #[arg(long)]
+    build_info: bool,
+
     /// Print skill directory paths and exit
     #[arg(long)]
     skills_path: bool,
@@ -500,6 +506,10 @@ enum TopCmd {
         #[arg(long)]
         terminal: bool,
     },
+    /// Anvil (gated forge) — forge a candidate that passes a REAL executable
+    /// gate (tests / build / lint), then stamp a verified receipt. Requires
+    /// ON by default; `[anvil] enabled = false` is the kill-switch. Empty gate config auto-detects the workspace suite.
+    Forge(wcore_cli::anvil::ForgeArgs),
     /// v0.7.0 Task 1.C.1: print resolved project context from GENESIS.md /
     /// AGENTS.md / .genesis/context.md / CLAUDE.md walking up from cwd.
     ProjectContext,
@@ -524,7 +534,7 @@ enum TopCmd {
         cmd: wcore_cli::cron::CronCmd,
     },
     /// v0.8.1 U9: update genesis-core to the latest signed release
-    /// from `dmercer290-byte/wayland-core`. Verifies the `.sig` artifact
+    /// from `dmercer290-byte/genesis-core`. Verifies the `.sig` artifact
     /// against the pinned marketplace pubkey (ed25519) before atomic
     /// swap. Use `--check-only` to print versions without installing.
     SelfUpdate {
@@ -560,6 +570,11 @@ enum TopCmd {
     Profile {
         #[command(subcommand)]
         cmd: wcore_cli::profile::ProfileCmd,
+    },
+    /// Import an existing agent setup (Hermes) into genesis-core profiles.
+    Migrate {
+        #[command(subcommand)]
+        cmd: wcore_cli::migrate::MigrateCmd,
     },
 }
 
@@ -709,7 +724,7 @@ fn main() -> anyhow::Result<ExitCode> {
 
 /// Build a clear, actionable reason string for an engine init failure (#186).
 ///
-/// Without this, a `--json-stream` host (the Wayland desktop app) only sees a
+/// Without this, a `--json-stream` host (the Genesis desktop app) only sees a
 /// bare non-zero exit code and renders a generic "wcore exited with code 1
 /// during init" — the real cause never surfaces. When the failure is a
 /// [`MissingApiKey`](wcore_config::config::MissingApiKey), the message also
@@ -812,21 +827,25 @@ async fn run() -> anyhow::Result<ExitCode> {
     // existing CI scrapers.
     let mut _sentinel_guard = {
         let sentinel_path = wcore_cli::crash_sentinel::CrashSentinel::default_path();
-        // R2 fix A5: probe + arm via a SINGLE fs::write (was: probe via
-        // arm() then write again via new() — double-write that could
-        // discard a successful first write on second-write failure).
-        let was_dirty = wcore_cli::crash_sentinel::CrashSentinel::check_dirty(&sentinel_path);
-        if was_dirty {
+        // #181: the sentinel is scoped per-process (`.dirty-death.<pid>`).
+        // The scan reports ONLY flags whose owning pid is dead (plus the
+        // legacy un-scoped flag, once, for migration) — a live sibling
+        // engine's flag is not a crash. Reported flags are reaped by the
+        // scan so each dirty death fires exactly once.
+        let dead_sentinels = wcore_cli::crash_sentinel::CrashSentinel::scan_dead_sentinels(
+            &wcore_cli::crash_sentinel::CrashSentinel::default_dir(),
+        );
+        for dead_path in &dead_sentinels {
             if will_enter_tui {
                 tracing::warn!(
-                    path = %sentinel_path.display(),
+                    path = %dead_path.display(),
                     "previous run did not shut down cleanly (crash sentinel found)"
                 );
             } else {
                 eprintln!(
                     "genesis-core: warning: previous run did not shut down cleanly \
                      (crash sentinel found at {})",
-                    sentinel_path.display()
+                    dead_path.display()
                 );
             }
         }
@@ -878,6 +897,11 @@ async fn run() -> anyhow::Result<ExitCode> {
             // Best-effort: remove the sentinel so the next restart
             // doesn't falsely report a crash.
             let _ = std::fs::remove_file(&sentinel_path_for_sig);
+            // PR-7: reap any live per-profile supervisor children before exit.
+            // std::process::exit bypasses Drop, so the router's Drop-based
+            // reaping never runs on a signal — without this, SIGTERM/SIGINT/
+            // SIGHUP orphans every credential-bearing `acp serve --profile` child.
+            wcore_cli::profile_router::reap_all_children_blocking();
             std::process::exit(0);
         });
     }
@@ -897,6 +921,10 @@ async fn run() -> anyhow::Result<ExitCode> {
             // before a hard kill.
             let _ = tokio::signal::ctrl_c().await;
             let _ = std::fs::remove_file(&sentinel_path_for_sig);
+            // PR-7: reap live per-profile children before exit (exit bypasses
+            // Drop). Without this, a Ctrl+C / TerminateProcess orphans every
+            // credential-bearing `acp serve --profile` child.
+            wcore_cli::profile_router::reap_all_children_blocking();
             std::process::exit(0);
         });
     }
@@ -1021,6 +1049,13 @@ async fn run() -> anyhow::Result<ExitCode> {
                     }
                 }
             }
+            TopCmd::Forge(args) => match wcore_cli::anvil::run_forge(args).await {
+                Ok(()) => Ok(ExitCode::SUCCESS),
+                Err(e) => {
+                    eprintln!("genesis-core forge: {e:#}");
+                    Ok(ExitCode::FAILURE)
+                }
+            },
             // methodology #27: production caller for project_context::scan
             // (v0.7.0 Task 1.C.1).
             TopCmd::ProjectContext => {
@@ -1073,7 +1108,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                 }
             },
             // v0.8.1 U9: production caller for `self_update::run`. Pulls
-            // the latest signed release from dmercer290-byte/wayland-core,
+            // the latest signed release from dmercer290-byte/genesis-core,
             // verifies the .sig against the pinned marketplace pubkey,
             // and atomically swaps the running binary (self_replace).
             TopCmd::SelfUpdate { check_only } => {
@@ -1142,6 +1177,14 @@ async fn run() -> anyhow::Result<ExitCode> {
                     Ok(ExitCode::FAILURE)
                 }
             },
+            // `migrate::run` is synchronous — no `.await` (mirrors `TopCmd::Profile`).
+            TopCmd::Migrate { cmd } => match wcore_cli::migrate::run(cmd) {
+                Ok(()) => Ok(ExitCode::SUCCESS),
+                Err(e) => {
+                    eprintln!("genesis-core migrate: {e:#}");
+                    Ok(ExitCode::FAILURE)
+                }
+            },
         };
     }
 
@@ -1155,6 +1198,16 @@ async fn run() -> anyhow::Result<ExitCode> {
     // touching config files, OAuth, or the engine bootstrap.
     if cli.doctor {
         return Ok(doctor::run(cli.probe_mcp).await);
+    }
+
+    // Handle --build-info: print version + embedded source SHA and exit.
+    if cli.build_info {
+        println!(
+            "genesis-core {} (source {})",
+            env!("CARGO_PKG_VERSION"),
+            env!("GENESIS_SOURCE_SHA")
+        );
+        return Ok(ExitCode::SUCCESS);
     }
 
     // Handle --config-path
@@ -1775,7 +1828,7 @@ fn approval_mode_to_session(
 /// LOCAL operator's posture — distinct from a wire-originated mode change,
 /// which goes through the GHSA-8r7g-gated `set_mode_from_wire`.
 ///
-/// wayland#241: both the TUI (`run_tui_mode`) and json-stream
+/// genesis#241: both the TUI (`run_tui_mode`) and json-stream
 /// (`run_json_stream_mode`) paths seed through this one helper so they can't
 /// drift — the json-stream path previously skipped the config seed entirely,
 /// silently ignoring a user's `approval_mode = "auto-edit"` / `"force"`.
@@ -2424,7 +2477,7 @@ fn mcp_ready_events_for(mgr: &McpManager) -> Vec<ProtocolEvent> {
         .collect()
 }
 
-/// wayland#551 — companion to [`mcp_ready_events_for`]: one `McpFailed`
+/// genesis#551 — companion to [`mcp_ready_events_for`]: one `McpFailed`
 /// event per server whose connect failed or timed out, so a host whose
 /// config MCP servers were dialed in the background still learns WHY a
 /// server's tools never appeared (parity with the dynamic `AddMcpServer`
@@ -2452,13 +2505,13 @@ fn mcp_failed_events_for(mgr: &McpManager) -> Vec<ProtocolEvent> {
         .collect()
 }
 
-/// wayland#551 — integrate a background-connected config-MCP manager into
+/// genesis#551 — integrate a background-connected config-MCP manager into
 /// the LIVE engine. Registers the manager's tools (same collision handling
 /// as boot via [`wcore_mcp::tool_proxy::register_mcp_tools`]), emits one
 /// `McpReady` per connected server and one `McpFailed` per failed server,
 /// and parks the manager in `dynamic_managers` so it stays alive.
 ///
-/// wayland#551 — absorb a settled background config-MCP connect: on
+/// genesis#551 — absorb a settled background config-MCP connect: on
 /// success, integrate into the live engine (returning the parked pair when
 /// the registry is momentarily borrowed so the caller can retry between
 /// turns); on failure, surface the error with bootstrap's inline-connect
@@ -2723,7 +2776,7 @@ async fn run_json_stream_mode(
     // GHSA-8r7g: a protocol peer may escalate to Force only when this local
     // operator opted in at launch (--force or GENESIS_ALLOW_WIRE_FORCE).
     approval_manager.set_allow_wire_force(force || wire_force_opt_in_env());
-    // wayland#241: seed the initial approval posture from config
+    // genesis#241: seed the initial approval posture from config
     // (`[default] approval_mode`) via the shared `initial_session_mode`
     // helper, exactly like `run_tui_mode`. The json-stream path previously
     // only honored `--force`, so a config `approval_mode = "auto-edit"` /
@@ -2735,7 +2788,7 @@ async fn run_json_stream_mode(
 
     let provider_name = config.provider_label.clone();
 
-    // wayland#551 — config-declared MCP connects must NOT gate the `ready`
+    // genesis#551 — config-declared MCP connects must NOT gate the `ready`
     // frame: a slow/hung server eats up to the full 30s per-server connect
     // budget INSIDE bootstrap, and hosts (the desktop app) time out waiting
     // for ready at 30s — the chat never opens. Capture + cred-resolve the
@@ -2789,7 +2842,7 @@ async fn run_json_stream_mode(
         }
     };
     let mut engine = result.engine;
-    // wayland#551 — declared-but-still-connecting servers count as MCP
+    // genesis#551 — declared-but-still-connecting servers count as MCP
     // capability on the ready frame; their tools register shortly after.
     let initial_has_mcp = result.has_mcp || deferred_mcp_servers.is_some();
     let initial_has_plugins = result.has_plugins;
@@ -2845,7 +2898,7 @@ async fn run_json_stream_mode(
         }
     }
 
-    // wayland#551 — dial the deferred config MCP servers in the background,
+    // genesis#551 — dial the deferred config MCP servers in the background,
     // AFTER ready is on the wire. The command loop integrates the manager
     // into the live engine between turns (see the select below) and emits
     // McpReady / McpFailed per server, exactly like the dynamic
@@ -2904,13 +2957,13 @@ async fn run_json_stream_mode(
     let mut dynamic_managers: Vec<(String, Arc<McpManager>)> = Vec::new();
     let mut first_cmd: Option<ProtocolCommand> = None;
 
-    // wayland#551 — a deferred-MCP manager whose integration found the
+    // genesis#551 — a deferred-MCP manager whose integration found the
     // registry borrowed; retried at the next between-turns boundary.
     let mut pending_deferred_mcp: Option<(Arc<McpManager>, HashMap<String, McpServerConfig>)> =
         None;
 
     loop {
-        // wayland#551 — the pre-message phase can park in recv() forever on
+        // genesis#551 — the pre-message phase can park in recv() forever on
         // a quiet host, so the background connect result must be settled
         // here too, or McpReady/McpFailed health would wait on host
         // activity (live-verify caught exactly that).
@@ -3106,7 +3159,7 @@ async fn run_json_stream_mode(
     let mut pending_cmd = first_cmd;
 
     'session: loop {
-        // wayland#551 — settle deferred MCP at every between-turns boundary,
+        // genesis#551 — settle deferred MCP at every between-turns boundary,
         // BEFORE the next command is processed, so a message that arrives
         // after the connects finished runs WITH the MCP tools. Two sources:
         // a non-blocking poll of the connect task (the blocking wait lives
@@ -3146,7 +3199,7 @@ async fn run_json_stream_mode(
                         Some(c) => break c,
                         None => break 'session,
                     },
-                    // wayland#551 — background config-MCP connect settled;
+                    // genesis#551 — background config-MCP connect settled;
                     // integrate into the live engine and keep waiting for
                     // the next command. Guarded so a consumed receiver is
                     // never polled again.
@@ -3237,6 +3290,13 @@ async fn run_json_stream_mode(
                 let mut stopped = false;
                 let mut pending_config: Option<PendingConfig> = None;
                 let mut mode_changed = false;
+                // CORE-2: an errored run may still have consumed provider
+                // round-trips (total_usage/run_usage grew before the Err),
+                // but `run()` returned no AgentResult to read them from.
+                // Defer the error-path terminal stream_end to AFTER this
+                // block — `engine_fut` borrows `engine` until then — so it
+                // can carry the engine's usage snapshot instead of zeros.
+                let mut run_failed = false;
 
                 {
                     let engine_fut = engine.run(&content, &msg_id);
@@ -3271,19 +3331,15 @@ async fn run_json_stream_mode(
                                             result.finish_reason,
                                             result.active_window_percent,
                                             result.agent_run_id.as_deref(),
+                                            Some(&result.usage_delta),
                                         );
                                     }
                                     Err(e) => {
                                         output.emit_error(&format!("{e:#}"), false);
-                                        output.emit_stream_end(
-                                            &msg_id,
-                                            0,
-                                            0,
-                                            0,
-                                            0,
-                                            0,
-                                            FinishReason::Error,
-                                        );
+                                        // stream_end deferred (see run_failed
+                                        // above): emitted after this block with
+                                        // the engine's usage snapshot.
+                                        run_failed = true;
                                     }
                                 }
                                 break;
@@ -3299,7 +3355,7 @@ async fn run_json_stream_mode(
                                         approval_manager.resolve(&call_id, ToolApprovalResult::Denied { reason });
                                     }
                                     ProtocolCommand::Stop => {
-                                        // wayland#403 fix-3: Stop CANCELS THE ACTIVE TURN — it must
+                                        // genesis#403 fix-3: Stop CANCELS THE ACTIVE TURN — it must
                                         // NOT end the session. Dropping `engine_fut` (via the inner
                                         // `break` below) cancels the turn; we emit `stream_end`
                                         // (FinishReason::Stop) for this msg_id so the host's turn-loop
@@ -3410,6 +3466,36 @@ async fn run_json_stream_mode(
                     }
                 }
 
+                if run_failed {
+                    // CORE-2: the failed run's terminal stream_end. When the
+                    // run consumed provider round-trips before dying, report
+                    // the cumulative usage + this run's delta from the
+                    // engine's snapshot (the counters already grew and will
+                    // be persisted); otherwise keep the legacy zero-usage
+                    // emission byte-identical.
+                    let (total, delta) = engine.usage_snapshot();
+                    let delta_nonzero = delta.input_tokens > 0
+                        || delta.output_tokens > 0
+                        || delta.cache_creation_tokens > 0
+                        || delta.cache_read_tokens > 0;
+                    if delta_nonzero {
+                        output.emit_stream_end_full(
+                            &msg_id,
+                            0,
+                            total.input_tokens,
+                            total.output_tokens,
+                            total.cache_creation_tokens,
+                            total.cache_read_tokens,
+                            FinishReason::Error,
+                            None,
+                            None,
+                            Some(&delta),
+                        );
+                    } else {
+                        output.emit_stream_end(&msg_id, 0, 0, 0, 0, 0, FinishReason::Error);
+                    }
+                }
+
                 if let Some((model, thinking, thinking_budget, effort, compaction)) =
                     pending_config.take()
                 {
@@ -3445,7 +3531,7 @@ async fn run_json_stream_mode(
                     );
                 }
                 if stopped {
-                    // wayland#403 fix-3: the mid-turn Stop cancelled the turn and
+                    // genesis#403 fix-3: the mid-turn Stop cancelled the turn and
                     // already emitted its `stream_end`; resume the command loop so
                     // the next Message streams. Pre-fix this was `break`, which
                     // ended the whole session.
@@ -3453,7 +3539,7 @@ async fn run_json_stream_mode(
                 }
             }
             ProtocolCommand::Stop => {
-                // wayland#403 fix-3: a Stop that arrives with no active turn (or
+                // genesis#403 fix-3: a Stop that arrives with no active turn (or
                 // just as one finishes) is a no-op — it must not close the
                 // session. Keep reading commands; EOF / `/exit` are the
                 // terminators.
@@ -3783,7 +3869,7 @@ mod tests {
         }
     }
 
-    /// wayland#551: background-connect failure surfacing — one `McpFailed`
+    /// genesis#551: background-connect failure surfacing — one `McpFailed`
     /// per Failed/TimedOut/Skipped server, none for Ready, name-sorted.
     /// Pre-fix the deferred path would have reported connect failures
     /// nowhere (bootstrap's inline emit no longer runs for these servers).
@@ -3823,7 +3909,7 @@ mod tests {
         }
     }
 
-    /// wayland#551: deferred-MCP integration must register the manager's
+    /// genesis#551: deferred-MCP integration must register the manager's
     /// tools into a LIVE engine (post-boot), emit per-server events, and
     /// park the manager alive in `dynamic_managers`. Pins the integration
     /// half of the deferral wiring — removing `register_mcp_tools` from
@@ -3862,7 +3948,7 @@ mod tests {
         assert_eq!(dynamic_managers.len(), 1, "manager must be kept alive");
     }
 
-    /// wayland#551: while the registry Arc is borrowed (as during a turn),
+    /// genesis#551: while the registry Arc is borrowed (as during a turn),
     /// integration must decline — no partial registration — so the caller
     /// parks the manager and retries at the next between-turns boundary.
     #[tokio::test]
@@ -3902,7 +3988,7 @@ mod tests {
     /// `config.memory.enabled` to `false`, giving users an accessible way to
     /// run a stateless session. Pre-fix the flag did not exist (only a TODO
     /// in wcore-config), so there was no CLI path to disable memory per-run.
-    /// wayland#241: the boot approval posture both entry points seed
+    /// genesis#241: the boot approval posture both entry points seed
     /// through. Config drives the mode; `--force` overrides to Force. The
     /// json-stream path previously skipped the config seed, so a user's
     /// `approval_mode` was ignored — this helper is now the single source

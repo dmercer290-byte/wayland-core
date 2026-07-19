@@ -281,7 +281,7 @@ fn check_genesis_display() -> CheckResult {
         _ => CheckResult {
             label: "WAYLAND_DISPLAY",
             outcome: Outcome::Warn {
-                detail: "not set — Wayland CUA backend unavailable".into(),
+                detail: "not set — Genesis CUA backend unavailable".into(),
                 hints: vec![
                     "log in to a Wayland session (Sway, GNOME on Wayland, KDE on Wayland)".into(),
                 ],
@@ -564,6 +564,7 @@ fn grim_hints() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn check_version_passes_for_non_empty() {
@@ -587,11 +588,10 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn genesis_display_reads_env_var() {
         // Use a value that's unlikely to be set already.
-        // SAFETY: tests in the same module may race; we only assert
-        // on the variant produced, not the inner string, so a
-        // concurrent unset is observationally equivalent to "not set".
+        // SAFETY: #[serial] serializes every env-mutating test in this binary.
         unsafe {
             std::env::set_var("WAYLAND_DISPLAY", "genesis-test");
         }

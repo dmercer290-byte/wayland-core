@@ -245,7 +245,7 @@ mod tests {
     /// profile has its OWN trust set, and the explicit `$GENESIS_TRUSTED_KEYS_DIR`
     /// override still wins over it.
     #[test]
-    #[serial_test::serial(genesis_home_env)]
+    #[serial_test::serial]
     fn trusted_keys_dir_follows_genesis_home_and_env_override() {
         let wh = "GENESIS_HOME";
         let tk = ENV_TRUSTED_KEYS_DIR;
